@@ -1,0 +1,254 @@
+@model UserDetailViewModel
+@{
+    ViewData["Title"] = "Thông tin người dùng";
+    var displayName = string.IsNullOrWhiteSpace(Model.DisplayName) ? Model.Username : Model.DisplayName;
+    var avatarLabel = !string.IsNullOrWhiteSpace(displayName) ? displayName.Trim()[0].ToString().ToUpperInvariant() : "U";
+    var errorMessages = ViewData.ModelState.TryGetValue(string.Empty, out var entry)
+        ? entry.Errors
+            .Select(error => error.ErrorMessage)
+            .Where(message => !string.IsNullOrWhiteSpace(message))
+            .ToArray()
+        : Array.Empty<string>();
+
+    string? ResolveLogoUrl(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        if (Uri.IsWellFormedUriString(path, UriKind.Absolute))
+        {
+            return path;
+        }
+
+        return path.StartsWith("/")
+            ? Url.Content($"~{path}")
+            : Url.Content($"~/{path.TrimStart('~', '/')}");
+    }
+
+    var logoUrl = ResolveLogoUrl(Model.ExistingLogoPath);
+    var portalAvatarStyle = !string.IsNullOrWhiteSpace(logoUrl)
+        ? $"background-image:url('{logoUrl}')"
+        : null;
+    var successMessage = TempData["UserDetailSuccess"]?.ToString();
+}
+
+<div class="device-page">
+  <div class="device-shell user-detail-shell">
+    <header class="portal-nav">
+      <div class="portal-nav-brand">
+        <div class="portal-nav-mark">S</div>
+        <div>
+          <div class="portal-nav-title">Shipnet Portal</div>
+          <div class="portal-nav-subtitle">Fleet Operations Console</div>
+        </div>
+      </div>
+      <div class="portal-nav-panel is-open user-detail-nav-panel">
+        <nav class="portal-nav-links" aria-label="Primary">
+          <a asp-controller="Dashboard" asp-action="Index" class="portal-nav-link">Quản lý thiết bị</a>
+          <a asp-controller="Account" asp-action="UserDetail" class="portal-nav-link is-active">Thông tin tài khoản</a>
+        </nav>
+        <div class="portal-nav-tools">
+          <div class="portal-account-menu">
+            <button type="button" class="portal-account is-static">
+              <div class="portal-account-avatar @(string.IsNullOrWhiteSpace(logoUrl) ? string.Empty : "has-image")" id="portalAccountAvatar" style="@portalAvatarStyle">@avatarLabel</div>
+              <div class="portal-account-copy">
+                <strong>@displayName</strong>
+                <span>@Model.Username</span>
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="device-topbar user-detail-topbar">
+      <div>
+        <div class="device-brand">Shipnet portal</div>
+        <h1>Quản lý thông tin người dùng</h1>
+        <p>Cập nhật tên, số điện thoại, email, giấy tờ định danh và logo tài khoản.</p>
+      </div>
+      <div class="device-actions">
+        <a asp-controller="Dashboard" asp-action="Index" class="btn-secondary user-detail-back">Quay lại Dashboard</a>
+      </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+      <div class="feedback user-detail-feedback is-success">@successMessage</div>
+    }
+    else if (errorMessages.Length > 0)
+    {
+      <div class="feedback user-detail-feedback is-error" role="alert">@string.Join(" ", errorMessages)</div>
+    }
+
+    <div class="user-detail-layout">
+      <section class="user-profile-card">
+        <div class="user-profile-logo-wrap">
+          @if (!string.IsNullOrWhiteSpace(logoUrl))
+          {
+            <img src="@logoUrl" alt="User logo" class="user-profile-logo" id="logoPreview" />
+          }
+          else
+          {
+            <div class="user-profile-logo user-profile-logo-fallback" id="logoPreviewFallback">@avatarLabel</div>
+            <img src="" alt="User logo" class="user-profile-logo" id="logoPreview" hidden />
+          }
+        </div>
+        @if (!string.IsNullOrWhiteSpace(logoUrl))
+        {
+          <div class="user-profile-logo-note">Logo hiện tại</div>
+        }
+        else
+        {
+          <div class="user-profile-logo-note">Chưa có logo, hệ thống đang hiển thị ký tự đại diện.</div>
+        }
+        <dl class="user-profile-meta">
+          <div>
+            <dt>Username</dt>
+            <dd>@Model.Username</dd>
+          </div>
+          <div>
+            <dt>Tên hiển thị</dt>
+            <dd>@displayName</dd>
+          </div>
+          <div>
+            <dt>Email</dt>
+            <dd>@(string.IsNullOrWhiteSpace(Model.Email) ? "-" : Model.Email)</dd>
+          </div>
+        </dl>
+      </section>
+
+      <div class="user-detail-content">
+        <section class="device-card user-detail-card">
+          <div class="device-card-head user-detail-card-head">
+            <div>
+              <h2>User Detail</h2>
+              <p>Những thay đổi sẽ được cập nhật trực tiếp vào hồ sơ đăng nhập hiện tại.</p>
+            </div>
+          </div>
+
+          <form asp-action="UserDetail" asp-controller="Account" method="post" enctype="multipart/form-data" class="user-detail-form">
+            @Html.AntiForgeryToken()
+            <input asp-for="Id" type="hidden" />
+            <input asp-for="Username" type="hidden" />
+            <input asp-for="ExistingLogoPath" type="hidden" />
+
+            <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
+
+            <div class="user-detail-grid">
+              <div class="form-group">
+                <label asp-for="DisplayName"></label>
+                <input asp-for="DisplayName" class="input" maxlength="250" />
+                <span asp-validation-for="DisplayName" class="field-error"></span>
+              </div>
+
+              <div class="form-group">
+                <label asp-for="Phone"></label>
+                <input asp-for="Phone" class="input" maxlength="50" />
+                <span asp-validation-for="Phone" class="field-error"></span>
+              </div>
+
+              <div class="form-group">
+                <label asp-for="Email"></label>
+                <input asp-for="Email" class="input" maxlength="50" />
+                <span asp-validation-for="Email" class="field-error"></span>
+              </div>
+
+              <div class="form-group">
+                <label asp-for="IdentificationNumber"></label>
+                <input asp-for="IdentificationNumber" class="input" maxlength="50" />
+                <span asp-validation-for="IdentificationNumber" class="field-error"></span>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label asp-for="LogoFile"></label>
+              <label class="user-logo-upload">
+                <input asp-for="LogoFile" accept=".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif" class="user-logo-input" />
+                <span class="user-logo-upload-copy">
+                  <strong>Tải logo mới</strong>
+                  <small>Hỗ trợ JPG, PNG, WEBP, GIF. Tối đa 3MB.</small>
+                </span>
+              </label>
+              <span asp-validation-for="LogoFile" class="field-error"></span>
+            </div>
+
+            <div class="device-modal-actions user-detail-actions">
+              <a asp-controller="Dashboard" asp-action="Index" class="btn-secondary">Hủy</a>
+              <button type="submit" class="btn-primary user-detail-submit">Lưu thông tin</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="device-card user-detail-card" id="password-section">
+          <div class="device-card-head user-detail-card-head">
+            <div>
+              <h2>Đổi mật khẩu</h2>
+              <p>Mật khẩu mới sẽ được áp dụng cho phiên đăng nhập tiếp theo. Hãy nhập đúng mật khẩu hiện tại để xác nhận thay đổi.</p>
+            </div>
+          </div>
+
+          <form asp-action="ChangePassword" asp-controller="Account" method="post" class="user-detail-form user-detail-password-form">
+            @Html.AntiForgeryToken()
+
+            <div class="form-group">
+              <label asp-for="CurrentPassword"></label>
+              <input asp-for="CurrentPassword" class="input" maxlength="100" autocomplete="current-password" />
+              <span asp-validation-for="CurrentPassword" class="field-error"></span>
+            </div>
+
+            <div class="form-group">
+              <label asp-for="NewPassword"></label>
+              <input asp-for="NewPassword" class="input" maxlength="100" autocomplete="new-password" />
+              <span asp-validation-for="NewPassword" class="field-error"></span>
+            </div>
+
+            <div class="form-group">
+              <label asp-for="ConfirmNewPassword"></label>
+              <input asp-for="ConfirmNewPassword" class="input" maxlength="100" autocomplete="new-password" />
+              <span asp-validation-for="ConfirmNewPassword" class="field-error"></span>
+            </div>
+
+            <div class="device-modal-actions user-detail-actions">
+              <button type="submit" class="btn-primary user-detail-submit">Đổi mật khẩu</button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+@section Scripts {
+  <partial name="_ValidationScriptsPartial" />
+  <script>
+    (() => {
+      const input = document.getElementById("LogoFile");
+      const preview = document.getElementById("logoPreview");
+      const fallback = document.getElementById("logoPreviewFallback");
+      const portalAccountAvatar = document.getElementById("portalAccountAvatar");
+      if (!input || !preview) {
+        return;
+      }
+
+      input.addEventListener("change", () => {
+        const file = input.files && input.files[0];
+        if (!file) {
+          return;
+        }
+
+        const objectUrl = URL.createObjectURL(file);
+        preview.src = objectUrl;
+        preview.hidden = false;
+        fallback?.setAttribute("hidden", "hidden");
+        if (portalAccountAvatar) {
+          portalAccountAvatar.style.backgroundImage = `url('${objectUrl}')`;
+          portalAccountAvatar.classList.add("has-image");
+          portalAccountAvatar.textContent = "";
+        }
+      });
+    })();
+  </script>
+}

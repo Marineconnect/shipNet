@@ -1,0 +1,588 @@
+@model TenantIndexViewModel
+@using System.Security.Claims
+@{
+    ViewData["Title"] = "Quản lý tenant";
+
+    string? ResolveLogoUrl(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        if (Uri.IsWellFormedUriString(path, UriKind.Absolute))
+        {
+            return path;
+        }
+
+        return path.StartsWith("/")
+            ? Url.Content($"~{path}")
+            : Url.Content($"~/{path.TrimStart('~', '/')}");
+    }
+
+    var accountDisplayName = User.FindFirst("DisplayName")?.Value;
+    if (string.IsNullOrWhiteSpace(accountDisplayName))
+    {
+        accountDisplayName = User.Identity?.Name;
+    }
+
+    var accountUsername = User.Identity?.Name ?? accountDisplayName ?? "User";
+    var accountAvatarUrl = ResolveLogoUrl(User.FindFirst("Avatar")?.Value);
+    var accountAvatarLabel = !string.IsNullOrWhiteSpace(accountDisplayName)
+        ? accountDisplayName.Trim()[0].ToString().ToUpperInvariant()
+        : "U";
+    var accountAvatarStyle = !string.IsNullOrWhiteSpace(accountAvatarUrl)
+        ? $"background-image:url('{accountAvatarUrl}')"
+        : null;
+    var successMessage = TempData["TenantSuccess"]?.ToString();
+    var errorMessage = TempData["TenantError"]?.ToString();
+    var createLogoUrl = ResolveLogoUrl(Model.CreateForm.ExistingLogoPath);
+    var editLogoUrl = ResolveLogoUrl(Model.EditForm.ExistingLogoPath);
+    var createModalHidden = Model.OpenCreateModal ? string.Empty : " hidden";
+    var editModalHidden = Model.OpenEditModal ? string.Empty : " hidden";
+    var editInitial = !string.IsNullOrWhiteSpace(Model.EditForm.TenantName)
+        ? Model.EditForm.TenantName.Trim()[0].ToString().ToUpperInvariant()
+        : "T";
+    var totalPages = Model.TotalPages;
+    var startItem = Model.TotalTenants == 0 ? 0 : ((Model.CurrentPage - 1) * Model.PageSize) + 1;
+    var endItem = Model.TotalTenants == 0 ? 0 : Math.Min(Model.CurrentPage * Model.PageSize, Model.TotalTenants);
+    var pageWindowStart = Math.Max(1, Model.CurrentPage - 2);
+    var pageWindowEnd = Math.Min(totalPages, Model.CurrentPage + 2);
+    var showLeadingEllipsis = pageWindowStart > 2;
+    var showTrailingEllipsis = pageWindowEnd < totalPages - 1;
+}
+
+<div class="device-page">
+  <div class="device-shell">
+    <header class="portal-nav">
+      <div class="portal-nav-brand">
+        <div class="portal-nav-mark">S</div>
+        <div>
+          <div class="portal-nav-title">Shipnet Portal</div>
+          <div class="portal-nav-subtitle">Fleet Operations Console</div>
+        </div>
+      </div>
+      <button type="button" class="portal-nav-toggle" id="portalNavToggle" aria-expanded="false" aria-label="Toggle navigation">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+      <div class="portal-nav-panel" id="portalNavPanel">
+        <nav class="portal-nav-links" aria-label="Primary">
+          <a asp-controller="Dashboard" asp-action="Index" class="portal-nav-link">Quản lý thiết bị</a>
+          <a asp-controller="Tenant" asp-action="Index" class="portal-nav-link is-active">Quản lý tenant</a>
+          <a asp-controller="User" asp-action="Index" class="portal-nav-link">Quản lý người dùng</a>
+        </nav>
+        <div class="portal-nav-tools">
+          <div class="portal-account-menu">
+            <button type="button" class="portal-account" id="portalAccountButton" aria-haspopup="menu" aria-expanded="false">
+              <div class="portal-account-avatar @(string.IsNullOrWhiteSpace(accountAvatarUrl) ? string.Empty : "has-image")" style="@accountAvatarStyle">@accountAvatarLabel</div>
+              <div class="portal-account-copy">
+                <strong>@accountDisplayName</strong>
+                <span>@accountUsername</span>
+              </div>
+              <span class="portal-account-caret" aria-hidden="true"></span>
+            </button>
+            <div class="portal-account-dropdown" id="portalAccountDropdown" hidden>
+              <a asp-controller="Account" asp-action="UserDetail" class="portal-account-item">Thông tin tài khoản</a>
+              <a asp-controller="Account" asp-action="UserDetail" asp-fragment="password-section" class="portal-account-item">Đổi mật khẩu</a>
+              <form asp-controller="Account" asp-action="Logout" method="post" class="portal-account-form">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="portal-account-item is-danger">Đăng xuất</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="device-topbar">
+      <div>
+        <div class="device-brand">Shipnet portal</div>
+        <h1>Quản lý tenant</h1>
+        <p>
+          @if (Model.IsTenantScoped)
+          {
+            @:Tài khoản tenant chỉ được xem và cập nhật thông tin tenant của mình.
+          }
+          else
+          {
+            @:Danh sách tenant đang được cấu hình trong hệ thống portal.
+          }
+        </p>
+      </div>
+      @if (Model.CanCreateTenant)
+      {
+        <div class="device-actions">
+          <button type="button" class="btn-primary add-device-btn" id="openTenantCreateModal">
+            <span class="add-device-icon">+</span>
+            <span>Thêm tenant</span>
+          </button>
+        </div>
+      }
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+      <div class="tenant-feedback is-success">@successMessage</div>
+    }
+    else if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+      <div class="tenant-feedback is-error" role="alert">@errorMessage</div>
+    }
+
+    <section class="device-card">
+      <div class="device-card-head">
+        <div>
+          <h2>Tenant List</h2>
+          <p>Tổng số tenant: <strong>@Model.TotalTenants</strong></p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="device-table tenant-table">
+          <thead>
+            <tr>
+              <th>Logo</th>
+              <th>Tên tenant</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th>Địa chỉ</th>
+              <th>Mô tả</th>
+              <th>Cập nhật lúc</th>
+              <th>Tác vụ</th>
+            </tr>
+          </thead>
+          <tbody>
+            @if (Model.Tenants.Count == 0)
+            {
+              <tr>
+                <td colspan="8" class="tenant-empty">Chưa có tenant nào.</td>
+              </tr>
+            }
+            else
+            {
+              @foreach (var tenant in Model.Tenants)
+              {
+                var tenantLogoUrl = ResolveLogoUrl(tenant.Logo);
+                var tenantInitial = !string.IsNullOrWhiteSpace(tenant.TenantName)
+                    ? tenant.TenantName.Trim()[0].ToString().ToUpperInvariant()
+                    : "T";
+
+                <tr>
+                  <td>
+                    <div class="tenant-logo-cell">
+                      @if (!string.IsNullOrWhiteSpace(tenantLogoUrl))
+                      {
+                        <img src="@tenantLogoUrl" alt="@tenant.TenantName logo" class="tenant-logo-thumb" />
+                      }
+                      else
+                      {
+                        <div class="tenant-logo-thumb is-empty">@tenantInitial</div>
+                      }
+                    </div>
+                  </td>
+                  <td>@tenant.TenantName</td>
+                  <td>@(string.IsNullOrWhiteSpace(tenant.Email) ? "-" : tenant.Email)</td>
+                  <td>@(string.IsNullOrWhiteSpace(tenant.Phone) ? "-" : tenant.Phone)</td>
+                  <td class="tenant-cell-wrap">@(string.IsNullOrWhiteSpace(tenant.Address) ? "-" : tenant.Address)</td>
+                  <td class="tenant-cell-wrap">@tenant.DescriptionDisplay</td>
+                  <td>
+                    <div>@tenant.UpdatedDateVietnam</div>
+                    <div class="tenant-meta">@(string.IsNullOrWhiteSpace(tenant.UpdatedBy) ? "-" : tenant.UpdatedBy)</div>
+                  </td>
+                  <td>
+                    <div class="table-actions">
+                      <a asp-controller="Tenant"
+                         asp-action="Edit"
+                         asp-route-id="@tenant.Id"
+                         asp-route-page="@Model.CurrentPage"
+                         asp-route-pageSize="@Model.PageSize"
+                         class="table-action-btn">
+                        <span>Sửa</span>
+                      </a>
+                      @if (Model.CanDeleteTenant)
+                      {
+                        <form asp-controller="Tenant"
+                              asp-action="Delete"
+                              asp-route-id="@tenant.Id"
+                              asp-route-page="@Model.CurrentPage"
+                              asp-route-pageSize="@Model.PageSize"
+                              method="post"
+                              class="tenant-delete-form"
+                              onsubmit="return confirm('Xóa tenant này?');">
+                          @Html.AntiForgeryToken()
+                          <button type="submit" class="table-action-btn is-danger">
+                            <span>Xóa</span>
+                          </button>
+                        </form>
+                      }
+                    </div>
+                  </td>
+                </tr>
+              }
+            }
+          </tbody>
+        </table>
+      </div>
+      <div class="device-pagination">
+        <div class="device-pagination-meta">
+          <span>Hiển thị <strong>@startItem-@endItem</strong> / <strong>@Model.TotalTenants</strong> tenant</span>
+          <form asp-controller="Tenant" asp-action="Index" method="get" class="page-size-wrap">
+            <input type="hidden" name="page" value="1" />
+            <label for="tenantPageSizeSelect">Số dòng</label>
+            <select id="tenantPageSizeSelect" name="pageSize" class="page-size-select">
+              <option value="10" selected="@(Model.PageSize == 10)">10</option>
+              <option value="20" selected="@(Model.PageSize == 20)">20</option>
+              <option value="50" selected="@(Model.PageSize == 50)">50</option>
+            </select>
+          </form>
+          <span>Trang <strong>@Model.CurrentPage</strong> / <strong>@totalPages</strong></span>
+        </div>
+        <div class="device-pagination-actions">
+          @if (Model.HasPreviousPage)
+          {
+            <a asp-controller="Tenant"
+               asp-action="Index"
+               asp-route-page="@(Model.CurrentPage - 1)"
+               asp-route-pageSize="@Model.PageSize"
+               class="pagination-btn"
+               aria-label="Trang trước">‹</a>
+          }
+          else
+          {
+            <span class="pagination-btn is-disabled" aria-disabled="true">‹</span>
+          }
+
+          @if (pageWindowStart > 1)
+          {
+            <a asp-controller="Tenant" asp-action="Index" asp-route-page="1" asp-route-pageSize="@Model.PageSize" class="pagination-btn">1</a>
+          }
+          @if (showLeadingEllipsis)
+          {
+            <span class="pagination-btn is-disabled" aria-hidden="true">…</span>
+          }
+
+          @for (var pageNumber = pageWindowStart; pageNumber <= pageWindowEnd; pageNumber++)
+          {
+            if (pageNumber == Model.CurrentPage)
+            {
+              <span class="pagination-btn is-active">@pageNumber</span>
+            }
+            else
+            {
+              <a asp-controller="Tenant" asp-action="Index" asp-route-page="@pageNumber" asp-route-pageSize="@Model.PageSize" class="pagination-btn">@pageNumber</a>
+            }
+          }
+
+          @if (showTrailingEllipsis)
+          {
+            <span class="pagination-btn is-disabled" aria-hidden="true">…</span>
+          }
+          @if (pageWindowEnd < totalPages)
+          {
+            <a asp-controller="Tenant" asp-action="Index" asp-route-page="@totalPages" asp-route-pageSize="@Model.PageSize" class="pagination-btn">@totalPages</a>
+          }
+
+          @if (Model.HasNextPage)
+          {
+            <a asp-controller="Tenant"
+               asp-action="Index"
+               asp-route-page="@(Model.CurrentPage + 1)"
+               asp-route-pageSize="@Model.PageSize"
+               class="pagination-btn"
+               aria-label="Trang sau">›</a>
+          }
+          else
+          {
+            <span class="pagination-btn is-disabled" aria-disabled="true">›</span>
+          }
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+@if (Model.CanCreateTenant)
+{
+  <div class="modal-backdrop" id="tenantCreateModal"@createModalHidden>
+    <div class="device-modal tenant-modal" role="dialog" aria-modal="true" aria-labelledby="tenantCreateModalTitle">
+      <div class="device-modal-head">
+        <div>
+          <h2 id="tenantCreateModalTitle">Thêm tenant</h2>
+          <p>Nhập thông tin tenant và logo ngay trên trang danh sách.</p>
+        </div>
+        <button type="button" class="modal-close" id="closeTenantCreateModal" aria-label="Close">×</button>
+      </div>
+      <form asp-controller="Tenant" asp-action="Create" method="post" enctype="multipart/form-data" class="device-modal-form tenant-modal-form">
+        @Html.AntiForgeryToken()
+        <input asp-for="CreateForm.CurrentPage" type="hidden" />
+        <input asp-for="CreateForm.PageSize" type="hidden" />
+
+        <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
+
+        <div class="tenant-form-grid">
+          <div class="form-group">
+            <label asp-for="CreateForm.TenantName"></label>
+            <input asp-for="CreateForm.TenantName" class="input" maxlength="250" />
+            <span asp-validation-for="CreateForm.TenantName" class="field-error"></span>
+          </div>
+
+          <div class="form-group">
+            <label asp-for="CreateForm.Email"></label>
+            <input asp-for="CreateForm.Email" class="input" maxlength="350" />
+            <span asp-validation-for="CreateForm.Email" class="field-error"></span>
+          </div>
+
+          <div class="form-group">
+            <label asp-for="CreateForm.Phone"></label>
+            <input asp-for="CreateForm.Phone" class="input" maxlength="50" />
+            <span asp-validation-for="CreateForm.Phone" class="field-error"></span>
+          </div>
+
+          <div class="form-group">
+            <label asp-for="CreateForm.Address"></label>
+            <input asp-for="CreateForm.Address" class="input" maxlength="550" />
+            <span asp-validation-for="CreateForm.Address" class="field-error"></span>
+          </div>
+
+          <div class="form-group tenant-form-span">
+            <label asp-for="CreateForm.Description"></label>
+            <textarea asp-for="CreateForm.Description" class="textarea" maxlength="1000" rows="4"></textarea>
+            <span asp-validation-for="CreateForm.Description" class="field-error"></span>
+          </div>
+
+          <div class="form-group tenant-form-span">
+            <label asp-for="CreateForm.LogoFile"></label>
+            <div class="tenant-logo-upload-wrap">
+              <div class="tenant-logo-preview">
+                @if (!string.IsNullOrWhiteSpace(createLogoUrl))
+                {
+                  <img src="@createLogoUrl" alt="Tenant logo preview" class="tenant-logo-preview-image" id="tenantCreateLogoPreview" />
+                  <div class="tenant-logo-preview-fallback" id="tenantCreateLogoFallback" hidden>T</div>
+                }
+                else
+                {
+                  <div class="tenant-logo-preview-fallback" id="tenantCreateLogoFallback">T</div>
+                  <img src="" alt="Tenant logo preview" class="tenant-logo-preview-image" id="tenantCreateLogoPreview" hidden />
+                }
+              </div>
+              <label class="user-logo-upload tenant-logo-upload">
+                <input asp-for="CreateForm.LogoFile" accept=".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif" class="user-logo-input" />
+                <span class="user-logo-upload-copy">
+                  <strong>Tải logo tenant</strong>
+                  <small>Hỗ trợ JPG, PNG, WEBP, GIF. Tối đa 3MB.</small>
+                </span>
+              </label>
+            </div>
+            <span asp-validation-for="CreateForm.LogoFile" class="field-error"></span>
+          </div>
+        </div>
+
+        <div class="device-modal-actions">
+          <button type="button" class="btn-secondary" id="cancelTenantCreateModal">Hủy</button>
+          <button type="submit" class="btn-primary">Tạo tenant</button>
+        </div>
+      </form>
+    </div>
+  </div>
+}
+
+<div class="modal-backdrop" id="tenantEditModal"@editModalHidden>
+  <div class="device-modal tenant-modal" role="dialog" aria-modal="true" aria-labelledby="tenantEditModalTitle">
+    <div class="device-modal-head">
+      <div>
+        <h2 id="tenantEditModalTitle">Cập nhật tenant</h2>
+        <p>Chỉnh sửa thông tin tenant và logo ngay trên trang danh sách.</p>
+      </div>
+      <button type="button" class="modal-close" id="closeTenantEditModal" aria-label="Close">×</button>
+    </div>
+    <form asp-controller="Tenant" asp-action="Edit" method="post" enctype="multipart/form-data" class="device-modal-form tenant-modal-form">
+      @Html.AntiForgeryToken()
+      <input asp-for="EditForm.Id" type="hidden" />
+      <input asp-for="EditForm.CurrentPage" type="hidden" />
+      <input asp-for="EditForm.PageSize" type="hidden" />
+      <input asp-for="EditForm.ExistingLogoPath" type="hidden" />
+
+      <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
+
+      <div class="tenant-form-grid">
+        <div class="form-group">
+          <label asp-for="EditForm.TenantName"></label>
+          <input asp-for="EditForm.TenantName" class="input" maxlength="250" />
+          <span asp-validation-for="EditForm.TenantName" class="field-error"></span>
+        </div>
+
+        <div class="form-group">
+          <label asp-for="EditForm.Email"></label>
+          <input asp-for="EditForm.Email" class="input" maxlength="350" />
+          <span asp-validation-for="EditForm.Email" class="field-error"></span>
+        </div>
+
+        <div class="form-group">
+          <label asp-for="EditForm.Phone"></label>
+          <input asp-for="EditForm.Phone" class="input" maxlength="50" />
+          <span asp-validation-for="EditForm.Phone" class="field-error"></span>
+        </div>
+
+        <div class="form-group">
+          <label asp-for="EditForm.Address"></label>
+          <input asp-for="EditForm.Address" class="input" maxlength="550" />
+          <span asp-validation-for="EditForm.Address" class="field-error"></span>
+        </div>
+
+        <div class="form-group tenant-form-span">
+          <label asp-for="EditForm.Description"></label>
+          <textarea asp-for="EditForm.Description" class="textarea" maxlength="1000" rows="4"></textarea>
+          <span asp-validation-for="EditForm.Description" class="field-error"></span>
+        </div>
+
+        <div class="form-group tenant-form-span">
+          <label asp-for="EditForm.LogoFile"></label>
+          <div class="tenant-logo-upload-wrap">
+            <div class="tenant-logo-preview">
+              @if (!string.IsNullOrWhiteSpace(editLogoUrl))
+              {
+                <img src="@editLogoUrl" alt="Tenant logo preview" class="tenant-logo-preview-image" id="tenantEditLogoPreview" />
+                <div class="tenant-logo-preview-fallback" id="tenantEditLogoFallback" hidden>@editInitial</div>
+              }
+              else
+              {
+                <div class="tenant-logo-preview-fallback" id="tenantEditLogoFallback">@editInitial</div>
+                <img src="" alt="Tenant logo preview" class="tenant-logo-preview-image" id="tenantEditLogoPreview" hidden />
+              }
+            </div>
+            <label class="user-logo-upload tenant-logo-upload">
+              <input asp-for="EditForm.LogoFile" accept=".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif" class="user-logo-input" />
+              <span class="user-logo-upload-copy">
+                <strong>Tải logo tenant</strong>
+                <small>Hỗ trợ JPG, PNG, WEBP, GIF. Tối đa 3MB.</small>
+              </span>
+            </label>
+          </div>
+          <span asp-validation-for="EditForm.LogoFile" class="field-error"></span>
+        </div>
+      </div>
+
+      <div class="device-modal-actions">
+        <button type="button" class="btn-secondary" id="cancelTenantEditModal">Hủy</button>
+        <button type="submit" class="btn-primary">Lưu thay đổi</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+@section Scripts {
+  <partial name="_ValidationScriptsPartial" />
+  <script>
+    (() => {
+      const navToggle = document.getElementById("portalNavToggle");
+      const navPanel = document.getElementById("portalNavPanel");
+      const accountButton = document.getElementById("portalAccountButton");
+      const accountDropdown = document.getElementById("portalAccountDropdown");
+      const createModal = document.getElementById("tenantCreateModal");
+      const editModal = document.getElementById("tenantEditModal");
+      const openCreateModalButton = document.getElementById("openTenantCreateModal");
+      const closeCreateModalButton = document.getElementById("closeTenantCreateModal");
+      const cancelCreateModalButton = document.getElementById("cancelTenantCreateModal");
+      const closeEditModalButton = document.getElementById("closeTenantEditModal");
+      const cancelEditModalButton = document.getElementById("cancelTenantEditModal");
+      const pageSizeSelect = document.getElementById("tenantPageSizeSelect");
+
+      function syncBodyOverflow() {
+        const hasOpenModal =
+          (createModal && !createModal.hidden) ||
+          (editModal && !editModal.hidden);
+
+        document.body.style.overflow = hasOpenModal ? "hidden" : "";
+      }
+
+      function bindLogoPreview(inputId, previewId, fallbackId) {
+        const input = document.getElementById(inputId);
+        const preview = document.getElementById(previewId);
+        const fallback = document.getElementById(fallbackId);
+
+        input?.addEventListener("change", () => {
+          const file = input.files && input.files[0];
+          if (!file || !preview) {
+            return;
+          }
+
+          preview.src = URL.createObjectURL(file);
+          preview.hidden = false;
+          fallback?.setAttribute("hidden", "hidden");
+        });
+      }
+
+      function openCreateModal() {
+        if (!createModal) {
+          return;
+        }
+
+        createModal.hidden = false;
+        syncBodyOverflow();
+      }
+
+      function closeCreateModal() {
+        if (!createModal) {
+          return;
+        }
+
+        createModal.hidden = true;
+        syncBodyOverflow();
+      }
+
+      function closeEditModal() {
+        if (!editModal) {
+          return;
+        }
+
+        editModal.hidden = true;
+        syncBodyOverflow();
+      }
+
+      navToggle?.addEventListener("click", () => {
+        const expanded = navToggle.getAttribute("aria-expanded") === "true";
+        navToggle.setAttribute("aria-expanded", expanded ? "false" : "true");
+        navPanel?.classList.toggle("is-open", !expanded);
+      });
+
+      accountButton?.addEventListener("click", () => {
+        const expanded = accountButton.getAttribute("aria-expanded") === "true";
+        accountButton.setAttribute("aria-expanded", expanded ? "false" : "true");
+        if (accountDropdown) {
+          accountDropdown.hidden = expanded;
+        }
+      });
+
+      document.addEventListener("click", (event) => {
+        if (!accountButton || !accountDropdown) {
+          return;
+        }
+
+        const target = event.target;
+        if (!(target instanceof Node)) {
+          return;
+        }
+
+        if (accountButton.contains(target) || accountDropdown.contains(target)) {
+          return;
+        }
+
+        accountButton.setAttribute("aria-expanded", "false");
+        accountDropdown.hidden = true;
+      });
+
+      openCreateModalButton?.addEventListener("click", openCreateModal);
+      closeCreateModalButton?.addEventListener("click", closeCreateModal);
+      cancelCreateModalButton?.addEventListener("click", closeCreateModal);
+      closeEditModalButton?.addEventListener("click", closeEditModal);
+      cancelEditModalButton?.addEventListener("click", closeEditModal);
+      pageSizeSelect?.addEventListener("change", () => pageSizeSelect.form?.submit());
+
+      bindLogoPreview("CreateForm_LogoFile", "tenantCreateLogoPreview", "tenantCreateLogoFallback");
+      bindLogoPreview("EditForm_LogoFile", "tenantEditLogoPreview", "tenantEditLogoFallback");
+
+      syncBodyOverflow();
+    })();
+  </script>
+}

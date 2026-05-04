@@ -1,0 +1,163 @@
+﻿@model LoginViewModel
+@{
+    ViewData["Title"] = "Đăng nhập";
+}
+
+<div class="login-page">
+    <div class="login-shell">
+        <section class="login-card shipnet-login-card">
+            <div class="login-card-glow"></div>
+
+            <div class="login-header-row">
+                <div class="login-brand-simple">
+                    <div class="brand-mark">S</div>
+                    <div>
+                        <h1>Shipnet portal</h1>
+                        <p data-i18n="brand_subtitle">Device access control</p>
+                    </div>
+                </div>
+
+                <div class="language-switch" aria-label="Language switch">
+                    <button type="button" class="language-btn is-active" data-lang="vi">VI</button>
+                    <button type="button" class="language-btn" data-lang="en">EN</button>
+                </div>
+            </div>
+
+            <div class="login-badge" data-i18n="badge">Secure Access</div>
+            <div class="form-head">
+                <h2 data-i18n="title">Đăng nhập</h2>
+                <p data-i18n="description">Đăng nhập để xem danh sách thiết bị và thông tin truy cập tập trung.</p>
+            </div>
+
+            <form asp-action="Login" method="post" class="login-form" id="login-form">
+                <div asp-validation-summary="ModelOnly" class="validation"></div>
+
+                <div class="form-group">
+                    <label asp-for="Username" data-i18n="username_label">Tên đăng nhập</label>
+                    <input asp-for="Username" class="input" placeholder="admin" />
+                    <span asp-validation-for="Username" class="field-error"></span>
+                </div>
+
+                <div class="form-group">
+                    <label asp-for="Password" data-i18n="password_label">Mật khẩu</label>
+                    <input asp-for="Password" class="input" placeholder="123456" />
+                    <span asp-validation-for="Password" class="field-error"></span>
+                </div>
+
+                <div class="form-meta">
+                    <label class="remember-box">
+                        <input asp-for="RememberMe" />
+                        <span data-i18n="remember_me">Ghi nhớ mật khẩu</span>
+                    </label>
+                </div>
+
+                <button type="submit" class="btn-primary btn-submit" id="login-submit">
+                    <span class="btn-spinner" aria-hidden="true"></span>
+                    <span class="btn-label" data-i18n="submit">Đăng nhập</span>
+                </button>
+
+            </form>
+        </section>
+    </div>
+</div>
+
+@section Scripts{
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        (function () {
+            const translations = {
+                vi: {
+                    brand_subtitle: "Device access control",
+                    badge: "Secure Access",
+                    title: "Đăng nhập",
+                    description: "Đăng nhập để xem danh sách thiết bị và thông tin truy cập tập trung.",
+                    username_label: "Tên đăng nhập",
+                    password_label: "Mật khẩu",
+                    remember_me: "Ghi nhớ mật khẩu",
+                    submit: "Đăng nhập",
+                    submit_processing: "Đang xử lý...",
+                },
+                en: {
+                    brand_subtitle: "Device access control",
+                    badge: "Secure Access",
+                    title: "Sign in",
+                    description: "Sign in to view the device inventory and centralized access details.",
+                    username_label: "Username",
+                    password_label: "Password",
+                    remember_me: "Remember password",
+                    submit: "Sign in",
+                    submit_processing: "Processing...",
+                }
+            };
+
+            const storageKey = "shipnet-portal-language";
+            const buttons = document.querySelectorAll(".language-btn");
+            const targets = document.querySelectorAll("[data-i18n]");
+            const form = document.getElementById("login-form");
+            const submitButton = document.getElementById("login-submit");
+            const submitLabel = submitButton?.querySelector(".btn-label");
+            let currentLanguage = localStorage.getItem(storageKey) || "vi";
+            let isSubmitting = false;
+
+            function applyLanguage(lang) {
+                currentLanguage = lang;
+                const dictionary = translations[lang] || translations.vi;
+
+                targets.forEach((element) => {
+                    const key = element.getAttribute("data-i18n");
+                    if (!dictionary[key]) {
+                        return;
+                    }
+
+                    if (element === submitLabel && isSubmitting) {
+                        element.textContent = dictionary.submit_processing;
+                        return;
+                    }
+
+                    element.textContent = dictionary[key];
+                });
+
+                buttons.forEach((button) => {
+                    button.classList.toggle("is-active", button.dataset.lang === lang);
+                });
+
+                localStorage.setItem(storageKey, lang);
+                document.documentElement.lang = lang === "en" ? "en" : "vi";
+            }
+
+            function setProcessingState(enabled) {
+                if (!submitButton || !submitLabel) {
+                    return;
+                }
+
+                isSubmitting = enabled;
+                submitButton.disabled = enabled;
+                submitButton.classList.toggle("is-processing", enabled);
+
+                const dictionary = translations[currentLanguage] || translations.vi;
+                submitLabel.textContent = enabled ? dictionary.submit_processing : dictionary.submit;
+            }
+
+            applyLanguage(currentLanguage);
+
+            buttons.forEach((button) => {
+                button.addEventListener("click", function () {
+                    applyLanguage(button.dataset.lang);
+                });
+            });
+
+            form?.addEventListener("submit", function (event) {
+                if (window.jQuery && typeof window.jQuery(form).valid === "function" && !window.jQuery(form).valid()) {
+                    return;
+                }
+
+                if (typeof form.reportValidity === "function" && !form.reportValidity()) {
+                    event.preventDefault();
+                    return;
+                }
+
+                setProcessingState(true);
+            });
+        })();
+    </script>
+}

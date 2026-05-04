@@ -1,0 +1,230 @@
+@model TenantFormViewModel
+@using System.Security.Claims
+@{
+    ViewData["Title"] = ViewData["FormTitle"]?.ToString() ?? "Tenant";
+
+    string? ResolveLogoUrl(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        if (Uri.IsWellFormedUriString(path, UriKind.Absolute))
+        {
+            return path;
+        }
+
+        return path.StartsWith("/")
+            ? Url.Content($"~{path}")
+            : Url.Content($"~/{path.TrimStart('~', '/')}");
+    }
+
+    var accountDisplayName = User.FindFirst("DisplayName")?.Value;
+    if (string.IsNullOrWhiteSpace(accountDisplayName))
+    {
+        accountDisplayName = User.Identity?.Name;
+    }
+
+    var accountUsername = User.Identity?.Name ?? accountDisplayName ?? "User";
+    var accountAvatarUrl = ResolveLogoUrl(User.FindFirst("Avatar")?.Value);
+    var accountAvatarLabel = !string.IsNullOrWhiteSpace(accountDisplayName)
+        ? accountDisplayName.Trim()[0].ToString().ToUpperInvariant()
+        : "U";
+    var accountAvatarStyle = !string.IsNullOrWhiteSpace(accountAvatarUrl)
+        ? $"background-image:url('{accountAvatarUrl}')"
+        : null;
+    var formTitle = ViewData["FormTitle"]?.ToString() ?? "Tenant";
+    var submitText = ViewData["SubmitText"]?.ToString() ?? "Lưu";
+    var logoUrl = ResolveLogoUrl(Model.ExistingLogoPath);
+}
+
+<div class="device-page">
+  <div class="device-shell">
+    <header class="portal-nav">
+      <div class="portal-nav-brand">
+        <div class="portal-nav-mark">S</div>
+        <div>
+          <div class="portal-nav-title">Shipnet Portal</div>
+          <div class="portal-nav-subtitle">Fleet Operations Console</div>
+        </div>
+      </div>
+      <button type="button" class="portal-nav-toggle" id="portalNavToggle" aria-expanded="false" aria-label="Toggle navigation">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+      <div class="portal-nav-panel" id="portalNavPanel">
+        <nav class="portal-nav-links" aria-label="Primary">
+          <a asp-controller="Dashboard" asp-action="Index" class="portal-nav-link">Quản lý thiết bị</a>
+          <a asp-controller="Tenant" asp-action="Index" class="portal-nav-link is-active">Quản lý tenant</a>
+        </nav>
+        <div class="portal-nav-tools">
+          <div class="portal-account-menu">
+            <button type="button" class="portal-account" id="portalAccountButton" aria-haspopup="menu" aria-expanded="false">
+              <div class="portal-account-avatar @(string.IsNullOrWhiteSpace(accountAvatarUrl) ? string.Empty : "has-image")" style="@accountAvatarStyle">@accountAvatarLabel</div>
+              <div class="portal-account-copy">
+                <strong>@accountDisplayName</strong>
+                <span>@accountUsername</span>
+              </div>
+              <span class="portal-account-caret" aria-hidden="true"></span>
+            </button>
+            <div class="portal-account-dropdown" id="portalAccountDropdown" hidden>
+              <a asp-controller="Account" asp-action="UserDetail" class="portal-account-item">Thông tin tài khoản</a>
+              <a asp-controller="Account" asp-action="UserDetail" asp-fragment="password-section" class="portal-account-item">Đổi mật khẩu</a>
+              <form asp-controller="Account" asp-action="Logout" method="post" class="portal-account-form">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="portal-account-item is-danger">Đăng xuất</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="device-topbar">
+      <div>
+        <div class="device-brand">Shipnet portal</div>
+        <h1>@formTitle</h1>
+        <p>Cấu hình thông tin tenant dùng trong hệ thống portal.</p>
+      </div>
+      <div class="device-actions">
+        <a asp-controller="Tenant" asp-action="Index" class="btn-secondary tenant-back-btn">Quay lại danh sách</a>
+      </div>
+    </div>
+
+    <section class="device-card tenant-form-card">
+      <div class="device-card-head">
+        <div>
+          <h2>@formTitle</h2>
+          <p>Điền đầy đủ thông tin tenant và logo trước khi lưu.</p>
+        </div>
+      </div>
+
+      <form asp-action="Edit" asp-controller="Tenant" method="post" enctype="multipart/form-data" class="tenant-form">
+        @Html.AntiForgeryToken()
+        <input asp-for="Id" type="hidden" />
+        <input asp-for="ExistingLogoPath" type="hidden" />
+
+        <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
+
+        <div class="tenant-form-grid">
+          <div class="form-group">
+            <label asp-for="TenantName"></label>
+            <input asp-for="TenantName" class="input" maxlength="250" />
+            <span asp-validation-for="TenantName" class="field-error"></span>
+          </div>
+
+          <div class="form-group">
+            <label asp-for="Email"></label>
+            <input asp-for="Email" class="input" maxlength="350" />
+            <span asp-validation-for="Email" class="field-error"></span>
+          </div>
+
+          <div class="form-group">
+            <label asp-for="Phone"></label>
+            <input asp-for="Phone" class="input" maxlength="50" />
+            <span asp-validation-for="Phone" class="field-error"></span>
+          </div>
+
+          <div class="form-group">
+            <label asp-for="Address"></label>
+            <input asp-for="Address" class="input" maxlength="550" />
+            <span asp-validation-for="Address" class="field-error"></span>
+          </div>
+
+          <div class="form-group tenant-form-span">
+            <label asp-for="Description"></label>
+            <textarea asp-for="Description" class="textarea" maxlength="1000" rows="5"></textarea>
+            <span asp-validation-for="Description" class="field-error"></span>
+          </div>
+
+          <div class="form-group tenant-form-span">
+            <label asp-for="LogoFile"></label>
+            <div class="tenant-logo-upload-wrap">
+              <div class="tenant-logo-preview">
+                @if (!string.IsNullOrWhiteSpace(logoUrl))
+                {
+                  <img src="@logoUrl" alt="Tenant logo preview" class="tenant-logo-preview-image" id="tenantEditLogoPreview" />
+                  <div class="tenant-logo-preview-fallback" id="tenantEditLogoFallback" hidden>@Model.TenantName.Trim()[0].ToString().ToUpperInvariant()</div>
+                }
+                else
+                {
+                  <div class="tenant-logo-preview-fallback" id="tenantEditLogoFallback">@Model.TenantName.Trim()[0].ToString().ToUpperInvariant()</div>
+                  <img src="" alt="Tenant logo preview" class="tenant-logo-preview-image" id="tenantEditLogoPreview" hidden />
+                }
+              </div>
+              <label class="user-logo-upload tenant-logo-upload">
+                <input asp-for="LogoFile" accept=".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif" class="user-logo-input" />
+                <span class="user-logo-upload-copy">
+                  <strong>Tải logo tenant</strong>
+                  <small>Hỗ trợ JPG, PNG, WEBP, GIF. Tối đa 3MB.</small>
+                </span>
+              </label>
+            </div>
+            <span asp-validation-for="LogoFile" class="field-error"></span>
+          </div>
+        </div>
+
+        <div class="device-modal-actions tenant-form-actions">
+          <a asp-controller="Tenant" asp-action="Index" class="btn-secondary">Hủy</a>
+          <button type="submit" class="btn-primary tenant-submit-btn">@submitText</button>
+        </div>
+      </form>
+    </section>
+  </div>
+</div>
+
+@section Scripts {
+  <partial name="_ValidationScriptsPartial" />
+  <script>
+    (() => {
+      const navToggle = document.getElementById("portalNavToggle");
+      const navPanel = document.getElementById("portalNavPanel");
+      const accountButton = document.getElementById("portalAccountButton");
+      const accountDropdown = document.getElementById("portalAccountDropdown");
+      const logoInput = document.getElementById("LogoFile");
+      const logoPreview = document.getElementById("tenantEditLogoPreview");
+      const logoFallback = document.getElementById("tenantEditLogoFallback");
+
+      navToggle?.addEventListener("click", () => {
+        const expanded = navToggle.getAttribute("aria-expanded") === "true";
+        navToggle.setAttribute("aria-expanded", expanded ? "false" : "true");
+        navPanel?.classList.toggle("is-open", !expanded);
+      });
+
+      accountButton?.addEventListener("click", () => {
+        const expanded = accountButton.getAttribute("aria-expanded") === "true";
+        accountButton.setAttribute("aria-expanded", expanded ? "false" : "true");
+        if (accountDropdown) {
+          accountDropdown.hidden = expanded;
+        }
+      });
+
+      document.addEventListener("click", (event) => {
+        if (!accountButton || !accountDropdown) {
+          return;
+        }
+
+        if (accountButton.contains(event.target) || accountDropdown.contains(event.target)) {
+          return;
+        }
+
+        accountButton.setAttribute("aria-expanded", "false");
+        accountDropdown.hidden = true;
+      });
+
+      logoInput?.addEventListener("change", () => {
+        const file = logoInput.files && logoInput.files[0];
+        if (!file || !logoPreview) {
+          return;
+        }
+
+        const objectUrl = URL.createObjectURL(file);
+        logoPreview.src = objectUrl;
+        logoPreview.hidden = false;
+        logoFallback?.setAttribute("hidden", "hidden");
+      });
+    })();
+  </script>
+}

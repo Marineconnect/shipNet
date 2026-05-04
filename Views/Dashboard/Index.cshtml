@@ -1,0 +1,1987 @@
+﻿@model DeviceDashboardViewModel
+@using System.Security.Claims
+@{
+    ViewData["Title"] = "Danh sách thiết bị";
+
+    string? ResolveLogoUrl(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        if (Uri.IsWellFormedUriString(path, UriKind.Absolute))
+        {
+            return path;
+        }
+
+        return path.StartsWith("/")
+            ? Url.Content($"~{path}")
+            : Url.Content($"~/{path.TrimStart('~', '/')}");
+    }
+
+    var accountDisplayName = User.FindFirst("DisplayName")?.Value;
+    if (string.IsNullOrWhiteSpace(accountDisplayName))
+    {
+        accountDisplayName = User.Identity?.Name;
+    }
+
+    var accountUsername = User.Identity?.Name ?? accountDisplayName ?? "User";
+    var accountAvatarUrl = ResolveLogoUrl(User.FindFirst("Avatar")?.Value);
+    var accountAvatarLabel = !string.IsNullOrWhiteSpace(accountDisplayName)
+        ? accountDisplayName.Trim()[0].ToString().ToUpperInvariant()
+        : "U";
+    var accountAvatarStyle = !string.IsNullOrWhiteSpace(accountAvatarUrl)
+        ? $"background-image:url('{accountAvatarUrl}')"
+        : null;
+}
+
+<div class="device-page">
+  <div class="device-shell">
+    <header class="portal-nav">
+      <div class="portal-nav-brand">
+        <div class="portal-nav-mark">S</div>
+        <div>
+          <div class="portal-nav-title">Shipnet Portal</div>
+          <div class="portal-nav-subtitle" data-i18n="nav_subtitle">Fleet Operations Console</div>
+        </div>
+      </div>
+      <button type="button" class="portal-nav-toggle" id="portalNavToggle" aria-expanded="false" aria-label="Toggle navigation">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+      <div class="portal-nav-panel" id="portalNavPanel">
+      <nav class="portal-nav-links" aria-label="Primary">
+        <a asp-controller="Tenant" asp-action="Index" class="portal-nav-link" data-i18n="nav_tenant">Quản lý tenant</a>
+        <a asp-controller="User" asp-action="Index" class="portal-nav-link" data-i18n="nav_users">Quản lý người dùng</a>
+      </nav>
+      <div class="portal-nav-tools">
+        <div class="language-switch portal-language-switch" aria-label="Language switch">
+          <button type="button" class="language-btn is-active" data-lang="vi">VI</button>
+          <button type="button" class="language-btn" data-lang="en">EN</button>
+        </div>
+        <div class="portal-account-menu">
+          <button type="button" class="portal-account" id="portalAccountButton" aria-haspopup="menu" aria-expanded="false">
+            <div class="portal-account-avatar @(string.IsNullOrWhiteSpace(accountAvatarUrl) ? string.Empty : "has-image")" style="@accountAvatarStyle">@accountAvatarLabel</div>
+            <div class="portal-account-copy">
+              <strong>@accountDisplayName</strong>
+              <span>@accountUsername</span>
+            </div>
+            <span class="portal-account-caret" aria-hidden="true"></span>
+          </button>
+          <div class="portal-account-dropdown" id="portalAccountDropdown" hidden>
+            <a asp-controller="Account" asp-action="UserDetail" class="portal-account-item" data-i18n="nav_profile">Thông tin tài khoản</a>
+            <a asp-controller="Account" asp-action="UserDetail" asp-fragment="password-section" class="portal-account-item" data-i18n="nav_password">Đổi mật khẩu</a>
+            <form asp-controller="Account" asp-action="Logout" method="post" class="portal-account-form">
+              @Html.AntiForgeryToken()
+              <button type="submit" class="portal-account-item is-danger" data-i18n="logout">Đăng xuất</button>
+            </form>
+          </div>
+        </div>
+      </div>
+      </div>
+    </header>
+    <div class="device-topbar">
+      <div>
+        <div class="device-brand">Shipnet portal</div>
+        <h1 data-i18n="page_title">Danh sách thiết bị</h1>
+        <p>
+          @if (Model.IsTenantScoped)
+          {
+            @:Thiết bị thuộc tenant <strong>@(Model.CurrentTenantName ?? "-")</strong>
+          }
+          else
+          {
+            <span data-i18n="customer_name">@Model.CustomerName</span> <text>•</text> <span data-i18n="customer_type">@Model.CustomerType</span>
+          }
+        </p>
+      </div>
+      <div class="device-actions">
+        <button type="button" class="btn-primary add-device-btn" id="openDeviceModal">
+          <span class="add-device-icon">+</span>
+          <span data-i18n="add_device">Thêm mới</span>
+        </button>
+      </div>
+    </div>
+
+    <section class="device-card">
+      <div class="device-card-head">
+        <div>
+          <h2 data-i18n="inventory_title">Device Inventory</h2>
+          <p><span data-i18n="total_label">Tổng số thiết bị:</span> <span id="totalDevicesText">@Model.TotalDevices</span></p>
+        </div>
+        <form id="deviceSearchForm" class="device-search" role="search" autocomplete="off">
+          <input
+            type="search"
+            id="deviceSearchInput"
+            class="device-search-input"
+            value="@Model.SearchTerm"
+            placeholder="Tìm theo tên thiết bị, tàu, tenant, mã thiết bị, trạng thái, gói cước"
+            aria-label="Tìm thiết bị" />
+          <button type="submit" class="btn-secondary device-search-btn" data-i18n="search_submit">Tìm</button>
+          <button type="button" class="btn-secondary device-search-btn is-ghost" id="clearDeviceSearch" data-i18n="search_clear">Xóa</button>
+        </form>
+      </div>
+      <div class="table-wrap">
+        <table class="device-table">
+          <thead>
+            <tr>
+              <th data-i18n="col_device_name">Tên thiết bị</th>
+              <th data-i18n="col_vessel_name">Tên tàu</th>
+              <th data-i18n="col_tenant_name">Tenant</th>
+              <th data-i18n="col_kit_code">Mã thiết bị đầu cuối</th>
+              <th data-i18n="col_availability">Trạng thái online</th>
+              <th data-i18n="col_data_usage">Data Usage</th>
+              <th data-i18n="col_plan_name">Gói cước</th>
+              <th data-i18n="col_last_sync">Đồng bộ lúc</th>
+              <th data-i18n="col_actions">Tác vụ</th>
+            </tr>
+          </thead>
+          <tbody id="deviceTableBody">
+	            @foreach (var device in Model.Devices)
+		            {
+		              <tr data-device-id="@device.Id" data-token-expired-utc="@device.TokenExpiredTimeUtcIso">
+		                <td>@device.DeviceName</td>
+		                <td>@device.VesselNameDisplay</td>
+		                <td>@device.TenantNameDisplay</td>
+		                <td>
+		                  <button type="button" class="table-code-btn js-open-detail" data-device-id="@device.Id">
+		                    @device.DeviceCode
+	                  </button>
+	                </td>
+	                <td data-role="availability">
+	                  <span class="status-pill">
+	                    <span class="status-dot @(string.Equals(device.Availability, "online", StringComparison.OrdinalIgnoreCase) ? "is-online" : "is-offline")"></span>
+                    <span>@device.Availability</span>
+                  </span>
+                </td>
+                <td data-role="usage">
+                  <span class="list-usage">
+                    <span class="list-usage-chip">@device.UsageDataDisplay</span>
+                    <span class="list-usage-separator">/</span>
+                    <span class="list-usage-chip is-limit">@device.PriorityDataDisplay</span>
+                  </span>
+                </td>
+                <td data-role="plan-name">@device.PlanNameDisplay</td>
+                <td data-role="last-sync">@device.LastSysnTimeVietnam</td>
+                <td>
+	                  <div class="table-actions">
+	                    <button type="button" class="table-action-btn js-open-detail" data-device-id="@device.Id">
+	                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5c5.23 0 9.27 4.11 10.57 6-.85 1.23-2.98 3.64-6.06 5.08C15.1 16.75 13.57 17 12 17c-5.23 0-9.27-4.11-10.57-6C2.73 9.11 6.77 5 12 5Zm0 2c-3.73 0-6.93 2.46-8.43 4 1.5 1.54 4.7 4 8.43 4s6.93-2.46 8.43-4C18.93 9.46 15.73 7 12 7Zm0 1.5A2.5 2.5 0 1 1 9.5 11 2.5 2.5 0 0 1 12 8.5Zm0 2A.5.5 0 1 0 12.5 11 .5.5 0 0 0 12 10.5Z"/></svg>
+	                      <span data-i18n="view_action">Chi tiết</span>
+	                    </button>
+	                    <button type="button" class="table-action-btn js-edit-device" data-device-id="@device.Id">
+	                      <span data-i18n="edit_action">Sửa</span>
+	                    </button>
+	                    <button type="button" class="table-action-btn is-danger js-delete-device" data-device-id="@device.Id" data-device-code="@device.DeviceCode">
+	                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h2v8H7V9Zm4 0h2v8h-2V9Zm4 0h2v8h-2V9ZM6 21a2 2 0 0 1-2-2V8h16v11a2 2 0 0 1-2 2H6Z"/></svg>
+	                      <span data-i18n="delete_action">Xóa</span>
+	                    </button>
+                  </div>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <div class="device-pagination" id="devicePagination">
+        <div class="device-pagination-meta">
+          <label class="page-size-wrap" for="pageSizeSelect">
+            <span data-i18n="pagination_pagesize">Số dòng</span>
+            <select id="pageSizeSelect" class="page-size-select">
+              <option value="10" selected="@(Model.PageSize == 10)">10</option>
+              <option value="20" selected="@(Model.PageSize == 20)">20</option>
+              <option value="50" selected="@(Model.PageSize == 50)">50</option>
+            </select>
+          </label>
+          <span data-i18n="pagination_label">Trang</span>
+          <strong id="currentPageText">@Model.CurrentPage</strong>
+          <span>/</span>
+          <strong id="totalPagesText">@Model.TotalPages</strong>
+        </div>
+        <div class="device-pagination-actions" id="paginationActions"></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="deviceDetailModal" hidden>
+  <div class="device-detail-modal" role="dialog" aria-modal="true" aria-labelledby="deviceDetailTitle">
+    <div class="device-detail-shell">
+      <div class="device-detail-toolbar">
+        <div>
+          <div class="device-brand">Shipnet portal</div>
+          <h2 id="deviceDetailTitle" class="device-detail-title" data-i18n="detail_title">Chi tiết thiết bị</h2>
+        </div>
+        <div class="device-detail-toolbar-right">
+          <div class="language-switch detail-language-switch" aria-label="Detail language switch">
+            <button type="button" class="language-btn detail-language-btn" data-lang="vi">VI</button>
+            <button type="button" class="language-btn detail-language-btn" data-lang="en">EN</button>
+          </div>
+          <button type="button" class="modal-close" id="closeDeviceDetailModal" aria-label="Close">×</button>
+        </div>
+      </div>
+      <div class="detail-tabbar" role="tablist" aria-label="Detail sections">
+        <button type="button" class="detail-tab-btn is-active" data-detail-tab="information" data-i18n="detail_tab_information">Information</button>
+        <button type="button" class="detail-tab-btn" data-detail-tab="telemetry" data-i18n="detail_tab_telemetry">Telemetry</button>
+        <button type="button" class="detail-tab-btn" data-detail-tab="networking" data-i18n="detail_tab_networking">Networking</button>
+      </div>
+      <div class="device-detail-content">
+        <div class="detail-loading" id="detailLoading" hidden>
+          <span class="detail-loading-spinner" aria-hidden="true"></span>
+          <span class="detail-loading-text" data-i18n="processing">Đang xử lý...</span>
+        </div>
+        <section class="detail-tab-panel is-active" data-detail-panel="information">
+          <div class="detail-info-layout">
+            <section class="detail-usage-panel">
+              <div class="detail-panel-head"><span data-i18n="detail_subscription_title">Gói hiện tại</span></div>
+              <div class="usage-progress">
+                <div class="usage-progress-bar">
+                  <div class="usage-progress-fill" id="detailUsageProgress"></div>
+                </div>
+                <div class="usage-progress-scale"><span>0</span><span id="detailUsageLimitTop">-</span></div>
+              </div>
+              <div class="usage-grid">
+                <div class="usage-row"><span data-i18n="detail_total_usage">Tổng dung lượng</span><div class="usage-values"><strong id="detailTotalUsage">-</strong><span>/</span><strong id="detailTotalUsageLimit">-</strong></div></div>
+                <div class="usage-row"><span data-i18n="detail_priority_overage">Priority Overage</span><div class="usage-values"><strong id="detailPriorityOverage">-</strong><span>/</span><strong id="detailPriorityOverageLimit">-</strong></div></div>
+                <div class="usage-row"><span data-i18n="detail_plan_name">Tên gói</span><div class="usage-values usage-values-single"><strong id="detailPlanName">-</strong></div></div>
+              </div>
+            </section>
+            <section class="detail-panel">
+              <div class="detail-panel-title" data-i18n="detail_system_info">Thông tin hệ thống</div>
+	              <div class="detail-kv"><span data-i18n="detail_device_name">Tên thiết bị</span><strong id="detailDeviceName">-</strong></div>
+	              <div class="detail-kv"><span data-i18n="detail_device_code">Mã thiết bị đầu cuối</span><strong id="detailDeviceCode">-</strong></div>
+	              <div class="detail-kv"><span data-i18n="detail_vessel_name">Tên tàu</span><strong id="detailVesselName">-</strong></div>
+	              <div class="detail-kv"><span data-i18n="detail_tenant">Tenant</span><strong id="detailTenantName">-</strong></div>
+	              <div class="detail-kv"><span data-i18n="detail_tenant_id">Tenant ID</span><strong id="detailTenantId">-</strong></div>
+	              <div class="detail-kv"><span data-i18n="detail_kit_id">KITID</span><strong id="detailKitId">-</strong></div>
+              <div class="detail-kv"><span data-i18n="detail_system_type">System Type</span><strong id="detailSystemType">-</strong></div>
+              <div class="detail-kv"><span data-i18n="detail_kit_number">KIT Number</span><strong id="detailKitNumber">-</strong></div>
+              <div class="detail-kv"><span data-i18n="detail_service_line">Service Line</span><strong id="detailServiceLine">-</strong></div>
+              <div class="detail-kv"><span data-i18n="detail_status">Trạng thái</span><strong id="detailAvailability">-</strong></div>
+              <div class="detail-kv"><span data-i18n="detail_last_update">Cập nhật cuối</span><strong id="detailLastUpdate">-</strong></div>
+              <div class="detail-kv"><span data-i18n="detail_last_sync">Đồng bộ lúc</span><strong id="detailLastSync">-</strong></div>
+            </section>
+          </div>
+        </section>
+        <section class="detail-tab-panel" data-detail-panel="networking" hidden>
+          <div class="detail-network-layout">
+            <section class="detail-panel">
+              <div class="detail-panel-head">
+                <span data-i18n="detail_wifi">Quản lý WiFi</span>
+                <span class="detail-network-status" id="detailNetworkStatus" data-i18n="detail_network_loading">Đang tải networking...</span>
+              </div>
+              <div class="detail-kv"><span data-i18n="detail_ssid">SSID</span><strong id="detailWifiSsid">-</strong></div>
+              <div class="detail-kv"><span data-i18n="detail_password">Mật khẩu</span><strong id="detailWifiPassword">-</strong></div>
+              <button type="button" class="detail-ghost-btn" data-i18n="detail_restart_router">Khởi động lại router</button>
+            </section>
+          </div>
+        </section>
+        <section class="detail-tab-panel" data-detail-panel="telemetry" hidden>
+          <section class="detail-chart-section">
+            <div class="detail-chart-filter" role="toolbar" aria-label="Chart range">
+              <button type="button" class="detail-filter-btn is-active" data-range-seconds="900" data-i18n="detail_range_15m">15 mins</button>
+              <button type="button" class="detail-filter-btn" data-range-seconds="3600" data-i18n="detail_range_1h">1 hour</button>
+              <button type="button" class="detail-filter-btn" data-range-seconds="10800" data-i18n="detail_range_3h">3 hours</button>
+              <button type="button" class="detail-filter-btn" data-range-seconds="86400" data-i18n="detail_range_24h">24 hours</button>
+              <button type="button" class="detail-filter-btn" data-range-seconds="604800" data-i18n="detail_range_7d">7 days</button>
+              <button type="button" class="detail-filter-btn detail-filter-reload" id="detailTelemetryReload" data-i18n="detail_range_reload">Reload</button>
+            </div>
+            <div class="detail-chart-grid">
+              <section class="detail-chart-panel detail-metric-card metric-theme-downlink" data-metric="downlink_throughput">
+                <div class="detail-panel-head detail-panel-head-chart">
+                  <span class="detail-metric-title" data-i18n="metric_downlink_throughput">Downlink throughput</span>
+                  <span class="detail-chart-stats">Min 0.00 Mbps | Avg 0.00 Mbps | Max 0.00 Mbps</span>
+                </div>
+                <div class="detail-chart">
+                  <div class="detail-chart-state" data-state-key="detail_chart_loading" data-i18n="detail_chart_loading">Đang tải dữ liệu biểu đồ...</div>
+                  <svg class="detail-chart-svg" viewBox="0 0 900 260" preserveAspectRatio="none" aria-hidden="true"></svg>
+                  <div class="detail-chart-axis detail-chart-axis-y">
+                    <span>0.00</span>
+                    <span>0.00</span>
+                    <span>0</span>
+                  </div>
+                  <div class="detail-chart-axis detail-chart-axis-x"></div>
+                  <div class="detail-chart-unit">Mbps</div>
+                </div>
+              </section>
+              <section class="detail-chart-panel detail-metric-card metric-theme-uplink" data-metric="uplink_throughput">
+                <div class="detail-panel-head detail-panel-head-chart">
+                  <span class="detail-metric-title" data-i18n="metric_uplink_throughput">Uplink throughput</span>
+                  <span class="detail-chart-stats">Min 0.00 Mbps | Avg 0.00 Mbps | Max 0.00 Mbps</span>
+                </div>
+                <div class="detail-chart">
+                  <div class="detail-chart-state" data-state-key="detail_chart_loading" data-i18n="detail_chart_loading">Đang tải dữ liệu biểu đồ...</div>
+                  <svg class="detail-chart-svg" viewBox="0 0 900 260" preserveAspectRatio="none" aria-hidden="true"></svg>
+                  <div class="detail-chart-axis detail-chart-axis-y">
+                    <span>0.00</span>
+                    <span>0.00</span>
+                    <span>0</span>
+                  </div>
+                  <div class="detail-chart-axis detail-chart-axis-x"></div>
+                  <div class="detail-chart-unit">Mbps</div>
+                </div>
+              </section>
+              <section class="detail-chart-panel detail-metric-card metric-theme-latency" data-metric="latency">
+                <div class="detail-panel-head detail-panel-head-chart">
+                  <span class="detail-metric-title" data-i18n="metric_latency">Latency</span>
+                  <span class="detail-chart-stats">Min 0.00 ms | Avg 0.00 ms | Max 0.00 ms</span>
+                </div>
+                <div class="detail-chart">
+                  <div class="detail-chart-state" data-state-key="detail_chart_loading" data-i18n="detail_chart_loading">Đang tải dữ liệu biểu đồ...</div>
+                  <svg class="detail-chart-svg" viewBox="0 0 900 260" preserveAspectRatio="none" aria-hidden="true"></svg>
+                  <div class="detail-chart-axis detail-chart-axis-y">
+                    <span>0.00</span>
+                    <span>0.00</span>
+                    <span>0</span>
+                  </div>
+                  <div class="detail-chart-axis detail-chart-axis-x"></div>
+                  <div class="detail-chart-unit">ms</div>
+                </div>
+              </section>
+              <section class="detail-chart-panel detail-metric-card metric-theme-signal" data-metric="signal_quality">
+                <div class="detail-panel-head detail-panel-head-chart">
+                  <span class="detail-metric-title" data-i18n="metric_signal_quality">Signal quality</span>
+                  <span class="detail-chart-stats">Min 0.00 | Avg 0.00 | Max 0.00</span>
+                </div>
+                <div class="detail-chart">
+                  <div class="detail-chart-state" data-state-key="detail_chart_loading" data-i18n="detail_chart_loading">Đang tải dữ liệu biểu đồ...</div>
+                  <svg class="detail-chart-svg" viewBox="0 0 900 260" preserveAspectRatio="none" aria-hidden="true"></svg>
+                  <div class="detail-chart-axis detail-chart-axis-y">
+                    <span>0.00</span>
+                    <span>0.00</span>
+                    <span>0</span>
+                  </div>
+                  <div class="detail-chart-axis detail-chart-axis-x"></div>
+                  <div class="detail-chart-unit">score</div>
+                </div>
+              </section>
+              <section class="detail-chart-panel detail-metric-card metric-theme-pingdrop" data-metric="ping_drop_rate">
+                <div class="detail-panel-head detail-panel-head-chart">
+                  <span class="detail-metric-title" data-i18n="metric_ping_drop_rate">Ping drop rate</span>
+                  <span class="detail-chart-stats">Min 0.00 % | Avg 0.00 % | Max 0.00 %</span>
+                </div>
+                <div class="detail-chart">
+                  <div class="detail-chart-state" data-state-key="detail_chart_loading" data-i18n="detail_chart_loading">Đang tải dữ liệu biểu đồ...</div>
+                  <svg class="detail-chart-svg" viewBox="0 0 900 260" preserveAspectRatio="none" aria-hidden="true"></svg>
+                  <div class="detail-chart-axis detail-chart-axis-y">
+                    <span>0.00</span>
+                    <span>0.00</span>
+                    <span>0</span>
+                  </div>
+                  <div class="detail-chart-axis detail-chart-axis-x"></div>
+                  <div class="detail-chart-unit">%</div>
+                </div>
+              </section>
+              <section class="detail-chart-panel detail-metric-card metric-theme-obstruction" data-metric="obstruction">
+                <div class="detail-panel-head detail-panel-head-chart">
+                  <span class="detail-metric-title" data-i18n="metric_obstruction">Obstruction</span>
+                  <span class="detail-chart-stats">Min 0.00 | Avg 0.00 | Max 0.00</span>
+                </div>
+                <div class="detail-chart">
+                  <div class="detail-chart-state" data-state-key="detail_chart_loading" data-i18n="detail_chart_loading">Đang tải dữ liệu biểu đồ...</div>
+                  <svg class="detail-chart-svg" viewBox="0 0 900 260" preserveAspectRatio="none" aria-hidden="true"></svg>
+                  <div class="detail-chart-axis detail-chart-axis-y">
+                    <span>0.00</span>
+                    <span>0.00</span>
+                    <span>0</span>
+                  </div>
+                  <div class="detail-chart-axis detail-chart-axis-x"></div>
+                  <div class="detail-chart-unit">ratio</div>
+                </div>
+              </section>
+            </div>
+          </section>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="deviceModal" hidden>
+  <div class="device-modal" role="dialog" aria-modal="true" aria-labelledby="deviceModalTitle">
+	    <div class="device-modal-head">
+	      <div>
+	        <h2 id="deviceModalTitle" data-i18n="modal_title">Thêm mới thiết bị</h2>
+	        <p id="deviceModalSubtitle" data-i18n="modal_subtitle">Nhập thông tin thiết bị và xác thực mã thiết bị đầu cuối qua API.</p>
+	      </div>
+      <button type="button" class="modal-close" id="closeDeviceModal" aria-label="Close">×</button>
+    </div>
+    <form id="createDeviceForm" class="device-modal-form" asp-controller="Dashboard" asp-action="CreateDevice" method="post">
+      @Html.AntiForgeryToken()
+      <input id="deviceId" name="Id" type="hidden" value="0" />
+      <div class="form-group">
+        <label for="deviceName" data-i18n="field_device_name">Tên thiết bị</label>
+        <input id="deviceName" name="DeviceName" class="input" maxlength="150" autocomplete="off" />
+      </div>
+      <div class="form-group">
+        <label for="deviceCode" data-i18n="field_kit_code">Mã thiết bị đầu cuối</label>
+        <input id="deviceCode" name="DeviceCode" class="input" maxlength="100" autocomplete="off" />
+      </div>
+      <div class="form-group">
+        <label for="vesselName" data-i18n="field_vessel_name">Tên tàu</label>
+        <input id="vesselName" name="VesselName" class="input" maxlength="250" autocomplete="off" />
+      </div>
+      <div class="form-group">
+        <label for="tenantId" data-i18n="field_tenant">Tenant</label>
+        <select id="tenantId" name="TenantId" class="input">
+          <option value="" data-i18n="field_tenant_placeholder">Chọn tenant</option>
+          @foreach (var tenant in Model.Tenants)
+          {
+            <option value="@tenant.Id">@tenant.TenantName</option>
+          }
+        </select>
+      </div>
+      <div id="modalFeedback" class="modal-feedback" hidden></div>
+      <div id="apiResult" class="api-result" hidden>
+        <div class="api-result-title" data-i18n="api_result">Kết quả API</div>
+        <pre id="apiResultText"></pre>
+      </div>
+      <div class="device-modal-actions">
+        <button type="button" class="btn-secondary" id="cancelDeviceModal" data-i18n="cancel">Hủy</button>
+        <button type="submit" class="btn-primary btn-submit" id="submitDeviceButton">
+          <span class="btn-spinner" aria-hidden="true"></span>
+          <span class="btn-label" data-i18n="save_device">Lưu thiết bị</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<form id="deleteDeviceForm" asp-controller="Dashboard" asp-action="DeleteDevice" method="post" hidden>
+  @Html.AntiForgeryToken()
+</form>
+
+<form id="refreshDeviceForm" asp-controller="Dashboard" asp-action="RefreshExpiredDevice" method="post" hidden>
+  @Html.AntiForgeryToken()
+</form>
+
+<script id="initialDevicePageData" type="application/json">
+@Html.Raw(System.Text.Json.JsonSerializer.Serialize(new
+{
+    currentPage = Model.CurrentPage,
+    pageSize = Model.PageSize,
+    totalDevices = Model.TotalDevices,
+    searchTerm = Model.SearchTerm,
+    devices = Model.Devices,
+    scopeKey = Model.IsTenantScoped
+        ? $"tenant:{Model.CurrentTenantId}"
+        : "global"
+}))
+</script>
+@section Scripts {
+<script>
+(() => {
+  const dictionary = {
+    vi: {
+      page_title: "Danh sách thiết bị",
+	      add_device: "Thêm mới",
+	      logout: "Đăng xuất",
+	      nav_subtitle: "Bảng điều khiển vận hành",
+	      nav_tenant: "Quản lý tenant",
+	      nav_users: "Quản lý người dùng",
+	      nav_profile: "Thông tin tài khoản",
+	      nav_password: "Đổi mật khẩu",
+	      nav_account_name: "Admin User",
+	      nav_account_role: "Operations Admin",
+	      inventory_title: "Device Inventory",
+      customer_name: "Shipnet Operations",
+      customer_type: "Fleet Control Center",
+	      total_label: "Tổng số thiết bị:",
+          search_submit: "Tìm",
+          search_clear: "Xóa",
+          search_placeholder: "Tìm theo tên thiết bị, tàu, tenant, mã thiết bị, trạng thái, gói cước",
+          search_aria_label: "Tìm thiết bị",
+	      col_device_name: "Tên thiết bị",
+	      col_vessel_name: "Tên tàu",
+	      col_tenant_name: "Tenant",
+	      col_kit_code: "Mã thiết bị đầu cuối",
+      col_availability: "Trạng thái online",
+      col_data_usage: "Data Usage",
+      col_plan_name: "Gói cước",
+      col_last_sync: "Đồng bộ lúc",
+      col_actions: "Tác vụ",
+      pagination_label: "Trang",
+      pagination_pagesize: "Số dòng",
+      pagination_first: "Đầu",
+      pagination_prev: "Trước",
+	      pagination_next: "Sau",
+	      pagination_last: "Cuối",
+	      view_action: "Chi tiết",
+	      edit_action: "Sửa",
+	      delete_action: "Xóa",
+	      modal_title: "Thêm mới thiết bị",
+	      modal_subtitle: "Nhập thông tin thiết bị và xác thực mã thiết bị đầu cuối qua API.",
+	      modal_title_edit: "Cập nhật thiết bị",
+	      modal_subtitle_edit: "Cập nhật thông tin thiết bị, tên tàu và tenant.",
+	      field_device_name: "Tên thiết bị",
+	      field_kit_code: "Mã thiết bị đầu cuối",
+	      field_vessel_name: "Tên tàu",
+	      field_tenant: "Tenant",
+	      field_tenant_placeholder: "Chọn tenant",
+	      api_result: "Kết quả API",
+	      cancel: "Hủy",
+	      save_device: "Lưu thiết bị",
+	      update_device: "Lưu thay đổi",
+	      processing: "Đang xử lý...",
+	      validation_required: "Tên thiết bị, mã thiết bị, tên tàu và tenant là bắt buộc",
+	      create_success: "Tạo thiết bị thành công. Trang sẽ được làm mới.",
+	      update_success: "Cập nhật thiết bị thành công. Trang sẽ được làm mới.",
+	      generic_error: "Không thể xử lý yêu cầu. Vui lòng thử lại.",
+	      error_validation_required: "Thiếu dữ liệu bắt buộc. Cần nhập tên thiết bị, terminal id, tên tàu và tenant.",
+	      error_duplicate_kit_code: "Terminal id đã tồn tại trong hệ thống.",
+	      error_missing_api_credentials: "Thiếu cấu hình API trong TblSettings: cần client_id và client_secret.",
+	      error_kit_unavailable: "Terminal id này không khả dụng trên API hoặc không thuộc phạm vi truy cập hiện tại.",
+	      error_missing_access_token: "API không trả về access token hợp lệ cho terminal này.",
+	      error_terminal_devices_error: "API danh sách thiết bị trả về lỗi HTTP {status}.",
+	      error_terminal_devices_empty: "API danh sách thiết bị không trả về dữ liệu thiết bị hợp lệ.",
+	      error_terminal_device_missing_id: "API danh sách thiết bị không trả về KITID hợp lệ.",
+	      error_terminal_devices_invalid_json: "API danh sách thiết bị trả về JSON không hợp lệ.",
+	      error_missing_wifi_identifiers: "Thiếu KITID hoặc KIT Number để lấy thông tin WiFi.",
+	      error_wifi_api_error: "API WiFi trả về lỗi HTTP {status}.",
+	      error_wifi_invalid_json: "API WiFi trả về JSON không hợp lệ.",
+	      error_device_not_found: "Không tìm thấy thiết bị hoặc bạn không có quyền truy cập.",
+	      error_server_exception: "Máy chủ gặp lỗi khi xử lý popup thiết bị.",
+	      error_bad_request: "Yêu cầu không hợp lệ. Vui lòng kiểm tra dữ liệu đã nhập.",
+	      error_unauthorized: "Phiên đăng nhập không còn hợp lệ. Vui lòng đăng nhập lại.",
+	      error_forbidden: "Bạn không có quyền thực hiện thao tác này.",
+	      error_not_found: "Không tìm thấy tài nguyên được yêu cầu.",
+	      error_session_expired: "Phiên làm việc hoặc mã bảo mật đã hết hạn. Vui lòng tải lại trang rồi thử lại.",
+	      error_invalid_response: "Máy chủ trả về phản hồi không hợp lệ cho popup này.",
+	      error_http_status: "Yêu cầu thất bại với HTTP {status}.",
+	      response_error_prefix: "Lỗi phản hồi",
+	      network_error_prefix: "Lỗi kết nối",
+	      delete_confirm: "Bạn có chắc chắn muốn xóa mã thiết bị đầu cuối {kitCode} không?",
+      delete_success: "Xóa mã thiết bị đầu cuối thành công. Trang sẽ được làm mới.",
+	      detail_title: "Chi tiết thiết bị",
+	      detail_system_info: "Thông tin hệ thống",
+	      detail_device_name: "Tên thiết bị",
+	      detail_device_code: "Mã thiết bị đầu cuối",
+	      detail_vessel_name: "Tên tàu",
+	      detail_tenant: "Tenant",
+	      detail_tenant_id: "Tenant ID",
+	      detail_kit_id: "KITID",
+      detail_system_type: "System Type",
+      detail_kit_number: "KIT Number",
+      detail_service_line: "Service Line",
+      detail_status: "Trạng thái",
+      detail_last_update: "Cập nhật cuối",
+      detail_last_sync: "Đồng bộ lúc",
+      detail_wifi: "Quản lý WiFi",
+      detail_ssid: "SSID",
+      detail_password: "Mật khẩu",
+	      detail_restart_router: "Khởi động lại router",
+	      detail_tab_information: "Information",
+	      detail_tab_networking: "Networking",
+	      detail_tab_telemetry: "Telemetry",
+	      detail_network_loading: "Đang tải networking...",
+	      detail_network_ready: "Sẵn sàng",
+	      detail_network_error: "Không tải được networking",
+	      detail_subscription_title: "Gói hiện tại",
+      detail_total_usage: "Tổng dung lượng",
+      detail_priority_overage: "Priority Overage",
+      detail_plan_name: "Tên gói",
+	      detail_range_15m: "15 phút",
+	      detail_range_1h: "1 giờ",
+	      detail_range_3h: "3 giờ",
+	      detail_range_24h: "24 giờ",
+	      detail_range_7d: "7 ngày",
+	      detail_range_reload: "Tải lại",
+	      detail_chart_loading: "Đang tải dữ liệu biểu đồ...",
+	      detail_chart_empty: "Không có dữ liệu trong khoảng thời gian này",
+	      detail_chart_zero: "Không phát sinh dữ liệu trong khoảng thời gian này",
+	      detail_chart_error: "Không tải được dữ liệu biểu đồ",
+	      detail_chart_stats: "Min {min} {unit} | Avg {avg} {unit} | Max {max} {unit}",
+	      metric_downlink_throughput: "Downlink throughput",
+	      metric_latency: "Latency",
+	      metric_obstruction: "Obstruction",
+	      metric_ping_drop_rate: "Ping drop rate",
+	      metric_signal_quality: "Signal quality",
+	      metric_uplink_throughput: "Uplink throughput",
+	      sync_inline_loading: "Đang tải"
+    },
+    en: {
+      page_title: "Device List",
+	      add_device: "Add New",
+	      logout: "Sign out",
+	      nav_subtitle: "Fleet Operations Console",
+	      nav_tenant: "Tenant Management",
+	      nav_users: "User Management",
+	      nav_profile: "Account Info",
+	      nav_password: "Change Password",
+	      nav_account_name: "Admin User",
+	      nav_account_role: "Operations Admin",
+	      inventory_title: "Device Inventory",
+      customer_name: "Shipnet Operations",
+      customer_type: "Fleet Control Center",
+	      total_label: "Total devices:",
+          search_submit: "Search",
+          search_clear: "Clear",
+          search_placeholder: "Search by device, vessel, tenant, device code, online status, or plan",
+          search_aria_label: "Search devices",
+	      col_device_name: "Device Name",
+	      col_vessel_name: "Vessel Name",
+	      col_tenant_name: "Tenant",
+	      col_kit_code: "Terminal Id",
+      col_availability: "Online Status",
+      col_data_usage: "Data Usage",
+      col_plan_name: "Plan Name",
+      col_last_sync: "Synced at",
+      col_actions: "Actions",
+      pagination_label: "Page",
+      pagination_pagesize: "Rows",
+      pagination_first: "First",
+      pagination_prev: "Previous",
+	      pagination_next: "Next",
+	      pagination_last: "Last",
+	      view_action: "Details",
+	      edit_action: "Edit",
+	      delete_action: "Delete",
+	      modal_title: "Add New Device",
+	      modal_subtitle: "Enter device information and validate the terminal id via API.",
+	      modal_title_edit: "Update Device",
+	      modal_subtitle_edit: "Update device information, vessel name and tenant.",
+	      field_device_name: "Device Name",
+	      field_kit_code: "Terminal Id",
+	      field_vessel_name: "Vessel Name",
+	      field_tenant: "Tenant",
+	      field_tenant_placeholder: "Select tenant",
+	      api_result: "API Result",
+	      cancel: "Cancel",
+	      save_device: "Save Device",
+	      update_device: "Save Changes",
+	      processing: "Processing...",
+		      validation_required: "Device name, terminal id, vessel name and tenant are required",
+		      create_success: "Device created successfully. The page will reload.",
+		      update_success: "Device updated successfully. The page will reload.",
+		      generic_error: "The request could not be processed. Please try again.",
+	      error_validation_required: "Required data is missing. Device name, terminal id, vessel name, and tenant are required.",
+	      error_duplicate_kit_code: "This terminal id already exists.",
+	      error_missing_api_credentials: "API settings are missing in TblSettings: client_id and client_secret are required.",
+	      error_kit_unavailable: "This terminal id is unavailable in the API or outside the current access scope.",
+	      error_missing_access_token: "The API did not return a valid access token for this terminal.",
+	      error_terminal_devices_error: "The terminal devices API returned HTTP {status}.",
+	      error_terminal_devices_empty: "The terminal devices API did not return a valid device payload.",
+	      error_terminal_device_missing_id: "The terminal devices API did not return a valid KITID.",
+	      error_terminal_devices_invalid_json: "The terminal devices API returned invalid JSON.",
+	      error_missing_wifi_identifiers: "KITID or KIT Number is missing for the WiFi request.",
+	      error_wifi_api_error: "The WiFi API returned HTTP {status}.",
+	      error_wifi_invalid_json: "The WiFi API returned invalid JSON.",
+	      error_device_not_found: "The device was not found or you do not have access.",
+	      error_server_exception: "The server failed while processing the device popup request.",
+	      error_bad_request: "The request was invalid. Check the submitted data and try again.",
+	      error_unauthorized: "Your session is no longer valid. Sign in again.",
+	      error_forbidden: "You do not have permission to perform this action.",
+	      error_not_found: "The requested resource was not found.",
+	      error_session_expired: "The session or anti-forgery token expired. Reload the page and try again.",
+	      error_invalid_response: "The server returned an invalid response for this popup.",
+	      error_http_status: "The request failed with HTTP {status}.",
+	      response_error_prefix: "Response error",
+	      network_error_prefix: "Network error",
+	      delete_confirm: "Are you sure you want to delete terminal id {kitCode}?",
+      delete_success: "Terminal id deleted successfully. The page will reload.",
+	      detail_title: "Device Details",
+	      detail_system_info: "System Information",
+	      detail_device_name: "Device Name",
+	      detail_device_code: "Terminal Id",
+	      detail_vessel_name: "Vessel Name",
+	      detail_tenant: "Tenant",
+	      detail_tenant_id: "Tenant ID",
+	      detail_kit_id: "KITID",
+      detail_system_type: "System Type",
+      detail_kit_number: "KIT Number",
+      detail_service_line: "Service Line",
+      detail_status: "Status",
+      detail_last_update: "Last Update",
+      detail_last_sync: "Synced at",
+      detail_wifi: "WiFi Management",
+      detail_ssid: "SSID",
+      detail_password: "Password",
+	      detail_restart_router: "Restart router",
+	      detail_tab_information: "Information",
+	      detail_tab_networking: "Networking",
+	      detail_tab_telemetry: "Telemetry",
+	      detail_network_loading: "Loading networking...",
+	      detail_network_ready: "Ready",
+	      detail_network_error: "Could not load networking",
+	      detail_subscription_title: "Current Subscription",
+      detail_total_usage: "Total Usage",
+      detail_priority_overage: "Priority Overage",
+      detail_plan_name: "Plan name",
+	      detail_range_15m: "15 mins",
+	      detail_range_1h: "1 hour",
+	      detail_range_3h: "3 hours",
+	      detail_range_24h: "24 hours",
+	      detail_range_7d: "7 days",
+	      detail_range_reload: "Reload",
+	      detail_chart_loading: "Loading chart data...",
+	      detail_chart_empty: "No data was returned for this time range",
+	      detail_chart_zero: "No activity was recorded for this time range",
+	      detail_chart_error: "Could not load chart data",
+	      detail_chart_stats: "Min {min} {unit} | Avg {avg} {unit} | Max {max} {unit}",
+	      metric_downlink_throughput: "Downlink throughput",
+	      metric_latency: "Latency",
+	      metric_obstruction: "Obstruction",
+	      metric_ping_drop_rate: "Ping drop rate",
+	      metric_signal_quality: "Signal quality",
+	      metric_uplink_throughput: "Uplink throughput",
+	      sync_inline_loading: "Loading"
+    }
+  };
+
+  const key = "shipnet-portal-language";
+  let lang = localStorage.getItem(key) || "vi";
+  const q = (selector) => document.querySelector(selector);
+  const qa = (selector) => document.querySelectorAll(selector);
+  const modal = q("#deviceModal");
+  const detail = q("#deviceDetailModal");
+  const form = q("#createDeviceForm");
+  const deviceIdInput = q("#deviceId");
+  const deviceNameInput = q("#deviceName");
+  const deviceCodeInput = q("#deviceCode");
+  const vesselNameInput = q("#vesselName");
+  const tenantIdInput = q("#tenantId");
+  const deviceModalTitle = q("#deviceModalTitle");
+  const deviceModalSubtitle = q("#deviceModalSubtitle");
+  const deleteForm = q("#deleteDeviceForm");
+  const refreshForm = q("#refreshDeviceForm");
+  const submitButton = q("#submitDeviceButton");
+  const submitLabel = submitButton.querySelector(".btn-label");
+  const feedback = q("#modalFeedback");
+  const apiResult = q("#apiResult");
+  const apiResultText = q("#apiResultText");
+  const detailLoading = q("#detailLoading");
+  const detailNetworkStatus = q("#detailNetworkStatus");
+  const detailTelemetryReload = q("#detailTelemetryReload");
+  const detailFilterButtons = qa(".detail-filter-btn[data-range-seconds]");
+  const detailTabButtons = qa(".detail-tab-btn");
+  const detailTabPanels = qa(".detail-tab-panel");
+  const portalNavToggle = q("#portalNavToggle");
+  const portalNavPanel = q("#portalNavPanel");
+  const portalAccountButton = q("#portalAccountButton");
+  const portalAccountDropdown = q("#portalAccountDropdown");
+  const metricCards = [...qa(".detail-metric-card")].map((card) => ({
+    metric: card.dataset.metric,
+    card,
+    title: card.querySelector(".detail-metric-title"),
+    stats: card.querySelector(".detail-chart-stats"),
+    state: card.querySelector(".detail-chart-state"),
+    svg: card.querySelector(".detail-chart-svg"),
+    axisY: card.querySelector(".detail-chart-axis-y"),
+    axisYTop: card.querySelector(".detail-chart-axis-y span:nth-child(1)"),
+    axisYMid: card.querySelector(".detail-chart-axis-y span:nth-child(2)"),
+    axisYBottom: card.querySelector(".detail-chart-axis-y span:nth-child(3)"),
+    axisX: card.querySelector(".detail-chart-axis-x"),
+    unit: card.querySelector(".detail-chart-unit")
+  }));
+  const tableBody = q("#deviceTableBody");
+  const totalDevicesText = q("#totalDevicesText");
+  const currentPageText = q("#currentPageText");
+  const totalPagesText = q("#totalPagesText");
+  const paginationActions = q("#paginationActions");
+  const pageSizeSelect = q("#pageSizeSelect");
+  const deviceSearchForm = q("#deviceSearchForm");
+  const deviceSearchInput = q("#deviceSearchInput");
+  const clearDeviceSearchButton = q("#clearDeviceSearch");
+  const initialPageData = JSON.parse(q("#initialDevicePageData").textContent);
+  const pageCache = new Map();
+  const pageCacheScopeKey = initialPageData.scopeKey || "global";
+  const pageCacheKey = `shipnet-device-pages:${pageCacheScopeKey}`;
+  const createDeviceAction = form.action;
+  const updateDeviceAction = "@Url.Action("UpdateDevice", "Dashboard")";
+  const deviceEditDataAction = "@Url.Action("DeviceEditData", "Dashboard")";
+  const deviceDetailDataAction = "@Url.Action("DetailData", "Dashboard")";
+  const deviceWifiDataAction = "@Url.Action("DeviceWifiData", "Dashboard")";
+  const telemetryTimelineAction = "@Url.Action("TelemetryTimeline", "Dashboard")";
+  const devicePageDataAction = "@Url.Action("DevicePageData", "Dashboard")";
+  const requiredDeviceFields = [deviceNameInput, deviceCodeInput, vesselNameInput, tenantIdInput];
+  let deviceModalMode = "create";
+  let currentPage = initialPageData.currentPage || 1;
+  let currentPageSize = initialPageData.pageSize || 10;
+  let totalDevices = initialPageData.totalDevices || 0;
+  let currentSearchTerm = normalizeSearchTerm(initialPageData.searchTerm || "");
+  let selectedTelemetryRangeSeconds = 900;
+  let currentDetailDeviceId = 0;
+  let currentDetailDeviceCode = "";
+  let currentTelemetryByMetric = new Map();
+  let currentDetailTab = "information";
+  let currentDetailRequestId = 0;
+  const metricUnits = {
+    downlink_throughput: "Mbps",
+    uplink_throughput: "Mbps",
+    latency: "ms",
+    ping_drop_rate: "%",
+    obstruction: "ratio",
+    signal_quality: "score"
+  };
+	  const metricColors = {
+	    downlink_throughput: "#3dd2ff",
+	    latency: "#a88bff",
+	    obstruction: "#ff9b54",
+	    ping_drop_rate: "#ff6f91",
+    signal_quality: "#45d38a",
+    uplink_throughput: "#2f7fff"
+	  };
+	  const text = (name) => (dictionary[lang] || dictionary.vi)[name] || name;
+	  const format = (value, tokens) => value.replace(/\{(\w+)\}/g, (_, token) => tokens[token] ?? "");
+
+	  function isProbablyHtmlResponse(rawText) {
+	    return /^\s*</.test(rawText || "") && /<(?:!doctype|html|body|head|title|form)\b/i.test(rawText || "");
+	  }
+
+	  function isGarbledText(value) {
+	    return /Ã|Â|â€|â€™|â€œ|â€\u009d/.test(value || "");
+	  }
+
+	  function extractHttpStatus(value) {
+	    const match = (value || "").match(/\b(?:HTTP\s*)?(\d{3})\b/);
+	    return match ? match[1] : "";
+	  }
+
+	  function statusFallbackMessage(status, rawText, fallbackKey = "generic_error") {
+	    if (isProbablyHtmlResponse(rawText)) {
+	      return Number(status || 0) === 200
+	        ? text("error_session_expired")
+	        : text("error_invalid_response");
+	    }
+
+	    switch (Number(status || 0)) {
+	      case 400:
+	        return text(isProbablyHtmlResponse(rawText) ? "error_session_expired" : "error_bad_request");
+	      case 401:
+	        return text("error_unauthorized");
+	      case 403:
+	        return text("error_forbidden");
+	      case 404:
+	        return text("error_not_found");
+	      default:
+	        return status ? format(text("error_http_status"), { status: `${status}` }) : text(fallbackKey);
+	    }
+	  }
+
+	  function mapErrorCodeMessage(errorCode, response, data) {
+	    const status = response?.status || extractHttpStatus(data?.messageEn || data?.message || "");
+	    switch ((errorCode || "").trim()) {
+	      case "validation_required":
+	        return text("error_validation_required");
+	      case "duplicate_kit_code":
+	        return text("error_duplicate_kit_code");
+	      case "missing_api_credentials":
+	        return text("error_missing_api_credentials");
+	      case "kit_unavailable":
+	        return text("error_kit_unavailable");
+	      case "missing_access_token":
+	        return text("error_missing_access_token");
+	      case "terminal_devices_error":
+	      case "api_error":
+	        return format(text("error_terminal_devices_error"), { status: `${status || "-"}` });
+	      case "terminal_devices_empty":
+	        return text("error_terminal_devices_empty");
+	      case "terminal_device_missing_id":
+	        return text("error_terminal_device_missing_id");
+	      case "terminal_devices_invalid_json":
+	        return text("error_terminal_devices_invalid_json");
+	      case "missing_wifi_identifiers":
+	        return text("error_missing_wifi_identifiers");
+	      case "wifi_api_error":
+	        return format(text("error_wifi_api_error"), { status: `${status || "-"}` });
+	      case "wifi_invalid_json":
+	        return text("error_wifi_invalid_json");
+	      case "device_not_found":
+	        return text("error_device_not_found");
+	      case "server_exception":
+	        return text("error_server_exception");
+	      default:
+	        return "";
+	    }
+	  }
+
+	  function resolveServerErrorMessage(response, data, rawText, fallbackKey = "generic_error") {
+	    const messageVi = `${data?.message ?? data?.Message ?? ""}`.trim();
+	    const messageEn = `${data?.messageEn ?? data?.MessageEn ?? ""}`.trim();
+	    const errorCode = `${data?.errorCode ?? data?.ErrorCode ?? ""}`.trim();
+	    const mappedMessage = mapErrorCodeMessage(errorCode, response, data);
+
+	    if (lang === "en") {
+	      return messageEn || mappedMessage || statusFallbackMessage(response?.status, rawText, fallbackKey);
+	    }
+
+	    if (messageVi && !isGarbledText(messageVi)) {
+	      return messageVi;
+	    }
+
+	    return mappedMessage
+	      || messageEn
+	      || statusFallbackMessage(response?.status, rawText, fallbackKey)
+	      || messageVi
+	      || text(fallbackKey);
+	  }
+
+	  function resolveSuccessMessage(data, fallbackKey) {
+	    const messageVi = `${data?.message ?? data?.Message ?? ""}`.trim();
+	    const messageEn = `${data?.messageEn ?? data?.MessageEn ?? ""}`.trim();
+
+	    if (lang === "en") {
+	      return messageEn || text(fallbackKey);
+	    }
+
+	    if (messageVi && !isGarbledText(messageVi)) {
+	      return messageVi;
+	    }
+
+	    return messageEn || text(fallbackKey);
+	  }
+
+	  async function readApiResponse(response) {
+	    const rawText = await response.text();
+	    let data = {};
+	    let isJson = false;
+
+	    try {
+	      data = rawText ? JSON.parse(rawText) : {};
+	      isJson = true;
+	    } catch {
+	    }
+
+	    return { rawText, data, isJson };
+	  }
+
+  function normalizeSearchTerm(value) {
+    return (value || "").trim();
+  }
+
+  function getTotalPages() {
+    return Math.max(1, Math.ceil(totalDevices / currentPageSize));
+  }
+
+  function cacheKey(page, pageSize, searchTerm = currentSearchTerm) {
+    return `${page}:${pageSize}:${encodeURIComponent(normalizeSearchTerm(searchTerm).toLowerCase())}`;
+  }
+
+  function hydratePageCache() {
+    pageCache.set(cacheKey(initialPageData.currentPage, initialPageData.pageSize, initialPageData.searchTerm), initialPageData);
+    try {
+      const raw = sessionStorage.getItem(pageCacheKey);
+      if (!raw) {
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      Object.entries(parsed).forEach(([keyName, value]) => pageCache.set(keyName, value));
+    } catch {
+    }
+  }
+
+  function persistPageCache() {
+    try {
+      sessionStorage.setItem(pageCacheKey, JSON.stringify(Object.fromEntries(pageCache)));
+    } catch {
+    }
+  }
+
+  function syncSearchUi() {
+    if (deviceSearchInput) {
+      deviceSearchInput.value = currentSearchTerm;
+      deviceSearchInput.placeholder = text("search_placeholder");
+      deviceSearchInput.setAttribute("aria-label", text("search_aria_label"));
+    }
+
+    if (clearDeviceSearchButton) {
+      clearDeviceSearchButton.hidden = !currentSearchTerm;
+    }
+  }
+
+  function applyLanguage(nextLang) {
+    lang = dictionary[nextLang] ? nextLang : "vi";
+    qa("[data-i18n]").forEach((element) => {
+      const token = element.getAttribute("data-i18n");
+      if (dictionary[lang][token]) element.textContent = dictionary[lang][token];
+    });
+    qa(".language-btn:not(.detail-language-btn)").forEach((button) => button.classList.toggle("is-active", button.dataset.lang === lang));
+    qa(".detail-language-btn").forEach((button) => button.classList.toggle("is-active", button.dataset.lang === lang));
+    localStorage.setItem(key, lang);
+    document.documentElement.lang = lang;
+    setDeviceModalMode(deviceModalMode);
+    syncTelemetryChartCopy();
+    syncSearchUi();
+  }
+
+  function getTelemetryRangeLabel(seconds) {
+    switch (seconds) {
+      case 900: return text("detail_range_15m");
+      case 3600: return text("detail_range_1h");
+      case 10800: return text("detail_range_3h");
+      case 86400: return text("detail_range_24h");
+      case 604800: return text("detail_range_7d");
+      default: return `${seconds}s`;
+    }
+  }
+
+  function formatThroughputMbps(value) {
+    const numericValue = Number(value || 0);
+    if (!Number.isFinite(numericValue) || numericValue <= 0) {
+      return "0.00";
+    }
+    if (numericValue >= 1) {
+      return numericValue.toFixed(2);
+    }
+    if (numericValue >= 0.1) {
+      return numericValue.toFixed(3);
+    }
+    if (numericValue >= 0.01) {
+      return numericValue.toFixed(4);
+    }
+    return numericValue.toFixed(5);
+  }
+
+  function setTelemetryState(metricCard, messageKey, fallback = "") {
+    metricCard.card.classList.toggle("is-loading", messageKey === "detail_chart_loading");
+    metricCard.state.hidden = false;
+    metricCard.state.dataset.stateKey = messageKey;
+    metricCard.state.textContent = text(messageKey) || fallback;
+    metricCard.svg.innerHTML = "";
+    metricCard.axisX.innerHTML = "";
+    metricCard.axisYTop.textContent = "0.00";
+    metricCard.axisYMid.textContent = "0.00";
+    metricCard.axisYBottom.textContent = "0";
+  }
+
+  function updateTelemetryStats(metricCard, points, unitLabel) {
+    const values = points.map((point) => Number(point.mbps || 0));
+    const minValue = values.length ? Math.min(...values) : 0;
+    const avgValue = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+    const maxValue = values.length ? Math.max(...values) : 0;
+    metricCard.stats.textContent = format(text("detail_chart_stats"), {
+      min: formatThroughputMbps(minValue),
+      avg: formatThroughputMbps(avgValue),
+      max: formatThroughputMbps(maxValue),
+      unit: unitLabel
+    });
+  }
+
+  function updateMetricTitles() {
+    metricCards.forEach((metricCard) => {
+      const titleKey = `metric_${metricCard.metric}`;
+      metricCard.title.textContent = text(titleKey);
+    });
+  }
+
+  function syncTelemetryChartCopy() {
+    updateMetricTitles();
+    metricCards.forEach((metricCard) => {
+      const metricData = currentTelemetryByMetric.get(metricCard.metric);
+      const unitLabel = metricData?.unitLabel || metricUnits[metricCard.metric] || "";
+      updateTelemetryStats(metricCard, metricData?.points || [], unitLabel);
+      metricCard.unit.textContent = unitLabel;
+      if (!metricData?.points?.length && !metricCard.state.hidden) {
+        metricCard.state.textContent = metricCard.state.dataset.stateKey ? text(metricCard.state.dataset.stateKey) : metricCard.state.textContent;
+      }
+    });
+  }
+
+  function setActiveTelemetryRange(rangeSeconds) {
+    selectedTelemetryRangeSeconds = rangeSeconds;
+    detailFilterButtons.forEach((button) => button.classList.toggle("is-active", Number(button.dataset.rangeSeconds) === rangeSeconds));
+  }
+
+  function setActiveDetailTab(tabName) {
+    currentDetailTab = tabName;
+    detailTabButtons.forEach((button) => {
+      const isActive = button.dataset.detailTab === tabName;
+      button.classList.toggle("is-active", isActive);
+      button.setAttribute("aria-selected", isActive ? "true" : "false");
+    });
+    detailTabPanels.forEach((panel) => {
+      const isActive = panel.dataset.detailPanel === tabName;
+      panel.classList.toggle("is-active", isActive);
+      panel.hidden = !isActive;
+    });
+  }
+
+  function closePortalAccountMenu() {
+    if (!portalAccountButton || !portalAccountDropdown) {
+      return;
+    }
+    portalAccountButton.setAttribute("aria-expanded", "false");
+    portalAccountDropdown.hidden = true;
+  }
+
+  function closePortalNavMenu() {
+    portalNavToggle?.setAttribute("aria-expanded", "false");
+    portalNavPanel?.classList.remove("is-open");
+  }
+
+  function togglePortalNavMenu() {
+    if (!portalNavToggle || !portalNavPanel) {
+      return;
+    }
+    const willOpen = !portalNavPanel.classList.contains("is-open");
+    portalNavPanel.classList.toggle("is-open", willOpen);
+    portalNavToggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
+  }
+
+  function togglePortalAccountMenu() {
+    if (!portalAccountButton || !portalAccountDropdown) {
+      return;
+    }
+    const willOpen = portalAccountDropdown.hidden;
+    portalAccountButton.setAttribute("aria-expanded", willOpen ? "true" : "false");
+    portalAccountDropdown.hidden = !willOpen;
+  }
+
+  function resetDetailView() {
+    q("#detailDeviceName").textContent = "-";
+    q("#detailDeviceCode").textContent = "-";
+    q("#detailVesselName").textContent = "-";
+    q("#detailTenantName").textContent = "-";
+    q("#detailTenantId").textContent = "-";
+    q("#detailKitId").textContent = "-";
+    q("#detailSystemType").textContent = "-";
+    q("#detailKitNumber").textContent = "-";
+    q("#detailServiceLine").textContent = "-";
+    q("#detailAvailability").innerHTML = renderStatusHtml("");
+    q("#detailLastUpdate").textContent = "-";
+    q("#detailLastSync").textContent = "-";
+    q("#detailWifiSsid").textContent = "-";
+    q("#detailWifiPassword").textContent = "-";
+    q("#detailTotalUsage").textContent = "-";
+    q("#detailTotalUsageLimit").textContent = "-";
+    q("#detailUsageLimitTop").textContent = "-";
+    q("#detailPriorityOverage").textContent = "-";
+    q("#detailPriorityOverageLimit").textContent = "-";
+    q("#detailPlanName").textContent = "-";
+    q("#detailUsageProgress").style.width = "0%";
+    detailNetworkStatus.textContent = text("detail_network_loading");
+    metricCards.forEach((metricCard) => {
+      setTelemetryState(metricCard, "detail_chart_loading");
+      metricCard.unit.textContent = metricUnits[metricCard.metric] || "";
+    });
+    currentTelemetryByMetric = new Map();
+  }
+
+  async function loadNetworkingData(requestId = currentDetailRequestId) {
+    if (!currentDetailDeviceId || requestId !== currentDetailRequestId) {
+      return;
+    }
+
+    q("#detailWifiSsid").textContent = "-";
+    q("#detailWifiPassword").textContent = "-";
+    detailNetworkStatus.textContent = text("detail_network_loading");
+
+    try {
+      const response = await fetch(`${deviceWifiDataAction}?id=${encodeURIComponent(currentDetailDeviceId)}`, {
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+      });
+      const { rawText, data, isJson } = await readApiResponse(response);
+      if (!isJson || !response.ok || !(data.success ?? data.Success)) {
+        throw new Error(resolveServerErrorMessage(response, data, rawText, "detail_network_error"));
+      }
+      if (requestId !== currentDetailRequestId) {
+        return;
+      }
+
+      q("#detailWifiSsid").textContent = data.ssid ?? data.Ssid ?? "-";
+      q("#detailWifiPassword").textContent = data.password ?? data.Password ?? "-";
+      detailNetworkStatus.textContent = text("detail_network_ready");
+    } catch (error) {
+      if (requestId !== currentDetailRequestId) {
+        return;
+      }
+      detailNetworkStatus.textContent = `${text("detail_network_error")}: ${error.message || text("generic_error")}`;
+    }
+  }
+
+  function formatXAxisTime(unixSeconds) {
+    const date = new Date(unixSeconds * 1000);
+    return date.toLocaleTimeString(lang === "vi" ? "vi-VN" : "en-US", {
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    });
+  }
+
+  function normalizeMetricValue(rawValue, unit, metric) {
+    const numericValue = Number(rawValue || 0);
+    if (!Number.isFinite(numericValue)) {
+      return 0;
+    }
+    if (unit === "bps") {
+      return numericValue / 1000000;
+    }
+    if (metric === "ping_drop_rate") {
+      return numericValue <= 1 ? numericValue * 100 : numericValue;
+    }
+    return numericValue;
+  }
+
+  function buildMetricChart(metricCard, points, unitLabel) {
+    updateTelemetryStats(metricCard, points, unitLabel);
+    metricCard.unit.textContent = unitLabel;
+    const metricColor = metricColors[metricCard.metric] || "#2f7fff";
+
+    const peakValue = Math.max(...points.map((point) => point.mbps), 0);
+    if (peakValue <= 0) {
+      setTelemetryState(metricCard, "detail_chart_zero");
+      return;
+    }
+
+    metricCard.card.classList.remove("is-loading");
+    metricCard.state.hidden = true;
+
+    const width = 900;
+    const height = 260;
+    const padding = { top: 16, right: 18, bottom: 42, left: 74 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+    const maxValue = Math.max(peakValue, 0.01);
+    const xStep = points.length > 1 ? chartWidth / (points.length - 1) : chartWidth / 2;
+    const yScale = (value) => padding.top + chartHeight - (value / maxValue) * chartHeight;
+    const xScale = (index) => padding.left + (points.length > 1 ? index * xStep : chartWidth / 2);
+
+    const linePoints = points.map((point, index) => `${xScale(index)},${yScale(point.mbps)}`).join(" ");
+    const areaPoints = [
+      `${padding.left},${padding.top + chartHeight}`,
+      ...points.map((point, index) => `${xScale(index)},${yScale(point.mbps)}`),
+      `${xScale(points.length - 1)},${padding.top + chartHeight}`
+    ].join(" ");
+
+    metricCard.svg.innerHTML = `
+      <defs>
+        <linearGradient id="detailAreaGradient-${metricCard.metric}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${metricColor}" stop-opacity="0.30" />
+          <stop offset="100%" stop-color="${metricColor}" stop-opacity="0.03" />
+        </linearGradient>
+      </defs>
+      <line x1="${padding.left}" y1="${padding.top}" x2="${padding.left + chartWidth}" y2="${padding.top}" class="detail-chart-grid-line"></line>
+      <line x1="${padding.left}" y1="${padding.top + chartHeight / 2}" x2="${padding.left + chartWidth}" y2="${padding.top + chartHeight / 2}" class="detail-chart-grid-line"></line>
+      <line x1="${padding.left}" y1="${padding.top + chartHeight}" x2="${padding.left + chartWidth}" y2="${padding.top + chartHeight}" class="detail-chart-grid-line"></line>
+      <polygon points="${areaPoints}" fill="url(#detailAreaGradient-${metricCard.metric})"></polygon>
+      <polyline points="${linePoints}" class="detail-chart-line" style="stroke:${metricColor}"></polyline>
+    `;
+
+    metricCard.axisYTop.textContent = formatThroughputMbps(maxValue);
+    metricCard.axisYMid.textContent = formatThroughputMbps(maxValue / 2);
+    metricCard.axisYBottom.textContent = "0";
+
+    const tickIndexes = points.length <= 3
+      ? points.map((_, index) => index)
+      : [0, Math.floor((points.length - 1) / 2), points.length - 1];
+
+    metricCard.axisX.innerHTML = [...new Set(tickIndexes)]
+      .map((index) => `<span>${formatXAxisTime(points[index].timestamp)}</span>`)
+      .join("");
+  }
+
+	  async function loadTelemetryTimeline(requestId = currentDetailRequestId) {
+    if (!currentDetailDeviceId || !currentDetailDeviceCode || requestId !== currentDetailRequestId) {
+      return;
+    }
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const startSeconds = nowSeconds - selectedTelemetryRangeSeconds;
+    detailTelemetryReload?.classList.add("is-loading");
+    metricCards.forEach((metricCard) => setTelemetryState(metricCard, "detail_chart_loading"));
+
+	    try {
+	      const responses = await Promise.all(metricCards.map(async (metricCard) => {
+	        const response = await fetch(`${telemetryTimelineAction}?id=${encodeURIComponent(currentDetailDeviceId)}&start=${encodeURIComponent(startSeconds)}&end=${encodeURIComponent(nowSeconds)}&metric=${encodeURIComponent(metricCard.metric)}`, {
+	          headers: { "X-Requested-With": "XMLHttpRequest" }
+	        });
+	        const { rawText, data, isJson } = await readApiResponse(response);
+	        if (!isJson) {
+	          throw new Error(resolveServerErrorMessage(response, {}, rawText, "detail_chart_error"));
+	        }
+	        if (!response.ok || !(data.success ?? data.Success)) {
+	          throw new Error(resolveServerErrorMessage(response, data, rawText, "detail_chart_error"));
+	        }
+	        return { metricCard, data };
+	      }));
+
+      currentTelemetryByMetric = new Map();
+
+      responses.forEach(({ metricCard, data }) => {
+        if (requestId !== currentDetailRequestId) {
+          return;
+        }
+        const unitRaw = (data.unit ?? data.Unit ?? metricUnits[metricCard.metric] ?? "").toString();
+        const unitLabel = unitRaw === "bps" ? "Mbps" : unitRaw;
+        const points = (data.points ?? data.Points ?? [])
+          .map((point) => {
+            const timestamp = Number(point.timestamp ?? point.Timestamp ?? 0);
+            const rawValue = Number(point.value ?? point.Value ?? 0);
+            return {
+              timestamp,
+              mbps: normalizeMetricValue(rawValue, unitRaw, metricCard.metric)
+            };
+          })
+          .filter((point) => Number.isFinite(point.timestamp) && Number.isFinite(point.mbps))
+          .sort((a, b) => a.timestamp - b.timestamp);
+
+        currentTelemetryByMetric.set(metricCard.metric, { points, unitLabel });
+
+        if (!points.length) {
+          setTelemetryState(metricCard, "detail_chart_empty");
+          updateTelemetryStats(metricCard, [], unitLabel);
+          metricCard.unit.textContent = unitLabel;
+          return;
+        }
+
+        buildMetricChart(metricCard, points, unitLabel);
+      });
+    } catch (error) {
+      if (requestId !== currentDetailRequestId) {
+        return;
+      }
+      currentTelemetryByMetric = new Map();
+      metricCards.forEach((metricCard) => {
+        metricCard.state.dataset.stateKey = "detail_chart_error";
+        metricCard.state.hidden = false;
+        metricCard.state.textContent = `${text("detail_chart_error")}: ${error.message || text("generic_error")}`;
+        metricCard.svg.innerHTML = "";
+        metricCard.axisX.innerHTML = "";
+        updateTelemetryStats(metricCard, [], metricUnits[metricCard.metric] || "");
+      });
+    } finally {
+      if (requestId === currentDetailRequestId) {
+        detailTelemetryReload?.classList.remove("is-loading");
+      }
+    }
+  }
+
+  function antiForgeryToken(formElement) { return formElement?.querySelector("input[name='__RequestVerificationToken']")?.value || ""; }
+  function setProcessing(isProcessing) { submitButton.disabled = isProcessing; submitButton.classList.toggle("is-processing", isProcessing); submitLabel.textContent = isProcessing ? text("processing") : text(deviceModalMode === "edit" ? "update_device" : "save_device"); }
+  function showFeedback(message, type) { feedback.hidden = false; feedback.textContent = message; feedback.classList.remove("is-success", "is-error"); feedback.classList.add(type === "success" ? "is-success" : "is-error"); }
+  function hideFeedback() { feedback.hidden = true; feedback.textContent = ""; feedback.classList.remove("is-success", "is-error"); }
+  function showApiResult(raw) { apiResult.hidden = !raw; apiResultText.textContent = raw || ""; }
+  function setFieldInvalid(field, isInvalid) {
+    if (!field) {
+      return;
+    }
+
+    field.classList.toggle("is-invalid", isInvalid);
+    field.setAttribute("aria-invalid", isInvalid ? "true" : "false");
+    const label = field.closest(".form-group")?.querySelector("label");
+    label?.classList.toggle("is-invalid", isInvalid);
+  }
+  function clearRequiredFieldValidation() { requiredDeviceFields.forEach((field) => setFieldInvalid(field, false)); }
+  function validateRequiredDeviceFields() {
+    const validations = [
+      [deviceNameInput, deviceNameInput.value.trim()],
+      [deviceCodeInput, deviceCodeInput.value.trim()],
+      [vesselNameInput, vesselNameInput.value.trim()],
+      [tenantIdInput, tenantIdInput.value.trim()]
+    ];
+    let isValid = true;
+    validations.forEach(([field, value]) => {
+      const missing = !value;
+      setFieldInvalid(field, missing);
+      if (missing) {
+        isValid = false;
+      }
+    });
+    return isValid;
+  }
+  function renderStatusHtml(value) {
+    const normalized = (value || "").trim().toLowerCase();
+    const dotClass = normalized === "online"
+      ? "is-online"
+      : normalized === "offline"
+        ? "is-offline"
+        : "";
+    return `<span class="status-pill"><span class="status-dot ${dotClass}"></span><span>${value || "-"}</span></span>`;
+  }
+  function renderUsageHtml(usage, limit) { return `<span class="list-usage"><span class="list-usage-chip">${usage || "-"}</span><span class="list-usage-separator">/</span><span class="list-usage-chip is-limit">${limit || "-"}</span></span>`; }
+  function renderCellLoading(variant = "default") {
+    const wideClass = variant === "usage" ? " is-wide" : "";
+    return `<span class="inline-cell-loading${wideClass}" aria-label="${text("sync_inline_loading")}"><span class="inline-cell-loading-bar" aria-hidden="true"></span></span>`;
+  }
+  function renderActionHtml(deviceId, deviceCode) {
+    return `
+      <div class="table-actions">
+        <button type="button" class="table-action-btn js-open-detail" data-device-id="${deviceId}">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5c5.23 0 9.27 4.11 10.57 6-.85 1.23-2.98 3.64-6.06 5.08C15.1 16.75 13.57 17 12 17c-5.23 0-9.27-4.11-10.57-6C2.73 9.11 6.77 5 12 5Zm0 2c-3.73 0-6.93 2.46-8.43 4 1.5 1.54 4.7 4 8.43 4s6.93-2.46 8.43-4C18.93 9.46 15.73 7 12 7Zm0 1.5A2.5 2.5 0 1 1 9.5 11 2.5 2.5 0 0 1 12 8.5Zm0 2A.5.5 0 1 0 12.5 11 .5.5 0 0 0 12 10.5Z"/></svg>
+          <span data-i18n="view_action">${text("view_action")}</span>
+        </button>
+        <button type="button" class="table-action-btn js-edit-device" data-device-id="${deviceId}">
+          <span data-i18n="edit_action">${text("edit_action")}</span>
+        </button>
+        <button type="button" class="table-action-btn is-danger js-delete-device" data-device-id="${deviceId}" data-device-code="${deviceCode || ""}">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h2v8H7V9Zm4 0h2v8h-2V9Zm4 0h2v8h-2V9ZM6 21a2 2 0 0 1-2-2V8h16v11a2 2 0 0 1-2 2H6Z"/></svg>
+          <span data-i18n="delete_action">${text("delete_action")}</span>
+        </button>
+      </div>`;
+  }
+  function setDetailProcessing(isProcessing, sourceButton) {
+    detailLoading.hidden = !isProcessing;
+    detail.classList.toggle("is-loading", isProcessing);
+    if (sourceButton) {
+      sourceButton.disabled = isProcessing;
+      sourceButton.classList.toggle("is-processing", isProcessing);
+    }
+  }
+
+  function setDeviceModalMode(mode) {
+    deviceModalMode = mode === "edit" ? "edit" : "create";
+    form.action = deviceModalMode === "edit" ? updateDeviceAction : createDeviceAction;
+    deviceModalTitle.textContent = text(deviceModalMode === "edit" ? "modal_title_edit" : "modal_title");
+    deviceModalSubtitle.textContent = text(deviceModalMode === "edit" ? "modal_subtitle_edit" : "modal_subtitle");
+    submitLabel.textContent = text(deviceModalMode === "edit" ? "update_device" : "save_device");
+  }
+
+  function getCurrentPageDevices() {
+    return pageCache.get(cacheKey(currentPage, currentPageSize, currentSearchTerm))?.devices ?? [];
+  }
+
+  function findDeviceById(deviceId) {
+    const numericId = Number(deviceId || 0);
+    return getCurrentPageDevices().find((device) => Number(device.id ?? device.Id ?? 0) === numericId) ?? null;
+  }
+
+  function openCreateModal() {
+    hideFeedback();
+    showApiResult("");
+    form.reset();
+    clearRequiredFieldValidation();
+    deviceIdInput.value = "0";
+    tenantIdInput.value = "";
+    setDeviceModalMode("create");
+    modal.hidden = false;
+    document.body.style.overflow = "hidden";
+    deviceNameInput.focus();
+  }
+
+	  async function openEditModal(sourceButton) {
+	    const deviceId = sourceButton?.dataset.deviceId || "";
+	    if (!deviceId) {
+	      window.alert(text("generic_error"));
+      return;
+    }
+
+    sourceButton.disabled = true;
+    sourceButton.classList.add("is-processing");
+
+	    try {
+	      const response = await fetch(`${deviceEditDataAction}?id=${encodeURIComponent(deviceId)}`, {
+	        headers: { "X-Requested-With": "XMLHttpRequest" }
+	      });
+	      const { rawText, data, isJson } = await readApiResponse(response);
+	      if (!isJson || !response.ok) {
+	        window.alert(resolveServerErrorMessage(response, data, rawText));
+	        return;
+	      }
+
+	      hideFeedback();
+	      showApiResult("");
+      form.reset();
+      clearRequiredFieldValidation();
+      setDeviceModalMode("edit");
+      deviceIdInput.value = `${data.id ?? data.Id ?? 0}`;
+      deviceNameInput.value = data.deviceName ?? data.DeviceName ?? "";
+      deviceCodeInput.value = data.deviceCode ?? data.DeviceCode ?? "";
+      vesselNameInput.value = data.vesselName ?? data.VesselName ?? "";
+      tenantIdInput.value = `${data.tenantId ?? data.TenantId ?? ""}`;
+      modal.hidden = false;
+      document.body.style.overflow = "hidden";
+      deviceNameInput.focus();
+    } catch (error) {
+      window.alert(`${text("network_error_prefix")}: ${error.message || text("generic_error")}`);
+    } finally {
+      sourceButton.disabled = false;
+      sourceButton.classList.remove("is-processing");
+    }
+  }
+
+  function closeCreateModal() { modal.hidden = true; document.body.style.overflow = detail.hidden ? "" : "hidden"; setProcessing(false); }
+  function closeDetailModal() { detail.hidden = true; document.body.style.overflow = modal.hidden ? "" : "hidden"; setDetailProcessing(false); currentDetailDeviceId = 0; currentDetailDeviceCode = ""; }
+
+  async function openDetail(sourceButton) {
+    applyLanguage(lang);
+    setActiveDetailTab("information");
+    resetDetailView();
+    detail.hidden = false;
+    document.body.style.overflow = "hidden";
+    const requestId = ++currentDetailRequestId;
+    setDetailProcessing(true, sourceButton);
+	    try {
+	      const response = await fetch(`${deviceDetailDataAction}?id=${encodeURIComponent(sourceButton.dataset.deviceId)}`, { headers: { "X-Requested-With": "XMLHttpRequest" } });
+	      const { rawText, data, isJson } = await readApiResponse(response);
+	      if (!isJson || !response.ok) {
+	        window.alert(resolveServerErrorMessage(response, data, rawText));
+	        closeDetailModal();
+	        return;
+	      }
+	      if (requestId !== currentDetailRequestId) {
+	        return;
+	      }
+      q("#detailDeviceName").textContent = data.deviceName ?? data.DeviceName ?? "-";
+      q("#detailDeviceCode").textContent = data.deviceCode ?? data.DeviceCode ?? "-";
+      q("#detailVesselName").textContent = data.vesselName ?? data.VesselName ?? "-";
+      q("#detailTenantName").textContent = data.tenantName ?? data.TenantName ?? "-";
+      q("#detailTenantId").textContent = `${data.tenantId ?? data.TenantId ?? "-"}`;
+      q("#detailKitId").textContent = data.kitId ?? data.KitId ?? "-";
+      q("#detailSystemType").textContent = data.systemType ?? data.SystemType ?? "-";
+      q("#detailKitNumber").textContent = data.kitNumber ?? data.KitNumber ?? "-";
+      q("#detailServiceLine").textContent = data.serviceLine ?? data.ServiceLine ?? "-";
+      q("#detailAvailability").innerHTML = renderStatusHtml(data.availability ?? data.Availability ?? "");
+      q("#detailLastUpdate").textContent = data.lastUpdateTimeVietnam ?? data.LastUpdateTimeVietnam ?? "-";
+      q("#detailLastSync").textContent = data.lastSysnTimeVietnam ?? data.LastSysnTimeVietnam ?? "-";
+      q("#detailTotalUsage").textContent = data.subscriptionUsageDisplay ?? data.SubscriptionUsageDisplay ?? "-";
+      q("#detailTotalUsageLimit").textContent = data.subscriptionLimitDisplay ?? data.SubscriptionLimitDisplay ?? "-";
+      q("#detailUsageLimitTop").textContent = data.subscriptionLimitDisplay ?? data.SubscriptionLimitDisplay ?? "-";
+      q("#detailPriorityOverage").textContent = data.priorityOverageDisplay ?? data.PriorityOverageDisplay ?? "-";
+      q("#detailPriorityOverageLimit").textContent = data.priorityOverageLimitDisplay ?? data.PriorityOverageLimitDisplay ?? "-";
+      q("#detailPlanName").textContent = data.planName ?? data.PlanName ?? "-";
+      q("#detailUsageProgress").style.width = `${data.usageProgressPercent ?? data.UsageProgressPercent ?? "0"}%`;
+      currentDetailDeviceId = Number(sourceButton.dataset.deviceId || 0);
+      currentDetailDeviceCode = data.deviceCode ?? data.DeviceCode ?? "";
+      setActiveTelemetryRange(900);
+      if (requestId !== currentDetailRequestId) {
+        return;
+      }
+      setDetailProcessing(false, sourceButton);
+      window.setTimeout(async () => {
+        if (requestId !== currentDetailRequestId) {
+          return;
+        }
+        await Promise.all([
+          loadTelemetryTimeline(requestId),
+          loadNetworkingData(requestId)
+        ]);
+      }, 0);
+      return;
+    } catch (error) {
+      window.alert(`${text("network_error_prefix")}: ${error.message || text("generic_error")}`);
+      closeDetailModal();
+    } finally {
+      if (requestId === currentDetailRequestId && !detailLoading.hidden) {
+        setDetailProcessing(false, sourceButton);
+      }
+    }
+  }
+  async function submitCreate(event) {
+    event.preventDefault();
+    hideFeedback();
+    showApiResult("");
+    if (!validateRequiredDeviceFields()) {
+      showFeedback(text("validation_required"), "error");
+      return;
+    }
+    setProcessing(true);
+	    try {
+	      const response = await fetch(form.action, { method: "POST", body: new FormData(form), headers: { "X-Requested-With": "XMLHttpRequest" } });
+	      const { rawText, data, isJson } = await readApiResponse(response);
+	      if (!isJson) {
+	        showFeedback(resolveServerErrorMessage(response, {}, rawText), "error");
+	        showApiResult(rawText || "Empty response");
+	        return;
+	      }
+	      const success = data.success ?? data.Success ?? false;
+	      const apiRaw = data.apiResult ?? data.ApiResult ?? "";
+	      if (!response.ok) {
+	        showApiResult(apiRaw || rawText);
+	        showFeedback(resolveServerErrorMessage(response, data, rawText), "error");
+	        return;
+	      }
+	      if (success) {
+	        showApiResult("");
+	        showFeedback(resolveSuccessMessage(data, deviceModalMode === "edit" ? "update_success" : "create_success"), "success");
+	        window.setTimeout(() => window.location.reload(), 900);
+	        return;
+	      }
+	      showApiResult(apiRaw || rawText);
+	      showFeedback(resolveServerErrorMessage(response, data, rawText), "error");
+	    } catch (error) {
+	      showFeedback(`${text("network_error_prefix")}: ${error.message || text("generic_error")}`, "error");
+	    } finally {
+      setProcessing(false);
+    }
+  }
+
+  async function submitDelete(button) {
+    const deviceId = button.dataset.deviceId || "";
+    const kitCode = button.dataset.deviceCode || "";
+    if (!window.confirm(format(text("delete_confirm"), { kitCode }))) return;
+    button.disabled = true;
+    const formData = new FormData();
+    const csrfToken = antiForgeryToken(deleteForm);
+    if (csrfToken) formData.append("__RequestVerificationToken", csrfToken);
+    formData.append("id", deviceId);
+	    try {
+	      const response = await fetch(deleteForm.action, { method: "POST", body: formData, headers: { "X-Requested-With": "XMLHttpRequest" } });
+	      const { rawText, data, isJson } = await readApiResponse(response);
+	      if (!isJson) {
+	        window.alert(resolveServerErrorMessage(response, {}, rawText));
+	        return;
+	      }
+	      const success = data.success ?? data.Success ?? false;
+	      if (!response.ok || !success) {
+	        window.alert(resolveServerErrorMessage(response, data, rawText));
+	        return;
+	      }
+	      window.alert(resolveSuccessMessage(data, "delete_success"));
+	      window.location.reload();
+	    } catch (error) {
+	      window.alert(`${text("network_error_prefix")}: ${error.message || text("generic_error")}`);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  function bindRowActions(scope = document) {
+    scope.querySelectorAll(".js-delete-device").forEach((button) => {
+      if (button.dataset.boundDelete === "1") return;
+      button.dataset.boundDelete = "1";
+      button.addEventListener("click", () => submitDelete(button));
+    });
+
+    scope.querySelectorAll(".js-edit-device").forEach((button) => {
+      if (button.dataset.boundEdit === "1") return;
+      button.dataset.boundEdit = "1";
+      button.addEventListener("click", () => openEditModal(button));
+    });
+
+    scope.querySelectorAll(".js-open-detail").forEach((button) => {
+      if (button.dataset.boundDetail === "1") return;
+      button.dataset.boundDetail = "1";
+      button.addEventListener("click", () => openDetail(button));
+    });
+  }
+
+  function renderDeviceRows(devices) {
+    tableBody.innerHTML = devices.map((device) => {
+      const availability = device.availability ?? device.Availability ?? "";
+      const usage = device.usageDataDisplay ?? device.UsageDataDisplay ?? "-";
+      const limit = device.priorityDataDisplay ?? device.PriorityDataDisplay ?? "-";
+      const planName = device.planName ?? device.PlanName ?? "-";
+      const deviceId = device.id ?? device.Id ?? 0;
+      const deviceCode = device.deviceCode ?? device.DeviceCode ?? "";
+      const vesselName = device.vesselName ?? device.VesselName ?? "-";
+      const tenantName = device.tenantName ?? device.TenantName ?? "-";
+      const tokenExpiredUtc = device.tokenExpiredTimeUtcIso ?? device.TokenExpiredTimeUtcIso ?? "";
+      const lastSync = device.lastSysnTimeVietnam ?? device.LastSysnTimeVietnam ?? "-";
+      const deviceName = device.deviceName ?? device.DeviceName ?? "-";
+      const clientSynced = device.clientSynced === true || device.ClientSynced === true ? "true" : "false";
+
+	      return `
+	        <tr data-device-id="${deviceId}" data-token-expired-utc="${tokenExpiredUtc}" data-client-synced="${clientSynced}">
+	          <td>${deviceName}</td>
+	          <td>${vesselName || "-"}</td>
+	          <td>${tenantName || "-"}</td>
+	          <td><button type="button" class="table-code-btn js-open-detail" data-device-id="${deviceId}">${deviceCode}</button></td>
+	          <td data-role="availability">${renderStatusHtml(availability)}</td>
+	          <td data-role="usage">${renderUsageHtml(usage, limit)}</td>
+	          <td data-role="plan-name">${planName || "-"}</td>
+          <td data-role="last-sync">${lastSync}</td>
+          <td>${renderActionHtml(deviceId, deviceCode)}</td>
+        </tr>`;
+    }).join("");
+
+    bindRowActions(tableBody);
+    applyLanguage(lang);
+  }
+
+  function renderPagination() {
+    const totalPages = getTotalPages();
+    currentPageText.textContent = `${currentPage}`;
+    totalPagesText.textContent = `${totalPages}`;
+    totalDevicesText.textContent = `${totalDevices}`;
+    pageSizeSelect.value = `${currentPageSize}`;
+
+    const buttons = [];
+    const addButton = (label, page, disabled, i18nKey, active = false) => {
+      if (disabled) {
+        buttons.push(`<span class="pagination-btn is-disabled"${i18nKey ? ` data-i18n="${i18nKey}"` : ""}>${label}</span>`);
+        return;
+      }
+      buttons.push(`<button type="button" class="pagination-btn${active ? " is-active" : ""}" data-page-target="${page}"${i18nKey ? ` data-i18n="${i18nKey}"` : ""}>${label}</button>`);
+    };
+
+    addButton(text("pagination_first"), 1, currentPage === 1, "pagination_first");
+    addButton(text("pagination_prev"), currentPage - 1, currentPage === 1, "pagination_prev");
+
+    const visiblePages = [];
+    visiblePages.push(1);
+    for (let page = Math.max(2, currentPage - 1); page <= Math.min(totalPages - 1, currentPage + 1); page++) {
+      visiblePages.push(page);
+    }
+    if (totalPages > 1) {
+      visiblePages.push(totalPages);
+    }
+
+    const uniquePages = [...new Set(visiblePages)].sort((a, b) => a - b);
+    let previous = 0;
+    uniquePages.forEach((page) => {
+      if (previous && page - previous > 1) {
+        buttons.push('<span class="pagination-ellipsis">...</span>');
+      }
+      addButton(`${page}`, page, false, "", page === currentPage);
+      previous = page;
+    });
+
+    addButton(text("pagination_next"), currentPage + 1, currentPage === totalPages, "pagination_next");
+    addButton(text("pagination_last"), totalPages, currentPage === totalPages, "pagination_last");
+
+    paginationActions.innerHTML = buttons.join("");
+    paginationActions.querySelectorAll("[data-page-target]").forEach((button) => {
+      button.addEventListener("click", () => loadPage(Number(button.dataset.pageTarget), currentPageSize));
+    });
+    applyLanguage(lang);
+  }
+
+  async function fetchPageData(page, pageSize, searchTerm = currentSearchTerm) {
+    const normalizedSearchTerm = normalizeSearchTerm(searchTerm);
+    const keyName = cacheKey(page, pageSize, normalizedSearchTerm);
+    if (pageCache.has(keyName)) {
+      return pageCache.get(keyName);
+    }
+
+    const response = await fetch(`${devicePageDataAction}?page=${encodeURIComponent(page)}&pageSize=${encodeURIComponent(pageSize)}&search=${encodeURIComponent(normalizedSearchTerm)}`, {
+      headers: { "X-Requested-With": "XMLHttpRequest" }
+    });
+    const rawText = await response.text();
+    const data = rawText ? JSON.parse(rawText) : {};
+    if (!response.ok) {
+      throw new Error(data.message || `${response.status} ${response.statusText}`);
+    }
+    pageCache.set(keyName, data);
+    persistPageCache();
+    return data;
+  }
+
+  async function loadPage(page, pageSize, pushHistory = true, searchTerm = currentSearchTerm) {
+    const nextPage = page < 1 ? 1 : page;
+    const nextPageSize = pageSize <= 0 ? 10 : pageSize;
+    const nextSearchTerm = normalizeSearchTerm(searchTerm);
+    const pageData = await fetchPageData(nextPage, nextPageSize, nextSearchTerm);
+    currentPage = pageData.currentPage ?? nextPage;
+    currentPageSize = pageData.pageSize ?? nextPageSize;
+    totalDevices = pageData.totalDevices ?? 0;
+    currentSearchTerm = normalizeSearchTerm(pageData.searchTerm ?? nextSearchTerm);
+    renderDeviceRows(pageData.devices ?? []);
+    renderPagination();
+    syncSearchUi();
+    if (pushHistory) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("page", `${currentPage}`);
+      url.searchParams.set("pageSize", `${currentPageSize}`);
+      if (currentSearchTerm) {
+        url.searchParams.set("search", currentSearchTerm);
+      } else {
+        url.searchParams.delete("search");
+      }
+
+      window.history.pushState({ page: currentPage, pageSize: currentPageSize, search: currentSearchTerm }, "", url);
+    }
+    await syncDeviceRowsOnLoad();
+  }
+
+  function prepareSyncDeviceRow(row) {
+    const availabilityCell = row.querySelector("[data-role='availability']");
+    const usageCell = row.querySelector("[data-role='usage']");
+    const planNameCell = row.querySelector("[data-role='plan-name']");
+    const lastSyncCell = row.querySelector("[data-role='last-sync']");
+    const state = {
+      availabilityCell,
+      usageCell,
+      planNameCell,
+      lastSyncCell,
+      originalAvailability: availabilityCell ? availabilityCell.innerHTML : "",
+      originalUsage: usageCell ? usageCell.innerHTML : "",
+      originalPlanName: planNameCell ? planNameCell.textContent : ""
+    };
+
+    row.classList.add("is-syncing");
+    if (availabilityCell) availabilityCell.innerHTML = renderCellLoading("status");
+    if (usageCell) usageCell.innerHTML = renderCellLoading("usage");
+
+    return state;
+  }
+
+  async function syncDeviceRow(row, csrfToken, rowState = prepareSyncDeviceRow(row)) {
+    if (!csrfToken) {
+      row.classList.remove("is-syncing");
+      return;
+    }
+
+    const {
+      availabilityCell,
+      usageCell,
+      planNameCell,
+      lastSyncCell,
+      originalAvailability,
+      originalUsage,
+      originalPlanName
+    } = rowState;
+
+    try {
+      const formData = new FormData();
+      formData.append("__RequestVerificationToken", csrfToken);
+      formData.append("id", row.dataset.deviceId || "");
+      const response = await fetch(refreshForm.action, { method: "POST", body: formData, headers: { "X-Requested-With": "XMLHttpRequest" } });
+      const rawText = await response.text();
+      let data = {};
+      try { data = rawText ? JSON.parse(rawText) : {}; } catch { return; }
+      const success = data.success ?? data.Success ?? false;
+      if (!response.ok || !success) { console.warn("Device refresh failed", data); return; }
+      row.dataset.tokenExpiredUtc = data.tokenExpiredTimeUtc ?? data.TokenExpiredTimeUtc ?? "";
+      const availability = data.availability ?? data.Availability ?? "";
+      const usage = data.usageDataDisplay ?? data.UsageDataDisplay ?? "-";
+      const limit = data.priorityDataDisplay ?? data.PriorityDataDisplay ?? "-";
+      const planName = data.planName ?? data.PlanName ?? "-";
+      const lastSync = data.lastSysnTimeVietnam ?? data.LastSysnTimeVietnam ?? "-";
+      if (availabilityCell) availabilityCell.innerHTML = renderStatusHtml(availability);
+      if (usageCell) usageCell.innerHTML = renderUsageHtml(usage, limit);
+      if (planNameCell) planNameCell.textContent = planName || "-";
+      if (lastSyncCell) lastSyncCell.textContent = lastSync;
+      row.dataset.clientSynced = "true";
+      const keyName = cacheKey(currentPage, currentPageSize, currentSearchTerm);
+      if (pageCache.has(keyName)) {
+        const pageData = pageCache.get(keyName);
+        const devices = pageData.devices ?? [];
+        const targetId = Number(row.dataset.deviceId || "0");
+        const target = devices.find((device) => Number(device.id ?? device.Id ?? 0) === targetId);
+        if (target) {
+          target.Availability = availability;
+          target.UsageDataDisplay = usage;
+          target.PriorityDataDisplay = limit;
+          target.PlanName = planName;
+          target.LastSysnTimeVietnam = lastSync;
+          target.TokenExpiredTimeUtcIso = row.dataset.tokenExpiredUtc;
+          target.clientSynced = true;
+          persistPageCache();
+        }
+      }
+    } catch (error) {
+      console.warn("Device refresh request failed", error);
+      if (availabilityCell) availabilityCell.innerHTML = originalAvailability;
+      if (usageCell) usageCell.innerHTML = originalUsage;
+      if (planNameCell) planNameCell.textContent = originalPlanName;
+    } finally {
+      row.classList.remove("is-syncing");
+    }
+  }
+
+  async function syncDeviceRowsOnLoad() {
+    const csrfToken = antiForgeryToken(refreshForm);
+    const rowsToSync = [...document.querySelectorAll("tr[data-device-id][data-token-expired-utc]")]
+      .filter((row) => row.dataset.clientSynced !== "true");
+
+    if (!csrfToken || !rowsToSync.length) {
+      return;
+    }
+
+    const preparedRows = rowsToSync.map((row) => ({ row, state: prepareSyncDeviceRow(row) }));
+    const concurrency = Math.min(3, preparedRows.length);
+    let cursor = 0;
+
+    async function worker() {
+      while (cursor < preparedRows.length) {
+        const currentIndex = cursor++;
+        const current = preparedRows[currentIndex];
+        if (!current) {
+          return;
+        }
+        await syncDeviceRow(current.row, csrfToken, current.state);
+      }
+    }
+
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  }
+
+  hydratePageCache();
+  setActiveTelemetryRange(900);
+  metricCards.forEach((metricCard) => { metricCard.state.dataset.stateKey = "detail_chart_loading"; });
+  applyLanguage(lang);
+  window.history.replaceState({ page: currentPage, pageSize: currentPageSize, search: currentSearchTerm }, "", window.location.href);
+  qa(".language-btn:not(.detail-language-btn)").forEach((button) => button.addEventListener("click", () => applyLanguage(button.dataset.lang)));
+  qa(".detail-language-btn").forEach((button) => button.addEventListener("click", () => applyLanguage(button.dataset.lang)));
+  portalNavToggle?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    togglePortalNavMenu();
+  });
+  detailTabButtons.forEach((button) => button.addEventListener("click", () => setActiveDetailTab(button.dataset.detailTab || "information")));
+  portalAccountButton?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    togglePortalAccountMenu();
+  });
+  detailFilterButtons.forEach((button) => button.addEventListener("click", async () => {
+    const rangeSeconds = Number(button.dataset.rangeSeconds || "900");
+    setActiveTelemetryRange(rangeSeconds);
+    await loadTelemetryTimeline();
+  }));
+  detailTelemetryReload.addEventListener("click", async () => {
+    await loadTelemetryTimeline();
+  });
+  q("#openDeviceModal").addEventListener("click", openCreateModal);
+  q("#closeDeviceModal").addEventListener("click", closeCreateModal);
+  q("#cancelDeviceModal").addEventListener("click", closeCreateModal);
+  q("#closeDeviceDetailModal").addEventListener("click", closeDetailModal);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closePortalAccountMenu();
+    if (event.key === "Escape") closePortalNavMenu();
+  });
+  document.addEventListener("click", (event) => {
+    if (portalNavPanel?.classList.contains("is-open")) {
+      if (event.target instanceof Node && !portalNavPanel.contains(event.target) && !portalNavToggle?.contains(event.target)) {
+        closePortalNavMenu();
+      }
+    }
+    if (!portalAccountDropdown || portalAccountDropdown.hidden) {
+      return;
+    }
+    if (event.target instanceof Node && !portalAccountDropdown.contains(event.target) && !portalAccountButton?.contains(event.target)) {
+      closePortalAccountMenu();
+    }
+  });
+  window.addEventListener("popstate", async (event) => {
+    const state = event.state;
+    if (state?.page && state?.pageSize) {
+      await loadPage(Number(state.page), Number(state.pageSize), false, state.search || "");
+      return;
+    }
+
+    const url = new URL(window.location.href);
+    const page = Number(url.searchParams.get("page") || "1");
+    const pageSize = Number(url.searchParams.get("pageSize") || `${currentPageSize}`);
+    const searchTerm = url.searchParams.get("search") || "";
+    await loadPage(page, pageSize, false, searchTerm);
+  });
+  form.addEventListener("submit", submitCreate);
+  deviceSearchForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    currentPage = 1;
+    await loadPage(1, currentPageSize, true, deviceSearchInput?.value || "");
+  });
+  clearDeviceSearchButton?.addEventListener("click", async () => {
+    if (deviceSearchInput) {
+      deviceSearchInput.value = "";
+    }
+
+    if (!currentSearchTerm) {
+      syncSearchUi();
+      return;
+    }
+
+    currentPage = 1;
+    await loadPage(1, currentPageSize, true, "");
+  });
+  pageSizeSelect.addEventListener("change", async () => {
+    currentPage = 1;
+    currentPageSize = Number(pageSizeSelect.value) || 10;
+    await loadPage(currentPage, currentPageSize, true, currentSearchTerm);
+  });
+  requiredDeviceFields.forEach((field) => {
+    const eventName = field?.tagName === "SELECT" ? "change" : "input";
+    field?.addEventListener(eventName, () => {
+      if (field.value.trim()) {
+        setFieldInvalid(field, false);
+      }
+    });
+  });
+  bindRowActions(document);
+  renderPagination();
+  syncDeviceRowsOnLoad();
+})();
+</script>
+}

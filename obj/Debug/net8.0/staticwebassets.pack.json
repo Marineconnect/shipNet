@@ -1,0 +1,41 @@
+{
+  "Files": [
+    {
+      "Id": "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\wwwroot\\css\\site.css",
+      "PackagePath": "staticwebassets\\css\\site.css"
+    },
+    {
+      "Id": "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\wwwroot\\uploads\\tenant-logos\\tenant-20260418074338403-15f9d245ddb24dd8a210d908b8ba7a71.jpg",
+      "PackagePath": "staticwebassets\\uploads\\tenant-logos\\tenant-20260418074338403-15f9d245ddb24dd8a210d908b8ba7a71.jpg"
+    },
+    {
+      "Id": "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\wwwroot\\uploads\\tenant-logos\\tenant-20260418074821243-4a0dcd19e07542daae4e4f372f25acb6.jpg",
+      "PackagePath": "staticwebassets\\uploads\\tenant-logos\\tenant-20260418074821243-4a0dcd19e07542daae4e4f372f25acb6.jpg"
+    },
+    {
+      "Id": "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\wwwroot\\uploads\\user-logos\\1-20260416042949538.png",
+      "PackagePath": "staticwebassets\\uploads\\user-logos\\1-20260416042949538.png"
+    },
+    {
+      "Id": "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\wwwroot\\uploads\\user-logos\\1-20260417134523080.png",
+      "PackagePath": "staticwebassets\\uploads\\user-logos\\1-20260417134523080.png"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.StarlinkDeviceManager.Microsoft.AspNetCore.StaticWebAssets.props",
+      "PackagePath": "build\\Microsoft.AspNetCore.StaticWebAssets.props"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.build.StarlinkDeviceManager.props",
+      "PackagePath": "build\\StarlinkDeviceManager.props"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.buildMultiTargeting.StarlinkDeviceManager.props",
+      "PackagePath": "buildMultiTargeting\\StarlinkDeviceManager.props"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.buildTransitive.StarlinkDeviceManager.props",
+      "PackagePath": "buildTransitive\\StarlinkDeviceManager.props"
+    }
+  ],
+  "ElementsToRemove": []
+}
