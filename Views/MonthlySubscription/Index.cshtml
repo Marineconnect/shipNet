@@ -1,0 +1,742 @@
+@model MonthlySubscriptionIndexViewModel
+@using System.Text.Json
+@{
+    ViewData["ActiveNav"] = "subscription";
+    ViewData["Title"] = "Monthly Subscription";
+    string Money(decimal value) => $"$ {value:#,##0.##}";
+    string Data(decimal value) => $"{value:#,##0.##} GB";
+    var successMessage = TempData["SubscriptionSuccess"]?.ToString();
+    var errorMessage = TempData["SubscriptionError"]?.ToString();
+    var devicesJson = JsonSerializer.Serialize(Model.Devices);
+    var plansJson = JsonSerializer.Serialize(Model.Plans);
+}
+
+<div class="device-page">
+  <div class="device-shell">
+        <partial name="_PortalNav" />
+
+    <div class="device-topbar">
+      <div>
+        <div class="device-brand">Lịch sử gói cước / Subscription History</div>
+        <h1>Gói cước hàng tháng / Monthly Subscription</h1>
+        <p>Quản lý mua bán gói cước hàng tháng, invoice subscription và invoice phát sinh / Manage monthly subscriptions, subscription invoices, and additional invoices.</p>
+      </div>
+      @if (Model.CanManageSubscriptions)
+      {
+        <div class="device-actions">
+          <button type="button" class="btn-primary add-device-btn" id="openSubscriptionModal">
+            <span class="add-device-icon">+</span>
+            <span>Tạo subscription / Create Subscription</span>
+          </button>
+        </div>
+      }
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+      <div class="tenant-feedback is-success">@successMessage</div>
+    }
+    else if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+      <div class="tenant-feedback is-error" role="alert">@errorMessage</div>
+    }
+
+    <section class="subscription-metrics">
+      <div class="subscription-metric is-blue">
+        <span>Tổng subscription / Total Subscriptions</span>
+        <strong>@Model.Summary.TotalSubscriptions.ToString("#,##0")</strong>
+      </div>
+      <div class="subscription-metric is-orange">
+        <span>Tổng dung lượng mua thêm / Total Top-up Amount</span>
+        <strong>@Data(Model.Summary.TotalTopUpAmount)</strong>
+      </div>
+      <div class="subscription-metric is-green">
+        <span>Tổng tiền invoice / Total Invoice Amount</span>
+        <strong>@Money(Model.Summary.TotalInvoiceAmount)</strong>
+      </div>
+      <div class="subscription-metric is-cyan">
+        <span>Tổng đã thanh toán / Total Paid</span>
+        <strong>@Money(Model.Summary.TotalPaid)</strong>
+      </div>
+    </section>
+
+    <section class="subscription-filter-panel">
+      <form asp-controller="MonthlySubscription" asp-action="Index" method="get" class="subscription-filter-grid">
+        <label>
+          <span>Tenant / Tenant</span>
+          <select name="tenantId" id="filterTenant" @(Model.IsTenantScoped ? "disabled" : "")>
+            <option value="">Tìm tenant / Search Tenant</option>
+            @foreach (var tenant in Model.Tenants)
+            {
+              <option value="@tenant.Id" selected="@(Model.Filter.TenantId == tenant.Id)">@tenant.TenantName</option>
+            }
+          </select>
+          @if (Model.IsTenantScoped && Model.Filter.TenantId.HasValue)
+          {
+            <input type="hidden" name="tenantId" value="@Model.Filter.TenantId" />
+          }
+        </label>
+        <label>
+          <span>Tàu / Vessel</span>
+          <select name="deviceId" id="filterDevice">
+            <option value="">Tìm tàu / Search Vessel</option>
+            @foreach (var device in Model.Devices)
+            {
+              <option value="@device.Id" data-tenant-id="@device.TenantId" selected="@(Model.Filter.DeviceId == device.Id)">@device.DisplayName</option>
+            }
+          </select>
+        </label>
+        <label>
+          <span>Mã KIT / Kit ID</span>
+          <input name="kitId" value="@Model.Filter.KitId" placeholder="Tìm mã KIT / Search Kit ID" />
+        </label>
+        <label>
+          <span>Gói cước / Plan</span>
+          <select name="pricingPlanId" id="filterPlan">
+            <option value="">Tìm gói / Search Plan</option>
+            @foreach (var plan in Model.Plans.GroupBy(plan => plan.PricingPlanId).Select(group => group.First()))
+            {
+              <option value="@plan.PricingPlanId" selected="@(Model.Filter.PricingPlanId == plan.PricingPlanId)">@plan.PlanName</option>
+            }
+          </select>
+        </label>
+        <label>
+          <span>Trạng thái subscription / Subscription Status</span>
+          <select name="status">
+            <option value="">Vui lòng chọn / Please select</option>
+            <option value="pending_payment" selected="@(Model.Filter.Status == "pending_payment")">Chờ thanh toán / Pending Payment</option>
+            <option value="paid" selected="@(Model.Filter.Status == "paid")">Paid</option>
+          </select>
+        </label>
+        <label>
+          <span>Trạng thái invoice / Invoice Status</span>
+          <select name="invoiceStatus">
+            <option value="">Vui lòng chọn / Please select</option>
+            <option value="pending" selected="@(Model.Filter.InvoiceStatus == "pending")">Chờ xử lý / Pending</option>
+            <option value="paid" selected="@(Model.Filter.InvoiceStatus == "paid")">Đã thanh toán / Paid</option>
+            <option value="refunded" selected="@(Model.Filter.InvoiceStatus == "refunded")">Đã hoàn tiền / Refunded</option>
+            <option value="void" selected="@(Model.Filter.InvoiceStatus == "void")">Đã hủy / Void</option>
+          </select>
+        </label>
+        <label>
+          <span>Từ tháng / Month From</span>
+          <input type="date" name="monthFrom" value="@(Model.Filter.MonthFrom?.ToString("yyyy-MM-dd"))" />
+        </label>
+        <label>
+          <span>Đến tháng / Month To</span>
+          <input type="date" name="monthTo" value="@(Model.Filter.MonthTo?.ToString("yyyy-MM-dd"))" />
+        </label>
+        <label>
+          <span>Thanh toán từ / Invoice Paid From</span>
+          <input type="date" name="invoicePaidFrom" value="@(Model.Filter.InvoicePaidFrom?.ToString("yyyy-MM-dd"))" />
+        </label>
+        <label>
+          <span>Thanh toán đến / Invoice Paid To</span>
+          <input type="date" name="invoicePaidTo" value="@(Model.Filter.InvoicePaidTo?.ToString("yyyy-MM-dd"))" />
+        </label>
+        <div class="subscription-filter-actions">
+          <a asp-controller="MonthlySubscription" asp-action="Index" class="btn-secondary">Đặt lại / Reset</a>
+          <button type="submit" class="btn-primary">Truy vấn / Query</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="device-card">
+      <div class="device-card-head">
+        <div>
+          <h2>Lịch sử subscription / Subscription History</h2>
+          <p>Tổng số subscription / Total subscriptions: <strong>@Model.TotalItems</strong></p>
+        </div>
+        @if (Model.CanManageSubscriptions)
+        {
+          <button type="button" class="btn-primary subscription-make-qr-btn" id="makeGroupedQrButton">Tạo QR / Make QR</button>
+        }
+      </div>
+      <div class="table-wrap">
+        <table class="device-table subscription-table">
+          <thead>
+            <tr>
+              @if (Model.CanManageSubscriptions)
+              {
+                <th class="invoice-select-col">
+                  <input type="checkbox" id="selectAllSubscriptionsForQr" aria-label="Chọn tất cả subscription để tạo QR / Select all subscriptions for QR" />
+                </th>
+              }
+              <th>Tenant / Tenant</th>
+              <th>Tàu / Vessel</th>
+              <th>Mã KIT / Kit ID</th>
+              <th>Tên gói / Plan Name</th>
+              <th>Loại / Type</th>
+              <th>Giới hạn data / Data Limit</th>
+              <th>Tổng mua thêm / Total Top Up</th>
+              <th>Trạng thái subscription / Subscription Status</th>
+              <th>Trạng thái invoice / Invoice Status</th>
+              <th>Kỳ subscription / Subscription</th>
+              <th>Ngày billing tiếp theo / Next Billing Date</th>
+              <th>Tổng tiền invoice / Total Invoice Amount</th>
+              <th>Đã thanh toán / Total Paid</th>
+              <th>Tác vụ / Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            @if (Model.Subscriptions.Count == 0)
+            {
+              <tr><td colspan="@(Model.CanManageSubscriptions ? 15 : 14)" class="tenant-empty">Chưa có monthly subscription nào / No monthly subscriptions found.</td></tr>
+            }
+            else
+            {
+              @foreach (var item in Model.Subscriptions)
+              {
+                <tr>
+                  @if (Model.CanManageSubscriptions)
+                  {
+                    <td class="invoice-select-col">
+                      <input type="checkbox"
+                             class="subscription-qr-checkbox"
+                             value="@item.Id"
+                             data-tenant-id="@item.TenantId"
+                             aria-label="Chọn subscription @item.Id để tạo QR / Select subscription @item.Id for QR"
+                             disabled="@(!string.Equals(item.InvoiceStatus, "pending", StringComparison.OrdinalIgnoreCase) || item.TotalInvoiceAmount <= item.TotalPaid)" />
+                    </td>
+                  }
+                  <td>@item.TenantName</td>
+                  <td>@item.VesselName</td>
+                  <td>@item.KitId</td>
+                  <td>@item.PlanName</td>
+                  <td>@item.SubscriptionType</td>
+                  <td>@Data(item.DataLimitGb)</td>
+                  <td>@Data(item.TotalTopUpGb)</td>
+                  <td><span class="subscription-status @item.Status">@item.Status</span></td>
+                  <td><span class="subscription-status @item.InvoiceStatus">@item.InvoiceStatus</span></td>
+                  <td>@item.SubscriptionPeriodDisplay</td>
+                  <td>@item.NextBillingDateDisplay</td>
+                  <td>@Money(item.TotalInvoiceAmount)</td>
+                  <td>@Money(item.TotalPaid)</td>
+                  <td>
+                    <a asp-controller="MonthlySubscription" asp-action="Details" asp-route-id="@item.Id" class="table-action-btn">Chi tiết / Details</a>
+                  </td>
+                </tr>
+              }
+            }
+          </tbody>
+        </table>
+      </div>
+      <div class="device-pagination">
+        <div class="device-pagination-meta">
+          <span>Trang / Page</span>
+          <strong>@Model.CurrentPage</strong>
+          <span>/</span>
+          <strong>@Model.TotalPages</strong>
+        </div>
+        <div class="device-pagination-actions">
+          @if (Model.HasPreviousPage)
+          {
+            <a class="pagination-btn" asp-action="Index" asp-route-page="@(Model.CurrentPage - 1)" asp-route-pageSize="@Model.PageSize">Trước / Previous</a>
+          }
+          @if (Model.HasNextPage)
+          {
+            <a class="pagination-btn" asp-action="Index" asp-route-page="@(Model.CurrentPage + 1)" asp-route-pageSize="@Model.PageSize">Sau / Next</a>
+          }
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+@if (Model.CanManageSubscriptions)
+{
+  <div class="modal-backdrop" id="subscriptionModal" hidden>
+    <div class="device-modal subscription-modal" role="dialog" aria-modal="true" aria-labelledby="subscriptionModalTitle">
+      <div class="device-modal-head">
+        <div>
+          <h2 id="subscriptionModalTitle">Tạo subscription / Create Subscription Plan</h2>
+          <p>Tạo subscription hàng tháng và invoice chính / Create a monthly subscription and primary invoice.</p>
+        </div>
+        <button type="button" class="modal-close" id="closeSubscriptionModal" aria-label="Đóng / Close">×</button>
+      </div>
+      <form asp-controller="MonthlySubscription" asp-action="Create" method="post" class="subscription-create-form">
+        @Html.AntiForgeryToken()
+        <label class="detail-field">
+          <span>* Chọn tenant / Filter Tenant</span>
+          <select asp-for="CreateForm.TenantId" id="createTenant">
+            <option value="">Tìm tenant / Search Tenant</option>
+            @foreach (var tenant in Model.Tenants)
+            {
+              <option value="@tenant.Id">@tenant.TenantName</option>
+            }
+          </select>
+        </label>
+        <label class="detail-field">
+          <span>* Chọn tàu / Filter Vessel</span>
+          <select asp-for="CreateForm.DeviceId" id="createDevice">
+            <option value="">Tìm tàu / Search Vessel</option>
+          </select>
+        </label>
+        <label class="detail-field">
+          <span>* Gói subscription / Subscription Plan</span>
+          <select asp-for="CreateForm.PricingPlanId" id="createPlan">
+            <option value="">Chọn gói subscription / Select subscription plan</option>
+          </select>
+        </label>
+        <label class="detail-field">
+          <span>Giá overcharge ($/GB) / Overcharge Price ($/GB)</span>
+          <input id="createOverchargePrice" value="0.00" readonly />
+        </label>
+        <label class="detail-field">
+          <span>Giá bán cuối ($) / Final Sale Price ($)</span>
+          <input id="createFinalPrice" value="0.00" readonly />
+        </label>
+        <input type="hidden" asp-for="CreateForm.SubscriptionType" value="Personal" />
+        <label class="detail-field">
+          <span>* Tháng sử dụng gói cước / Usage Month</span>
+          <input name="CreateForm.UsageMonth" type="month" id="createUsageMonth" value="" />
+        </label>
+        <div class="subscription-date-grid">
+          <label class="detail-field">
+            <span>* Ngày bắt đầu / Start Date</span>
+            <input name="CreateForm.StartDate" type="date" id="createStartDate" value="" />
+          </label>
+          <label class="detail-field">
+            <span>* Ngày kết thúc / End Date</span>
+            <input name="CreateForm.EndDate" type="date" id="createEndDate" value="" />
+          </label>
+        </div>
+        <label class="detail-field">
+          <span>* Ngày billing tiếp theo / Next Billing Date</span>
+          <input name="CreateForm.NextBillingDate" type="date" id="createNextBillingDate" value="" />
+        </label>
+        <div class="subscription-calculation" id="createCalculation">Chọn tàu, gói và ngày sử dụng để tính giá / Select vessel, plan, and usage dates to calculate pricing.</div>
+        <div class="device-modal-actions">
+          <button type="button" class="btn-secondary" id="cancelSubscriptionModal">Hủy / Cancel</button>
+          <button type="submit" class="btn-primary">Lưu / Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+}
+
+@if (Model.CanManageSubscriptions)
+{
+  <div class="modal-backdrop" id="groupedNinePayQrModal" hidden>
+    <div class="device-modal subscription-modal ninepay-qr-modal" role="dialog" aria-modal="true" aria-labelledby="groupedNinePayQrTitle">
+      <div class="device-modal-head">
+        <div>
+          <h2 id="groupedNinePayQrTitle">Tạo QR 9Pay / 9Pay Make QR</h2>
+          <p id="groupedNinePayInvoiceNumber">Subscription đã chọn / Selected subscriptions</p>
+        </div>
+        <button type="button" class="modal-close" id="closeGroupedNinePayQrModal" aria-label="Đóng / Close">×</button>
+      </div>
+      <div class="ninepay-qr-body">
+        <div class="ninepay-loading" id="groupedNinePayLoading" hidden>
+          <span class="ninepay-loading-spinner" aria-hidden="true"></span>
+          <strong>Đang tạo QR / Generating QR...</strong>
+        </div>
+        <div class="tenant-feedback is-error" id="groupedNinePayError" hidden></div>
+        <table class="subscription-kv-table ninepay-qr-table" id="groupedNinePaySummary" hidden>
+          <tbody>
+            <tr><th>Invoice / Invoice</th><td id="groupedNinePaySummaryInvoice">-</td></tr>
+            <tr><th>Tổng đơn hàng / Order Total</th><td id="groupedNinePaySummaryOrder">-</td></tr>
+            <tr><th>Tỷ giá / Exchange Rate</th><td id="groupedNinePaySummaryRate">-</td></tr>
+            <tr><th>Số tiền / Amount</th><td id="groupedNinePaySummaryAmount">-</td></tr>
+            <tr><th>Phí giao dịch / Transaction Fee</th><td id="groupedNinePaySummaryFee">-</td></tr>
+            <tr><th>Tổng cần thanh toán / Total to Pay</th><td id="groupedNinePaySummaryTotal">-</td></tr>
+          </tbody>
+        </table>
+        <p class="tenant-meta" id="groupedNinePayExpires" hidden></p>
+        <label class="detail-field ninepay-bank-select-field" id="groupedNinePayBankSelectField" hidden>
+          <span>Ngân hàng / Bank</span>
+          <select id="groupedNinePayBankSelect"></select>
+        </label>
+        <div class="ninepay-qr-frame" id="groupedNinePayQrFrame" hidden>
+          <img id="groupedNinePayQrImage" alt="Mã QR 9Pay / 9Pay QR code" />
+        </div>
+        <table class="subscription-kv-table ninepay-qr-table" id="groupedNinePayBankTable" hidden>
+          <tbody>
+            <tr><th>Ngân hàng / Bank</th><td id="groupedNinePayBankName">-</td></tr>
+            <tr><th>Số tài khoản / Account No</th><td id="groupedNinePayAccountNo">-</td></tr>
+            <tr><th>Tên tài khoản / Account Name</th><td id="groupedNinePayAccountName">-</td></tr>
+            <tr><th>Số tiền / Amount</th><td id="groupedNinePayBankAmount">-</td></tr>
+            <tr><th>Nội dung / Remark</th><td id="groupedNinePayRemark">-</td></tr>
+          </tbody>
+        </table>
+        <details class="ninepay-debug" id="groupedNinePayDebugPanel" hidden open>
+          <summary>Log debug 9Pay / 9Pay debug log</summary>
+          <pre id="groupedNinePayDebugText">-</pre>
+        </details>
+      </div>
+      <div class="device-modal-actions">
+        <button type="button" class="btn-secondary" id="copyGroupedNinePayDebug" hidden>Sao chép debug / Copy debug</button>
+        <button type="button" class="btn-secondary" id="cancelGroupedNinePayQrModal">Đóng / Close</button>
+      </div>
+    </div>
+  </div>
+}
+
+@section Scripts {
+<script>
+(() => {
+  const devices = @Html.Raw(devicesJson);
+  const plans = @Html.Raw(plansJson);
+  const modal = document.querySelector("#subscriptionModal");
+  const createTenant = document.querySelector("#createTenant");
+  const createDevice = document.querySelector("#createDevice");
+  const createPlan = document.querySelector("#createPlan");
+  const usageMonth = document.querySelector("#createUsageMonth");
+  const startDate = document.querySelector("#createStartDate");
+  const endDate = document.querySelector("#createEndDate");
+  const nextBillingDate = document.querySelector("#createNextBillingDate");
+  const overchargePrice = document.querySelector("#createOverchargePrice");
+  const finalPriceInput = document.querySelector("#createFinalPrice");
+  const calculation = document.querySelector("#createCalculation");
+  const makeGroupedQrButton = document.querySelector("#makeGroupedQrButton");
+  const selectAllSubscriptionsForQr = document.querySelector("#selectAllSubscriptionsForQr");
+  const groupedQrModal = document.querySelector("#groupedNinePayQrModal");
+  const groupedQrLoading = document.querySelector("#groupedNinePayLoading");
+  const groupedQrError = document.querySelector("#groupedNinePayError");
+  const groupedQrSummary = document.querySelector("#groupedNinePaySummary");
+  const groupedQrBankSelectField = document.querySelector("#groupedNinePayBankSelectField");
+  const groupedQrBankSelect = document.querySelector("#groupedNinePayBankSelect");
+  const groupedQrFrame = document.querySelector("#groupedNinePayQrFrame");
+  const groupedQrImage = document.querySelector("#groupedNinePayQrImage");
+  const groupedQrBankTable = document.querySelector("#groupedNinePayBankTable");
+  const groupedQrExpires = document.querySelector("#groupedNinePayExpires");
+  const groupedQrDebugPanel = document.querySelector("#groupedNinePayDebugPanel");
+  const groupedQrDebugText = document.querySelector("#groupedNinePayDebugText");
+  const copyGroupedQrDebug = document.querySelector("#copyGroupedNinePayDebug");
+  let groupedQrCountdownTimer = null;
+
+  function money(value) {
+    const number = Number(value || 0);
+    return `$ ${number.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+  }
+
+  function vnd(value) {
+    const number = Number(value || 0);
+    return `${number.toLocaleString("vi-VN", { maximumFractionDigits: 0 })} VND`;
+  }
+
+  function field(source, pascalName, fallback = "") {
+    if (!source) return fallback;
+    const camelName = pascalName.charAt(0).toLowerCase() + pascalName.slice(1);
+    return source[pascalName] ?? source[camelName] ?? fallback;
+  }
+
+  function toDateInput(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function toMonthInput(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    return `${year}-${month}`;
+  }
+
+  function selectedDevice() {
+    const deviceId = Number(createDevice?.value || 0);
+    return devices.find((device) => Number(device.Id ?? device.id) === deviceId) || null;
+  }
+
+  function isCanceledSubscriptionStatus(status) {
+    const value = String(status || "").trim().toLowerCase();
+    return value === "terminated" || value === "cancelled" || value === "canceled" || value === "cancel" || value === "void";
+  }
+
+  function canAutoSelectCurrentMonth(device) {
+    if (!device) return false;
+    const hasCurrent = Boolean(device.HasCurrentMonthSubscription ?? device.hasCurrentMonthSubscription);
+    const status = device.CurrentMonthSubscriptionStatus ?? device.currentMonthSubscriptionStatus ?? "";
+    return !hasCurrent || isCanceledSubscriptionStatus(status);
+  }
+
+  function clearDateDefaults() {
+    if (usageMonth) usageMonth.value = "";
+    if (startDate) startDate.value = "";
+    if (endDate) endDate.value = "";
+    if (nextBillingDate) nextBillingDate.value = "";
+  }
+
+  function applyCurrentMonthDefaultsIfAllowed() {
+    const device = selectedDevice();
+    clearDateDefaults();
+    if (!canAutoSelectCurrentMonth(device)) {
+      updateCalculation();
+      return;
+    }
+
+    const today = new Date();
+    const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    const next = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+    if (usageMonth) usageMonth.value = toMonthInput(today);
+    if (startDate) startDate.value = toDateInput(today);
+    if (endDate) endDate.value = toDateInput(end);
+    if (nextBillingDate) nextBillingDate.value = toDateInput(next);
+    updateCalculation();
+  }
+
+  function updateDevices() {
+    if (!createDevice) return;
+    const tenantId = Number(createTenant.value || 0);
+    createDevice.innerHTML = '<option value="">Tìm tàu / Search Vessel</option>';
+    devices.filter((device) => !tenantId || Number(device.TenantId) === tenantId || Number(device.tenantId) === tenantId)
+      .forEach((device) => {
+        const id = device.Id ?? device.id;
+        const name = device.DisplayName ?? device.displayName ?? device.VesselName ?? device.vesselName ?? device.DeviceName ?? device.deviceName;
+        createDevice.insertAdjacentHTML("beforeend", `<option value="${id}">${name}</option>`);
+      });
+    updatePlans();
+  }
+
+  function updatePlans() {
+    if (!createPlan) return;
+    const deviceId = Number(createDevice.value || 0);
+    createPlan.innerHTML = '<option value="">Chọn gói subscription / Select subscription plan</option>';
+    plans.filter((plan) => Number(plan.DeviceId ?? plan.deviceId) === deviceId)
+      .forEach((plan) => {
+        const id = plan.PricingPlanId ?? plan.pricingPlanId;
+        const name = plan.PlanName ?? plan.planName;
+        const price = plan.FinalPrice ?? plan.finalPrice;
+        createPlan.insertAdjacentHTML("beforeend", `<option value="${id}">${name} - ${money(price)}</option>`);
+      });
+    updateCalculation();
+  }
+
+  function selectedPlan() {
+    const deviceId = Number(createDevice?.value || 0);
+    const planId = Number(createPlan?.value || 0);
+    return plans.find((plan) => Number(plan.DeviceId ?? plan.deviceId) === deviceId && Number(plan.PricingPlanId ?? plan.pricingPlanId) === planId);
+  }
+
+  function updateCalculation() {
+    const plan = selectedPlan();
+    const start = startDate?.value ? new Date(startDate.value) : null;
+    const end = endDate?.value ? new Date(endDate.value) : null;
+    if (overchargePrice) {
+      overchargePrice.value = plan ? Number(plan.FinalOverChargePrice ?? plan.finalOverChargePrice ?? 0).toFixed(2) : "0.00";
+    }
+    if (finalPriceInput) {
+      finalPriceInput.value = plan ? Number(plan.FinalPrice ?? plan.finalPrice ?? 0).toFixed(2) : "0.00";
+    }
+    if (!plan || !start || !end || end < start) {
+      if (calculation) calculation.textContent = "Chọn tàu, gói và ngày sử dụng để tính giá / Select vessel, plan, and usage dates to calculate pricing.";
+      return;
+    }
+    const days = Math.round((end - start) / 86400000) + 1;
+    const price = Number(plan.FinalPrice ?? plan.finalPrice ?? 0);
+    const amount = price * days / 30;
+    if (calculation) calculation.textContent = `${money(amount)} = (${money(price)} / 30 days) x ${days} days`;
+  }
+
+  function applyMonthDefaults() {
+    if (!usageMonth?.value) return;
+    const [year, month] = usageMonth.value.split("-").map(Number);
+    if (!year || !month) return;
+    const start = new Date(year, month - 1, 1);
+    const end = new Date(year, month, 0);
+    const next = new Date(year, month, 1);
+    if (startDate && !startDate.value) startDate.value = toDateInput(start);
+    if (endDate && !endDate.value) endDate.value = toDateInput(end);
+    if (nextBillingDate && !nextBillingDate.value) nextBillingDate.value = toDateInput(next);
+    updateCalculation();
+  }
+
+  function subscriptionQrCheckboxes() {
+    return Array.from(document.querySelectorAll(".subscription-qr-checkbox:not(:disabled)"));
+  }
+
+  function selectedSubscriptionIdsForQr() {
+    return subscriptionQrCheckboxes()
+      .filter((checkbox) => checkbox.checked)
+      .map((checkbox) => Number(checkbox.value))
+      .filter((id) => id > 0);
+  }
+
+  function selectedTenantIdsForQr() {
+    return subscriptionQrCheckboxes()
+      .filter((checkbox) => checkbox.checked)
+      .map((checkbox) => Number(checkbox.dataset.tenantId || 0))
+      .filter((id) => id > 0);
+  }
+
+  function setGroupedQrLoading(isLoading) {
+    if (groupedQrLoading) groupedQrLoading.hidden = !isLoading;
+    if (makeGroupedQrButton) makeGroupedQrButton.disabled = isLoading;
+  }
+
+  function resetGroupedQrModal() {
+    if (groupedQrCountdownTimer) {
+      window.clearInterval(groupedQrCountdownTimer);
+      groupedQrCountdownTimer = null;
+    }
+    if (groupedQrError) {
+      groupedQrError.hidden = true;
+      groupedQrError.textContent = "";
+    }
+    if (groupedQrSummary) groupedQrSummary.hidden = true;
+    if (groupedQrBankSelectField) groupedQrBankSelectField.hidden = true;
+    if (groupedQrFrame) groupedQrFrame.hidden = true;
+    if (groupedQrBankTable) groupedQrBankTable.hidden = true;
+    if (groupedQrExpires) groupedQrExpires.hidden = true;
+    if (groupedQrDebugPanel) groupedQrDebugPanel.hidden = true;
+    if (groupedQrDebugText) groupedQrDebugText.textContent = "-";
+    if (copyGroupedQrDebug) copyGroupedQrDebug.hidden = true;
+    if (groupedQrImage) groupedQrImage.removeAttribute("src");
+  }
+
+  function showGroupedQrDebug(debugLog) {
+    const value = String(debugLog || "").trim();
+    if (!value) return;
+    if (groupedQrDebugText) groupedQrDebugText.textContent = value;
+    if (groupedQrDebugPanel) groupedQrDebugPanel.hidden = false;
+    if (copyGroupedQrDebug) copyGroupedQrDebug.hidden = false;
+  }
+
+  function showGroupedQrError(message, debugLog = "") {
+    resetGroupedQrModal();
+    if (groupedQrError) {
+      groupedQrError.textContent = message || "Không thể tạo QR / Unable to create QR.";
+      groupedQrError.hidden = false;
+    }
+    showGroupedQrDebug(debugLog);
+  }
+
+  function updateGroupedQrBank(bank, payment) {
+    const total = field(payment, "TotalToPayVnd", 0);
+    const qrUrl = field(bank, "QrCodeUrl");
+    document.querySelector("#groupedNinePayBankName").textContent = field(bank, "BankName", "-");
+    document.querySelector("#groupedNinePayAccountNo").textContent = field(bank, "BankAccountNo", "-");
+    document.querySelector("#groupedNinePayAccountName").textContent = field(bank, "BankAccountName", "-");
+    document.querySelector("#groupedNinePayBankAmount").textContent = vnd(total);
+    document.querySelector("#groupedNinePayRemark").textContent = field(bank, "Remark", field(bank, "Content", field(payment, "InvoiceNumber", "-")));
+    if (groupedQrImage && qrUrl) {
+      groupedQrImage.src = qrUrl;
+      groupedQrFrame.hidden = false;
+    }
+    if (groupedQrBankTable) groupedQrBankTable.hidden = false;
+  }
+
+  function startGroupedQrCountdown(payment) {
+    const expiresAtValue = field(payment, "ExpiresAt");
+    if (!groupedQrExpires || !expiresAtValue) return;
+    const expiresAt = new Date(expiresAtValue);
+    if (Number.isNaN(expiresAt.getTime())) return;
+
+    const tick = () => {
+      const seconds = Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      const remainSeconds = seconds % 60;
+      groupedQrExpires.textContent = `QR còn hiệu lực / QR valid for ${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(remainSeconds).padStart(2, "0")}`;
+      groupedQrExpires.hidden = false;
+      if (seconds <= 0 && groupedQrCountdownTimer) {
+        window.clearInterval(groupedQrCountdownTimer);
+        groupedQrCountdownTimer = null;
+      }
+    };
+
+    tick();
+    groupedQrCountdownTimer = window.setInterval(tick, 1000);
+  }
+
+  function renderGroupedQr(payment) {
+    const banks = field(payment, "Banks", []);
+    showGroupedQrDebug(field(payment, "DebugLog", ""));
+    document.querySelector("#groupedNinePayInvoiceNumber").textContent = field(payment, "InvoiceNumber", "Subscription đã chọn / Selected subscriptions");
+    document.querySelector("#groupedNinePaySummaryInvoice").textContent = field(payment, "InvoiceNumber", "-");
+    document.querySelector("#groupedNinePaySummaryOrder").textContent = money(field(payment, "OrderTotalUsd", 0));
+    document.querySelector("#groupedNinePaySummaryRate").textContent = vnd(field(payment, "ExchangeRateVndPerUsd", 0));
+    document.querySelector("#groupedNinePaySummaryAmount").textContent = vnd(field(payment, "AmountVnd", 0));
+    document.querySelector("#groupedNinePaySummaryFee").textContent = vnd(field(payment, "TransactionFeeVnd", 0));
+    document.querySelector("#groupedNinePaySummaryTotal").textContent = vnd(field(payment, "TotalToPayVnd", 0));
+    if (groupedQrSummary) groupedQrSummary.hidden = false;
+
+    if (!Array.isArray(banks) || banks.length === 0) {
+      showGroupedQrError("9Pay không trả về danh sách ngân hàng cho QR này / 9Pay did not return a bank list for this QR.", field(payment, "DebugLog", ""));
+      return;
+    }
+
+    groupedQrBankSelect.innerHTML = "";
+    banks.forEach((bank, index) => {
+      const option = document.createElement("option");
+      option.value = String(index);
+      option.textContent = field(bank, "DisplayName", `${field(bank, "BankCode", "")} - ${field(bank, "BankName", "")}`).trim();
+      groupedQrBankSelect.appendChild(option);
+    });
+    groupedQrBankSelectField.hidden = false;
+    updateGroupedQrBank(banks[0], payment);
+    groupedQrBankSelect.onchange = () => updateGroupedQrBank(banks[Number(groupedQrBankSelect.value)] || banks[0], payment);
+    startGroupedQrCountdown(payment);
+  }
+
+  async function createGroupedQr() {
+    const subscriptionIds = selectedSubscriptionIdsForQr();
+    if (subscriptionIds.length === 0) {
+      alert("Vui lòng chọn ít nhất một subscription chưa thanh toán / Please select at least one unpaid subscription.");
+      return;
+    }
+    if (new Set(selectedTenantIdsForQr()).size > 1) {
+      alert("Kh\u00f4ng th\u1ec3 t\u1ea1o QR cho nhi\u1ec1u tenant kh\u00e1c nhau.");
+      return;
+    }
+
+    resetGroupedQrModal();
+    if (groupedQrModal) groupedQrModal.hidden = false;
+    setGroupedQrLoading(true);
+
+    try {
+      const response = await fetch("/Payments/NinePaySubscriptionQr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscriptionIds })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.success === false) {
+        const error = new Error(payload.message || `Request failed with HTTP ${response.status}`);
+        error.debug = payload.debug || "";
+        throw error;
+      }
+      resetGroupedQrModal();
+      renderGroupedQr(payload.data);
+    } catch (error) {
+      showGroupedQrError(error.message, error.debug || "");
+    } finally {
+      setGroupedQrLoading(false);
+    }
+  }
+
+  document.querySelector("#openSubscriptionModal")?.addEventListener("click", () => {
+    clearDateDefaults();
+    updateCalculation();
+    modal.hidden = false;
+  });
+  document.querySelector("#closeSubscriptionModal")?.addEventListener("click", () => { modal.hidden = true; });
+  document.querySelector("#cancelSubscriptionModal")?.addEventListener("click", () => { modal.hidden = true; });
+  document.querySelector("#closeGroupedNinePayQrModal")?.addEventListener("click", () => { groupedQrModal.hidden = true; resetGroupedQrModal(); });
+  document.querySelector("#cancelGroupedNinePayQrModal")?.addEventListener("click", () => { groupedQrModal.hidden = true; resetGroupedQrModal(); });
+  makeGroupedQrButton?.addEventListener("click", createGroupedQr);
+  copyGroupedQrDebug?.addEventListener("click", async () => {
+    const value = groupedQrDebugText?.textContent || "";
+    if (value && value !== "-") await navigator.clipboard.writeText(value);
+  });
+  selectAllSubscriptionsForQr?.addEventListener("change", () => {
+    subscriptionQrCheckboxes().forEach((checkbox) => {
+      checkbox.checked = selectAllSubscriptionsForQr.checked;
+    });
+  });
+  createTenant?.addEventListener("change", () => {
+    clearDateDefaults();
+    updateDevices();
+  });
+  createDevice?.addEventListener("change", () => {
+    updatePlans();
+    applyCurrentMonthDefaultsIfAllowed();
+  });
+  createPlan?.addEventListener("change", updateCalculation);
+  usageMonth?.addEventListener("change", applyMonthDefaults);
+  startDate?.addEventListener("change", updateCalculation);
+  endDate?.addEventListener("change", updateCalculation);
+})();
+</script>
+}

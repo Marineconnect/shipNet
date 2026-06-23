@@ -7,31 +7,31 @@
     <div class="device-shell">
         <div class="device-topbar">
             <div>
-                <div class="device-brand">Shipnet portal</div>
-                <h1>Chi tiết thiết bị</h1>
+                <div class="device-brand">Shipnet Portal</div>
+                <h1>Chi tiết thiết bị / Device Details</h1>
                 <p>@Model.DeviceName</p>
             </div>
 
             <div class="device-actions">
-                <a asp-controller="Dashboard" asp-action="Index" class="btn-secondary">Quay lại danh sách</a>
+                <a asp-controller="Dashboard" asp-action="Index" class="btn-secondary">Quay lại danh sách / Back to list</a>
             </div>
         </div>
 
         <section class="detail-card">
             <div class="device-card-head">
                 <div>
-                    <h2>Thông tin thiết bị</h2>
-                    <p>Thông tin chi tiết được đọc trực tiếp từ hệ thống.</p>
+                    <h2>Thông tin thiết bị / Device Information</h2>
+                    <p>Thông tin chi tiết được đọc trực tiếp từ hệ thống / Details are read directly from the system.</p>
                 </div>
             </div>
 
             <div class="detail-grid">
                 <div class="detail-item">
-                    <div class="detail-label">Tên thiết bị</div>
+                    <div class="detail-label">Tên thiết bị / Device Name</div>
                     <div class="detail-value">@Model.DeviceName</div>
                 </div>
                 <div class="detail-item">
-                    <div class="detail-label">Mã KIT</div>
+                    <div class="detail-label">Mã KIT / Device Code</div>
                     <div class="detail-value">@Model.DeviceCode</div>
                 </div>
                 <div class="detail-item">
@@ -39,15 +39,15 @@
                     <div class="detail-value">@(string.IsNullOrWhiteSpace(Model.KitId) ? "-" : Model.KitId)</div>
                 </div>
                 <div class="detail-item">
-                    <div class="detail-label">Trạng thái online</div>
+                    <div class="detail-label">Trạng thái online / Online Status</div>
                     <div class="detail-value">@Model.Availability</div>
                 </div>
                 <div class="detail-item">
-                    <div class="detail-label">Cập nhật cuối</div>
+                    <div class="detail-label">Cập nhật cuối / Last Update</div>
                     <div class="detail-value">@Model.LastUpdateTimeVietnam</div>
                 </div>
                 <div class="detail-item">
-                    <div class="detail-label">Hết hạn token</div>
+                    <div class="detail-label">Hết hạn token / Token Expiry</div>
                     <div class="detail-value">@Model.TokenExpiredTimeVietnam</div>
                 </div>
             </div>

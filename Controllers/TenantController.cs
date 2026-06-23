@@ -32,6 +32,11 @@ public class TenantController(
     public async Task<IActionResult> Index(int page = 1, int pageSize = 10)
     {
         var currentUser = await GetCurrentUserAsync();
+        if (currentUser?.IsShipAdmin == true || currentUser?.IsCrew == true)
+        {
+            return Forbid();
+        }
+
         return View(TenantIndexViewPath, await BuildIndexViewModelAsync(currentUser, page: page, pageSize: pageSize));
     }
 
@@ -46,6 +51,11 @@ public class TenantController(
     public async Task<IActionResult> Create(TenantIndexViewModel requestModel)
     {
         var currentUser = await GetCurrentUserAsync();
+        if (currentUser?.IsShipAdmin == true || currentUser?.IsCrew == true)
+        {
+            return Forbid();
+        }
+
         if (currentUser?.IsTenantUser == true)
         {
             TempData["TenantError"] = "Tài khoản tenant không có quyền thêm tenant.";
@@ -103,6 +113,11 @@ public class TenantController(
     public async Task<IActionResult> Edit(int id, int page = 1, int pageSize = 10)
     {
         var currentUser = await GetCurrentUserAsync();
+        if (currentUser?.IsShipAdmin == true || currentUser?.IsCrew == true)
+        {
+            return Forbid();
+        }
+
         if (currentUser?.IsTenantUser == true && currentUser.TenantId != id)
         {
             return NotFound();
@@ -131,6 +146,11 @@ public class TenantController(
     public async Task<IActionResult> Edit(TenantIndexViewModel requestModel)
     {
         var currentUser = await GetCurrentUserAsync();
+        if (currentUser?.IsShipAdmin == true || currentUser?.IsCrew == true)
+        {
+            return Forbid();
+        }
+
         var model = requestModel.EditForm;
         if (currentUser?.IsTenantUser == true && currentUser.TenantId != model.Id)
         {
@@ -199,6 +219,11 @@ public class TenantController(
     public async Task<IActionResult> Delete(int id, int page = 1, int pageSize = 10)
     {
         var currentUser = await GetCurrentUserAsync();
+        if (currentUser?.IsShipAdmin == true || currentUser?.IsCrew == true)
+        {
+            return Forbid();
+        }
+
         if (currentUser?.IsTenantUser == true)
         {
             TempData["TenantError"] = "Tài khoản tenant không có quyền xóa tenant.";

@@ -2,6 +2,8 @@
 @using System.Security.Claims
 @{
     ViewData["Title"] = "Danh sách thiết bị";
+    ViewData["ActiveNav"] = "dashboard";
+    ViewData["ShowLanguageSwitch"] = "true";
 
     string? ResolveLogoUrl(string? path)
     {
@@ -36,52 +38,11 @@
         : null;
 }
 
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQkQfQ52JfCc0QfVIJ7VPF2uu5mBgwI=" crossorigin="" />
+
 <div class="device-page">
   <div class="device-shell">
-    <header class="portal-nav">
-      <div class="portal-nav-brand">
-        <div class="portal-nav-mark">S</div>
-        <div>
-          <div class="portal-nav-title">Shipnet Portal</div>
-          <div class="portal-nav-subtitle" data-i18n="nav_subtitle">Fleet Operations Console</div>
-        </div>
-      </div>
-      <button type="button" class="portal-nav-toggle" id="portalNavToggle" aria-expanded="false" aria-label="Toggle navigation">
-        <span></span>
-        <span></span>
-        <span></span>
-      </button>
-      <div class="portal-nav-panel" id="portalNavPanel">
-      <nav class="portal-nav-links" aria-label="Primary">
-        <a asp-controller="Tenant" asp-action="Index" class="portal-nav-link" data-i18n="nav_tenant">Quản lý tenant</a>
-        <a asp-controller="User" asp-action="Index" class="portal-nav-link" data-i18n="nav_users">Quản lý người dùng</a>
-      </nav>
-      <div class="portal-nav-tools">
-        <div class="language-switch portal-language-switch" aria-label="Language switch">
-          <button type="button" class="language-btn is-active" data-lang="vi">VI</button>
-          <button type="button" class="language-btn" data-lang="en">EN</button>
-        </div>
-        <div class="portal-account-menu">
-          <button type="button" class="portal-account" id="portalAccountButton" aria-haspopup="menu" aria-expanded="false">
-            <div class="portal-account-avatar @(string.IsNullOrWhiteSpace(accountAvatarUrl) ? string.Empty : "has-image")" style="@accountAvatarStyle">@accountAvatarLabel</div>
-            <div class="portal-account-copy">
-              <strong>@accountDisplayName</strong>
-              <span>@accountUsername</span>
-            </div>
-            <span class="portal-account-caret" aria-hidden="true"></span>
-          </button>
-          <div class="portal-account-dropdown" id="portalAccountDropdown" hidden>
-            <a asp-controller="Account" asp-action="UserDetail" class="portal-account-item" data-i18n="nav_profile">Thông tin tài khoản</a>
-            <a asp-controller="Account" asp-action="UserDetail" asp-fragment="password-section" class="portal-account-item" data-i18n="nav_password">Đổi mật khẩu</a>
-            <form asp-controller="Account" asp-action="Logout" method="post" class="portal-account-form">
-              @Html.AntiForgeryToken()
-              <button type="submit" class="portal-account-item is-danger" data-i18n="logout">Đăng xuất</button>
-            </form>
-          </div>
-        </div>
-      </div>
-      </div>
-    </header>
+    <partial name="_PortalNav" />
     <div class="device-topbar">
       <div>
         <div class="device-brand">Shipnet portal</div>
@@ -98,10 +59,13 @@
         </p>
       </div>
       <div class="device-actions">
-        <button type="button" class="btn-primary add-device-btn" id="openDeviceModal">
-          <span class="add-device-icon">+</span>
-          <span data-i18n="add_device">Thêm mới</span>
-        </button>
+        @if (Model.CanManageDevices)
+        {
+          <button type="button" class="btn-primary add-device-btn" id="openDeviceModal">
+            <span class="add-device-icon">+</span>
+            <span data-i18n="add_device">Thêm mới</span>
+          </button>
+        }
       </div>
     </div>
 
@@ -141,7 +105,7 @@
           <tbody id="deviceTableBody">
 	            @foreach (var device in Model.Devices)
 		            {
-		              <tr data-device-id="@device.Id" data-token-expired-utc="@device.TokenExpiredTimeUtcIso">
+		              <tr data-device-id="@device.Id" data-token-expired-utc="@device.TokenExpiredTimeUtcIso" data-client-synced="@device.IsSyncFresh.ToString().ToLowerInvariant()">
 		                <td>@device.DeviceName</td>
 		                <td>@device.VesselNameDisplay</td>
 		                <td>@device.TenantNameDisplay</td>
@@ -171,13 +135,16 @@
 	                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5c5.23 0 9.27 4.11 10.57 6-.85 1.23-2.98 3.64-6.06 5.08C15.1 16.75 13.57 17 12 17c-5.23 0-9.27-4.11-10.57-6C2.73 9.11 6.77 5 12 5Zm0 2c-3.73 0-6.93 2.46-8.43 4 1.5 1.54 4.7 4 8.43 4s6.93-2.46 8.43-4C18.93 9.46 15.73 7 12 7Zm0 1.5A2.5 2.5 0 1 1 9.5 11 2.5 2.5 0 0 1 12 8.5Zm0 2A.5.5 0 1 0 12.5 11 .5.5 0 0 0 12 10.5Z"/></svg>
 	                      <span data-i18n="view_action">Chi tiết</span>
 	                    </button>
-	                    <button type="button" class="table-action-btn js-edit-device" data-device-id="@device.Id">
-	                      <span data-i18n="edit_action">Sửa</span>
-	                    </button>
-	                    <button type="button" class="table-action-btn is-danger js-delete-device" data-device-id="@device.Id" data-device-code="@device.DeviceCode">
-	                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h2v8H7V9Zm4 0h2v8h-2V9Zm4 0h2v8h-2V9ZM6 21a2 2 0 0 1-2-2V8h16v11a2 2 0 0 1-2 2H6Z"/></svg>
-	                      <span data-i18n="delete_action">Xóa</span>
-	                    </button>
+                    @if (Model.CanManageDevices)
+                    {
+                      <button type="button" class="table-action-btn js-edit-device" data-device-id="@device.Id">
+                        <span data-i18n="edit_action">Sửa</span>
+                      </button>
+                      <button type="button" class="table-action-btn is-danger js-delete-device" data-device-id="@device.Id" data-device-code="@device.DeviceCode">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h2v8H7V9Zm4 0h2v8h-2V9Zm4 0h2v8h-2V9ZM6 21a2 2 0 0 1-2-2V8h16v11a2 2 0 0 1-2 2H6Z"/></svg>
+                        <span data-i18n="delete_action">Xóa</span>
+                      </button>
+                    }
                   </div>
                 </td>
               </tr>
@@ -224,7 +191,12 @@
       </div>
       <div class="detail-tabbar" role="tablist" aria-label="Detail sections">
         <button type="button" class="detail-tab-btn is-active" data-detail-tab="information" data-i18n="detail_tab_information">Information</button>
+        @if (Model.CanViewMap)
+        {
+          <button type="button" class="detail-tab-btn" data-detail-tab="map" data-i18n="detail_tab_map">Map</button>
+        }
         <button type="button" class="detail-tab-btn" data-detail-tab="telemetry" data-i18n="detail_tab_telemetry">Telemetry</button>
+        <button type="button" class="detail-tab-btn" data-detail-tab="plan" data-i18n="detail_tab_plan">Plan Management</button>
         <button type="button" class="detail-tab-btn" data-detail-tab="networking" data-i18n="detail_tab_networking">Networking</button>
       </div>
       <div class="device-detail-content">
@@ -265,6 +237,36 @@
             </section>
           </div>
         </section>
+        @if (Model.CanViewMap)
+        {
+          <section class="detail-tab-panel" data-detail-panel="map" hidden>
+            <section class="detail-map-panel">
+              <div class="detail-panel-head">
+                <span data-i18n="detail_map_title">Vị trí tàu</span>
+                <div class="detail-location-tools">
+                  <span class="detail-pill" id="detailMapCoordinates">-</span>
+                  <button type="button" class="detail-map-fullscreen-btn" id="detailMapFullscreenButton" data-i18n="detail_map_fullscreen">Toàn màn hình</button>
+                </div>
+              </div>
+              <div class="detail-map-surface">
+                <div id="detailMapCanvas" class="detail-map-canvas" role="application" aria-label="Device map"></div>
+                <div class="detail-map-empty" id="detailMapEmpty" data-i18n="detail_map_empty">Chưa có dữ liệu GPS</div>
+              </div>
+            </section>
+          </section>
+        }
+        <section class="detail-tab-panel" data-detail-panel="plan" hidden>
+          <section class="detail-panel detail-plan-panel">
+            <div class="detail-panel-head">
+              <span data-i18n="detail_plan_management">Quản lý gói cước</span>
+              <div class="detail-plan-head-actions">
+                <span class="detail-network-status" id="detailPlanStatus" data-i18n="detail_plan_loading">Đang tải gói cước...</span>
+                <button type="button" class="detail-ghost-btn detail-plan-add-btn" id="detailPlanAddButton" data-i18n="detail_add_plan">Thêm mới</button>
+              </div>
+            </div>
+            <div class="detail-plan-list" id="detailPlanList"></div>
+          </section>
+        </section>
         <section class="detail-tab-panel" data-detail-panel="networking" hidden>
           <div class="detail-network-layout">
             <section class="detail-panel">
@@ -274,7 +276,25 @@
               </div>
               <div class="detail-kv"><span data-i18n="detail_ssid">SSID</span><strong id="detailWifiSsid">-</strong></div>
               <div class="detail-kv"><span data-i18n="detail_password">Mật khẩu</span><strong id="detailWifiPassword">-</strong></div>
-              <button type="button" class="detail-ghost-btn" data-i18n="detail_restart_router">Khởi động lại router</button>
+              <div class="detail-kv"><span data-i18n="detail_wifi_enabled">WiFi Enabled</span><strong id="detailWifiEnabled">-</strong></div>
+              <form id="detailWifiForm" class="detail-wifi-form">
+                <label class="detail-field">
+                  <span data-i18n="detail_ssid">SSID</span>
+                  <input id="detailWifiSsidInput" class="input" name="Ssid" autocomplete="off" />
+                </label>
+                <label class="detail-field">
+                  <span data-i18n="detail_password">Mật khẩu</span>
+                  <input id="detailWifiPasswordInput" class="input" name="Password" autocomplete="off" />
+                </label>
+                <label class="detail-check">
+                  <input id="detailWifiEnabledInput" type="checkbox" name="Enabled" />
+                  <span data-i18n="detail_wifi_enabled">WiFi Enabled</span>
+                </label>
+                <div class="detail-command-actions">
+                  <button type="submit" class="detail-ghost-btn" id="detailWifiSaveButton" data-i18n="detail_save_wifi">Lưu WiFi</button>
+                  <button type="button" class="detail-ghost-btn is-danger" id="detailRouterRebootButton" data-i18n="detail_restart_router">Khởi động lại router</button>
+                </div>
+              </form>
             </section>
           </div>
         </section>
@@ -399,6 +419,40 @@
   </div>
 </div>
 
+<div class="device-plan-editor-backdrop" id="devicePlanEditorModal" hidden>
+  <div class="device-plan-editor" role="dialog" aria-modal="true" aria-labelledby="devicePlanEditorTitle">
+    <div class="device-modal-head">
+      <div>
+        <h2 id="devicePlanEditorTitle" data-i18n="detail_plan_editor_title">Thêm gói thiết bị</h2>
+        <p data-i18n="detail_plan_editor_subtitle">Chọn gói tenant và điều chỉnh giá bán ra cho thiết bị.</p>
+      </div>
+      <button type="button" class="modal-close" id="closeDevicePlanEditorModal" aria-label="Close">×</button>
+    </div>
+    <form id="detailPlanForm" class="detail-plan-form">
+      <label class="detail-field detail-plan-select-field">
+        <span data-i18n="detail_plan_select">Gói tenant</span>
+        <select id="detailPlanSelect" class="input" name="PricingPlanId">
+          <option value="" data-i18n="detail_plan_select_placeholder">Chọn gói cước</option>
+        </select>
+      </label>
+      <div class="detail-plan-price-grid">
+        <label class="detail-field">
+          <span data-i18n="detail_final_price">Đơn giá bán ra ($)</span>
+          <input id="detailPlanFinalPrice" class="input" name="FinalPrice" type="number" min="0" step="0.01" />
+        </label>
+        <label class="detail-field">
+          <span data-i18n="detail_final_overcharge">Giá mua thêm bán ra ($)</span>
+          <input id="detailPlanFinalOverChargePrice" class="input" name="FinalOverChargePrice" type="number" min="0" step="0.01" />
+        </label>
+      </div>
+      <div class="device-modal-actions">
+        <button type="button" class="btn-secondary" id="cancelDevicePlanEditorModal" data-i18n="cancel">Hủy</button>
+        <button type="submit" class="btn-primary" id="detailPlanSaveButton" data-i18n="detail_save_plan">Lưu gói thiết bị</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="deviceModal" hidden>
   <div class="device-modal" role="dialog" aria-modal="true" aria-labelledby="deviceModalTitle">
 	    <div class="device-modal-head">
@@ -412,6 +466,16 @@
       @Html.AntiForgeryToken()
       <input id="deviceId" name="Id" type="hidden" value="0" />
       <div class="form-group">
+        <label for="tenantId" data-i18n="field_tenant">Tenant</label>
+        <select id="tenantId" name="TenantId" class="input">
+          <option value="" data-i18n="field_tenant_placeholder">Chọn tenant</option>
+          @foreach (var tenant in Model.Tenants)
+          {
+            <option value="@tenant.Id">@tenant.TenantName</option>
+          }
+        </select>
+      </div>
+      <div class="form-group">
         <label for="deviceName" data-i18n="field_device_name">Tên thiết bị</label>
         <input id="deviceName" name="DeviceName" class="input" maxlength="150" autocomplete="off" />
       </div>
@@ -422,16 +486,6 @@
       <div class="form-group">
         <label for="vesselName" data-i18n="field_vessel_name">Tên tàu</label>
         <input id="vesselName" name="VesselName" class="input" maxlength="250" autocomplete="off" />
-      </div>
-      <div class="form-group">
-        <label for="tenantId" data-i18n="field_tenant">Tenant</label>
-        <select id="tenantId" name="TenantId" class="input">
-          <option value="" data-i18n="field_tenant_placeholder">Chọn tenant</option>
-          @foreach (var tenant in Model.Tenants)
-          {
-            <option value="@tenant.Id">@tenant.TenantName</option>
-          }
-        </select>
       </div>
       <div id="modalFeedback" class="modal-feedback" hidden></div>
       <div id="apiResult" class="api-result" hidden>
@@ -465,12 +519,14 @@
     totalDevices = Model.TotalDevices,
     searchTerm = Model.SearchTerm,
     devices = Model.Devices,
+    selectedDeviceId = Model.SelectedDeviceId,
     scopeKey = Model.IsTenantScoped
         ? $"tenant:{Model.CurrentTenantId}"
         : "global"
 }))
 </script>
 @section Scripts {
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script>
 (() => {
   const dictionary = {
@@ -539,6 +595,8 @@
 	      error_terminal_device_missing_id: "API danh sách thiết bị không trả về KITID hợp lệ.",
 	      error_terminal_devices_invalid_json: "API danh sách thiết bị trả về JSON không hợp lệ.",
 	      error_missing_wifi_identifiers: "Thiếu KITID hoặc KIT Number để lấy thông tin WiFi.",
+	      error_router_device_not_found: "Không tìm thấy Starlink WiFi router trong danh sách device của terminal này. Router có thể đang tắt, chưa report cấu hình hoặc đang ở bypass mode.",
+	      error_wifi_endpoint_not_found: "API WiFi không tìm thấy cấu hình router cho thiết bị này. Thiết bị có thể không có router quản lý được hoặc WiFi đang ở bypass mode.",
 	      error_wifi_api_error: "API WiFi trả về lỗi HTTP {status}.",
 	      error_wifi_invalid_json: "API WiFi trả về JSON không hợp lệ.",
 	      error_device_not_found: "Không tìm thấy thiết bị hoặc bạn không có quyền truy cập.",
@@ -571,13 +629,50 @@
       detail_wifi: "Quản lý WiFi",
       detail_ssid: "SSID",
       detail_password: "Mật khẩu",
+      detail_wifi_enabled: "WiFi Enabled",
+      detail_save_wifi: "Lưu WiFi",
 	      detail_restart_router: "Khởi động lại router",
+	      detail_reboot_confirm: "Gửi lệnh khởi động lại router cho thiết bị này?",
 	      detail_tab_information: "Information",
+	      detail_tab_map: "Map",
 	      detail_tab_networking: "Networking",
 	      detail_tab_telemetry: "Telemetry",
+	      detail_tab_plan: "Plan Management",
+	      detail_plan_management: "Quản lý gói cước",
+	      detail_plan_loading: "Đang tải gói cước...",
+	      detail_plan_ready: "Sẵn sàng",
+	      detail_plan_error: "Không tải được gói cước",
+	      detail_plan_select: "Gói tenant",
+	      detail_plan_select_placeholder: "Chọn gói cước",
+	      detail_final_price: "Đơn giá bán ra ($)",
+	      detail_final_overcharge: "Giá mua thêm bán ra ($)",
+	      detail_add_plan: "Thêm mới",
+	      detail_edit_plan: "Sửa",
+	      detail_delete_plan: "Xóa",
+	      detail_plan_editor_title: "Thêm gói thiết bị",
+	      detail_plan_editor_title_edit: "Sửa gói thiết bị",
+	      detail_plan_editor_subtitle: "Chọn gói tenant và điều chỉnh giá bán ra cho thiết bị.",
+	      detail_save_plan: "Lưu gói thiết bị",
+	      detail_device_plan_list: "Gói đã lưu cho thiết bị",
+	      detail_plan_empty: "Chưa có gói thiết bị nào.",
+	      detail_plan_no_options: "Tenant chưa có gói giá.",
+	      detail_plan_saved: "Đã lưu gói thiết bị.",
+	      detail_plan_deleted: "Đã xóa gói thiết bị.",
+	      detail_plan_delete_confirm: "Bạn có chắc chắn muốn xóa gói {planName} khỏi thiết bị này không?",
+	      detail_plan_validation: "Vui lòng chọn gói và nhập đầy đủ đơn giá hợp lệ.",
+	      detail_map_title: "Vị trí tàu",
+	      detail_map_empty: "Chưa có dữ liệu GPS",
+	      detail_map_fullscreen: "Toàn màn hình",
+	      detail_map_exit_fullscreen: "Thoát toàn màn hình",
 	      detail_network_loading: "Đang tải networking...",
 	      detail_network_ready: "Sẵn sàng",
 	      detail_network_error: "Không tải được networking",
+	      detail_wifi_saved: "Đã gửi lệnh cập nhật WiFi.",
+	      detail_reboot_submitted: "Đã gửi lệnh reboot router.",
+	      detail_command_job: "Job ID: {jobId}",
+	      error_wifi_validation_required: "SSID và mật khẩu WiFi là bắt buộc.",
+	      error_wifi_update_api_error: "API cập nhật WiFi trả về lỗi HTTP {status}.",
+	      error_router_reboot_api_error: "API reboot router trả về lỗi HTTP {status}.",
 	      detail_subscription_title: "Gói hiện tại",
       detail_total_usage: "Tổng dung lượng",
       detail_priority_overage: "Priority Overage",
@@ -666,6 +761,8 @@
 	      error_terminal_device_missing_id: "The terminal devices API did not return a valid KITID.",
 	      error_terminal_devices_invalid_json: "The terminal devices API returned invalid JSON.",
 	      error_missing_wifi_identifiers: "KITID or KIT Number is missing for the WiFi request.",
+	      error_router_device_not_found: "No Starlink WiFi router was found in this terminal's device list. The router may be powered off, not reporting configuration, or in bypass mode.",
+	      error_wifi_endpoint_not_found: "The WiFi API did not find router configuration for this device. It may not have a manageable router or WiFi may be in bypass mode.",
 	      error_wifi_api_error: "The WiFi API returned HTTP {status}.",
 	      error_wifi_invalid_json: "The WiFi API returned invalid JSON.",
 	      error_device_not_found: "The device was not found or you do not have access.",
@@ -698,13 +795,50 @@
       detail_wifi: "WiFi Management",
       detail_ssid: "SSID",
       detail_password: "Password",
+      detail_wifi_enabled: "WiFi Enabled",
+      detail_save_wifi: "Save WiFi",
 	      detail_restart_router: "Restart router",
+	      detail_reboot_confirm: "Send a router reboot command for this device?",
 	      detail_tab_information: "Information",
+	      detail_tab_map: "Map",
 	      detail_tab_networking: "Networking",
 	      detail_tab_telemetry: "Telemetry",
+	      detail_tab_plan: "Plan Management",
+	      detail_plan_management: "Plan Management",
+	      detail_plan_loading: "Loading plans...",
+	      detail_plan_ready: "Ready",
+	      detail_plan_error: "Could not load plans",
+	      detail_plan_select: "Tenant plan",
+	      detail_plan_select_placeholder: "Select a plan",
+	      detail_final_price: "Final price ($)",
+	      detail_final_overcharge: "Final overage price ($)",
+	      detail_add_plan: "Add new",
+	      detail_edit_plan: "Edit",
+	      detail_delete_plan: "Delete",
+	      detail_plan_editor_title: "Add device plan",
+	      detail_plan_editor_title_edit: "Edit device plan",
+	      detail_plan_editor_subtitle: "Select a tenant plan and adjust the final device prices.",
+	      detail_save_plan: "Save device plan",
+	      detail_device_plan_list: "Saved device plans",
+	      detail_plan_empty: "No device plan has been saved.",
+	      detail_plan_no_options: "This tenant has no pricing plans.",
+	      detail_plan_saved: "Device plan saved.",
+	      detail_plan_deleted: "Device plan deleted.",
+	      detail_plan_delete_confirm: "Are you sure you want to delete {planName} from this device?",
+	      detail_plan_validation: "Choose a plan and enter valid price values.",
+	      detail_map_title: "Vessel location",
+	      detail_map_empty: "No GPS data available",
+	      detail_map_fullscreen: "Full map",
+	      detail_map_exit_fullscreen: "Exit full map",
 	      detail_network_loading: "Loading networking...",
 	      detail_network_ready: "Ready",
 	      detail_network_error: "Could not load networking",
+	      detail_wifi_saved: "WiFi update command was submitted.",
+	      detail_reboot_submitted: "Router reboot command was submitted.",
+	      detail_command_job: "Job ID: {jobId}",
+	      error_wifi_validation_required: "SSID and WiFi password are required.",
+	      error_wifi_update_api_error: "The WiFi update API returned HTTP {status}.",
+	      error_router_reboot_api_error: "The router reboot API returned HTTP {status}.",
 	      detail_subscription_title: "Current Subscription",
       detail_total_usage: "Total Usage",
       detail_priority_overage: "Priority Overage",
@@ -753,6 +887,7 @@
   const apiResultText = q("#apiResultText");
   const detailLoading = q("#detailLoading");
   const detailNetworkStatus = q("#detailNetworkStatus");
+  const detailPlanStatus = q("#detailPlanStatus");
   const detailTelemetryReload = q("#detailTelemetryReload");
   const detailFilterButtons = qa(".detail-filter-btn[data-range-seconds]");
   const detailTabButtons = qa(".detail-tab-btn");
@@ -785,6 +920,8 @@
   const deviceSearchInput = q("#deviceSearchInput");
   const clearDeviceSearchButton = q("#clearDeviceSearch");
   const initialPageData = JSON.parse(q("#initialDevicePageData").textContent);
+  const canManageDevices = @Json.Serialize(Model.CanManageDevices);
+  const canViewMap = @Json.Serialize(Model.CanViewMap);
   const pageCache = new Map();
   const pageCacheScopeKey = initialPageData.scopeKey || "global";
   const pageCacheKey = `shipnet-device-pages:${pageCacheScopeKey}`;
@@ -793,20 +930,119 @@
   const deviceEditDataAction = "@Url.Action("DeviceEditData", "Dashboard")";
   const deviceDetailDataAction = "@Url.Action("DetailData", "Dashboard")";
   const deviceWifiDataAction = "@Url.Action("DeviceWifiData", "Dashboard")";
+  const updateDeviceWifiAction = "@Url.Action("UpdateDeviceWifi", "Dashboard")";
+  const rebootDeviceRouterAction = "@Url.Action("RebootDeviceRouter", "Dashboard")";
+  const devicePlanDataAction = "@Url.Action("DevicePlanData", "Dashboard")";
+  const saveDevicePlanAction = "@Url.Action("SaveDevicePlan", "Dashboard")";
+  const deleteDevicePlanAction = "@Url.Action("DeleteDevicePlan", "Dashboard")";
   const telemetryTimelineAction = "@Url.Action("TelemetryTimeline", "Dashboard")";
   const devicePageDataAction = "@Url.Action("DevicePageData", "Dashboard")";
+  const dashboardIndexAction = "@Url.Action("Index", "Dashboard")";
+  const deviceDetailsUrlTemplate = "@Url.Action("Details", "Dashboard", new { id = "__DEVICE_ID__" })";
+  const detailWifiForm = q("#detailWifiForm");
+  const detailWifiSsidInput = q("#detailWifiSsidInput");
+  const detailWifiPasswordInput = q("#detailWifiPasswordInput");
+  const detailWifiEnabledInput = q("#detailWifiEnabledInput");
+  const detailWifiSaveButton = q("#detailWifiSaveButton");
+  const detailRouterRebootButton = q("#detailRouterRebootButton");
+  const devicePlanEditorModal = q("#devicePlanEditorModal");
+  const devicePlanEditorTitle = q("#devicePlanEditorTitle");
+  const closeDevicePlanEditorModal = q("#closeDevicePlanEditorModal");
+  const cancelDevicePlanEditorModal = q("#cancelDevicePlanEditorModal");
+  const detailPlanForm = q("#detailPlanForm");
+  const detailPlanAddButton = q("#detailPlanAddButton");
+  const detailPlanSelect = q("#detailPlanSelect");
+  const detailPlanFinalPrice = q("#detailPlanFinalPrice");
+  const detailPlanFinalOverChargePrice = q("#detailPlanFinalOverChargePrice");
+  const detailPlanSaveButton = q("#detailPlanSaveButton");
+  const detailPlanList = q("#detailPlanList");
+  const detailMapPanel = q(".detail-map-panel");
+  const detailMapFullscreenButton = q("#detailMapFullscreenButton");
+  const detailMapCanvas = q("#detailMapCanvas");
+  const detailMapEmpty = q("#detailMapEmpty");
+  const detailMapCoordinates = q("#detailMapCoordinates");
   const requiredDeviceFields = [deviceNameInput, deviceCodeInput, vesselNameInput, tenantIdInput];
   let deviceModalMode = "create";
   let currentPage = initialPageData.currentPage || 1;
   let currentPageSize = initialPageData.pageSize || 10;
   let totalDevices = initialPageData.totalDevices || 0;
   let currentSearchTerm = normalizeSearchTerm(initialPageData.searchTerm || "");
+  const initialSelectedDeviceId = Number(initialPageData.selectedDeviceId || 0);
   let selectedTelemetryRangeSeconds = 900;
   let currentDetailDeviceId = 0;
   let currentDetailDeviceCode = "";
   let currentTelemetryByMetric = new Map();
+  let currentDevicePlanOptions = [];
+  let currentDevicePlanPrices = [];
+  let devicePlanEditorMode = "create";
   let currentDetailTab = "information";
   let currentDetailRequestId = 0;
+  let detailLeafletMap = null;
+  let detailLeafletMarker = null;
+  let detailBaselineLayers = null;
+  let detailMapLatLng = null;
+  let detailMapFullscreen = false;
+  const vietnamBaselinePoints = [
+    { name: "A1", label: "Hòn Nhạn", lat: 9 + 15.0 / 60, lng: 103 + 27.0 / 60 },
+    { name: "A2", label: "Hòn Đá Lẻ", lat: 8 + 22.8 / 60, lng: 104 + 52.4 / 60 },
+    { name: "A3", label: "Hòn Tài Lớn", lat: 8 + 37.8 / 60, lng: 106 + 37.5 / 60 },
+    { name: "A4", label: "Hòn Bông Lang", lat: 8 + 38.9 / 60, lng: 106 + 40.3 / 60 },
+    { name: "A5", label: "Hòn Bảy Cạnh", lat: 8 + 39.7 / 60, lng: 106 + 42.1 / 60 },
+    { name: "A6", label: "Hòn Hải", lat: 9 + 58.0 / 60, lng: 109 + 5.0 / 60 },
+    { name: "A7", label: "Hòn Đôi", lat: 12 + 39.0 / 60, lng: 109 + 28.0 / 60 },
+    { name: "A8", label: "Mũi Đại Lãnh", lat: 12 + 53.8 / 60, lng: 109 + 27.2 / 60 },
+    { name: "A9", label: "Hòn Ông Căn", lat: 13 + 54.0 / 60, lng: 109 + 21.0 / 60 },
+    { name: "A10", label: "Đảo Lý Sơn", lat: 15 + 23.1 / 60, lng: 109 + 9.0 / 60 },
+    { name: "A11", label: "Đảo Cồn Cỏ", lat: 17 + 10.0 / 60, lng: 107 + 20.6 / 60 },
+    { name: "A12", label: "Hòn Gió Lớn", lat: 17 + 54 / 60 + 48.1 / 3600, lng: 106 + 40 / 60 + 25.8 / 3600 },
+    { name: "A13", label: "Hòn Chim", lat: 18 + 7 / 60 + 2.5 / 3600, lng: 106 + 29 / 60 + 23.7 / 3600 },
+    { name: "A14", label: "Hòn Mắt Con", lat: 18 + 47 / 60 + 28.2 / 3600, lng: 105 + 59 / 60 + 20.5 / 3600 },
+    { name: "A15", label: "Đảo Hòn Mê", lat: 19 + 22 / 60 + 36.7 / 3600, lng: 105 + 56 / 60 + 18.6 / 3600 },
+    { name: "A16", label: "Đảo Long Châu Đông", lat: 20 + 36 / 60 + 47.9 / 3600, lng: 107 + 12 / 60 + 32.2 / 3600 },
+    { name: "A17", label: "Đảo Hạ Mai", lat: 20 + 42 / 60 + 58.6 / 3600, lng: 107 + 27 / 60 + 14.9 / 3600 },
+    { name: "A18", label: "Đảo Hạ Mai", lat: 20 + 43 / 60 + 21.3 / 3600, lng: 107 + 27 / 60 + 50.2 / 3600 },
+    { name: "A19", label: "Đảo Thanh Lam", lat: 20 + 59 / 60 + 2.3 / 3600, lng: 107 + 49 / 60 + 20.9 / 3600 },
+    { name: "A20", label: "Đảo Thanh Lam", lat: 21 + 1 / 60 + 25.9 / 3600, lng: 107 + 51 / 60 + 46.5 / 3600 },
+    { name: "A21", label: "Hòn Bồ Cát", lat: 21 + 11 / 60 + 19.6 / 3600, lng: 108 + 1 / 60 + 9.6 / 3600 },
+    { name: "A22", label: "Hòn Bồ Cát", lat: 21 + 11 / 60 + 29.2 / 3600, lng: 108 + 1 / 60 + 17.7 / 3600 },
+    { name: "A23", label: "Đảo Trà Cổ", lat: 21 + 28 / 60 + 14.9 / 3600, lng: 108 + 5 / 60 + 32.8 / 3600 },
+    { name: "A24", label: "Điểm số 1 Vịnh Bắc Bộ", lat: 21 + 28 / 60 + 12.5 / 3600, lng: 108 + 6 / 60 + 4.3 / 3600 }
+  ];
+  const vietnamBaselineMainLine = vietnamBaselinePoints.map((point) => [point.lat, point.lng]);
+  const vietnamBaselineAssessmentArea = [
+    ...vietnamBaselineMainLine,
+    [22.20, 105.00],
+    [18.00, 103.80],
+    [13.00, 106.00],
+    [10.30, 104.20],
+    [8.00, 102.50],
+    [9.25, 103.45]
+  ];
+  const vietnamParacelLine = [
+    [16.95, 111.25],
+    [16.95, 112.25],
+    [16.55, 112.85],
+    [15.90, 112.75],
+    [15.55, 111.85],
+    [15.95, 111.15],
+    [16.95, 111.25]
+  ];
+  const vietnamSpratlyLine = [
+    [11.65, 111.70],
+    [11.25, 114.65],
+    [10.70, 116.45],
+    [9.55, 117.10],
+    [8.35, 116.25],
+    [7.15, 114.35],
+    [7.95, 112.00],
+    [9.55, 110.95],
+    [11.65, 111.70]
+  ];
+  const vietnamBaselineLines = [
+    { name: "Đường cơ sở Việt Nam A1-A24", points: vietnamBaselineMainLine },
+    { name: "Khu vực quần đảo Hoàng Sa", points: vietnamParacelLine },
+    { name: "Khu vực quần đảo Trường Sa", points: vietnamSpratlyLine }
+  ];
   const metricUnits = {
     downlink_throughput: "Mbps",
     uplink_throughput: "Mbps",
@@ -884,10 +1120,20 @@
 	        return text("error_terminal_devices_invalid_json");
 	      case "missing_wifi_identifiers":
 	        return text("error_missing_wifi_identifiers");
+	      case "router_device_not_found":
+	        return text("error_router_device_not_found");
+	      case "wifi_endpoint_not_found":
+	        return text("error_wifi_endpoint_not_found");
 	      case "wifi_api_error":
 	        return format(text("error_wifi_api_error"), { status: `${status || "-"}` });
 	      case "wifi_invalid_json":
 	        return text("error_wifi_invalid_json");
+	      case "wifi_validation_required":
+	        return text("error_wifi_validation_required");
+	      case "wifi_update_api_error":
+	        return format(text("error_wifi_update_api_error"), { status: `${status || "-"}` });
+	      case "router_reboot_api_error":
+	        return format(text("error_router_reboot_api_error"), { status: `${status || "-"}` });
 	      case "device_not_found":
 	        return text("error_device_not_found");
 	      case "server_exception":
@@ -949,6 +1195,190 @@
 
   function normalizeSearchTerm(value) {
     return (value || "").trim();
+  }
+
+  function applyPageParams(url) {
+    url.searchParams.set("page", `${currentPage}`);
+    url.searchParams.set("pageSize", `${currentPageSize}`);
+    if (currentSearchTerm) {
+      url.searchParams.set("search", currentSearchTerm);
+    } else {
+      url.searchParams.delete("search");
+    }
+    return url;
+  }
+
+  function buildListUrl() {
+    return applyPageParams(new URL(dashboardIndexAction, window.location.origin));
+  }
+
+  function buildDetailUrl(deviceId) {
+    const detailPath = deviceDetailsUrlTemplate.replace("__DEVICE_ID__", encodeURIComponent(deviceId));
+    return applyPageParams(new URL(detailPath, window.location.origin));
+  }
+
+  function parseCoordinate(value) {
+    const normalized = `${value ?? ""}`.trim().replace(",", ".");
+    if (!normalized) {
+      return null;
+    }
+
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function formatCoordinate(value) {
+    return Number.isFinite(value) ? value.toFixed(6) : "-";
+  }
+
+  function buildShipMarkerIcon(isInsideBaseline = false) {
+    return L.divIcon({
+      className: `detail-ship-map-icon ${isInsideBaseline ? "is-inside-baseline" : "is-outside-baseline"}`,
+      iconSize: [26, 26],
+      iconAnchor: [13, 13],
+      html: `
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <path d="M10 31h44l-5.7 16.5A8 8 0 0 1 40.7 53H23.3a8 8 0 0 1-7.6-5.5L10 31Z"></path>
+          <path d="M20 20h24l4 11H16l4-11Z"></path>
+          <path d="M28 9h8v11h-8V9Z"></path>
+          <path d="M23 25h5M31 25h5M39 25h5"></path>
+        </svg>`
+    });
+  }
+
+  function isPointInPolygon(point, polygon) {
+    const [lat, lng] = point;
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const [latI, lngI] = polygon[i];
+      const [latJ, lngJ] = polygon[j];
+      const intersects = ((lngI > lng) !== (lngJ > lng)) &&
+        (lat < ((latJ - latI) * (lng - lngI)) / ((lngJ - lngI) || Number.EPSILON) + latI);
+      if (intersects) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }
+
+  function isInsideVietnamBaselineAreas(latLng) {
+    return isPointInPolygon(latLng, vietnamBaselineAssessmentArea);
+  }
+
+  function addVietnamBaselineLayers() {
+    if (detailBaselineLayers) {
+      return;
+    }
+
+    detailBaselineLayers = L.layerGroup().addTo(detailLeafletMap);
+    vietnamBaselineLines.forEach((line) => {
+      L.polyline(line.points, {
+        color: "#ffffff",
+        weight: 9,
+        opacity: 0.88,
+        lineCap: "round",
+        lineJoin: "round",
+        pane: "overlayPane"
+      }).addTo(detailBaselineLayers);
+      const baselineLine = L.polyline(line.points, {
+        color: "#ff102f",
+        weight: 4,
+        opacity: 1,
+        lineCap: "round",
+        lineJoin: "round",
+        pane: "overlayPane"
+      }).addTo(detailBaselineLayers);
+      baselineLine.bindTooltip(line.name, {
+        sticky: true,
+        direction: "top",
+        className: "detail-maritime-route-tooltip"
+      });
+      line.points.forEach((point) => {
+        L.circleMarker(point, {
+          radius: 4,
+          color: "#ffffff",
+          weight: 2,
+          fillColor: "#ff102f",
+          fillOpacity: 1,
+          pane: "markerPane"
+        }).addTo(detailBaselineLayers);
+      });
+    });
+  }
+
+  function ensureDetailMap() {
+    if (detailLeafletMap || typeof L === "undefined") {
+      return Boolean(detailLeafletMap);
+    }
+
+    detailLeafletMap = L.map(detailMapCanvas, {
+      zoomControl: true,
+      attributionControl: true
+    });
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap contributors"
+    }).addTo(detailLeafletMap);
+    addVietnamBaselineLayers();
+    detailLeafletMarker = L.marker([0, 0], { icon: buildShipMarkerIcon(false), title: "Vessel" }).addTo(detailLeafletMap);
+    return true;
+  }
+
+  function refreshDetailMapSize(zoom = null) {
+    if (!detailLeafletMap) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      detailLeafletMap.invalidateSize();
+      if (detailMapLatLng) {
+        detailLeafletMap.setView(detailMapLatLng, zoom ?? detailLeafletMap.getZoom() ?? 7, { animate: false });
+      }
+    }));
+  }
+
+  function updateDetailMap(latitudeValue, longitudeValue) {
+    if (!canViewMap || !detailMapCanvas || !detailMapEmpty || !detailMapCoordinates) {
+      detailMapLatLng = null;
+      return;
+    }
+
+    const latitude = parseCoordinate(latitudeValue);
+    const longitude = parseCoordinate(longitudeValue);
+    const hasCoordinates = latitude !== null && longitude !== null;
+    detailMapCanvas.hidden = !hasCoordinates;
+    detailMapEmpty.hidden = hasCoordinates;
+    detailMapCanvas.style.display = hasCoordinates ? "block" : "none";
+    detailMapEmpty.style.display = hasCoordinates ? "none" : "grid";
+
+    if (!hasCoordinates) {
+      detailMapLatLng = null;
+      detailMapCoordinates.textContent = "-";
+      return;
+    }
+
+    detailMapLatLng = [latitude, longitude];
+    detailMapCoordinates.textContent = `${formatCoordinate(latitude)}, ${formatCoordinate(longitude)}`;
+    if (currentDetailTab === "map" && ensureDetailMap()) {
+      const isInsideBaseline = isInsideVietnamBaselineAreas(detailMapLatLng);
+      detailLeafletMarker.setIcon(buildShipMarkerIcon(isInsideBaseline));
+      detailLeafletMarker.setLatLng(detailMapLatLng);
+      detailLeafletMap.setView(detailMapLatLng, 7, { animate: false });
+      refreshDetailMapSize(7);
+    }
+  }
+
+  function setMapFullscreen(isFullscreen) {
+    detailMapFullscreen = isFullscreen;
+    detailMapPanel.classList.toggle("is-fullscreen", isFullscreen);
+    document.body.classList.toggle("is-map-fullscreen", isFullscreen);
+    detailMapFullscreenButton.textContent = text(isFullscreen ? "detail_map_exit_fullscreen" : "detail_map_fullscreen");
+    detailMapFullscreenButton.dataset.i18n = isFullscreen ? "detail_map_exit_fullscreen" : "detail_map_fullscreen";
+    refreshDetailMapSize();
+  }
+
+  function toggleMapFullscreen() {
+    setMapFullscreen(!detailMapFullscreen);
   }
 
   function getTotalPages() {
@@ -1085,6 +1515,10 @@
   }
 
   function setActiveDetailTab(tabName) {
+    if (tabName === "map" && !canViewMap) {
+      tabName = "information";
+    }
+
     currentDetailTab = tabName;
     detailTabButtons.forEach((button) => {
       const isActive = button.dataset.detailTab === tabName;
@@ -1096,6 +1530,15 @@
       panel.classList.toggle("is-active", isActive);
       panel.hidden = !isActive;
     });
+    if (tabName === "map" && canViewMap) {
+      if (detailMapLatLng && ensureDetailMap()) {
+        const isInsideBaseline = isInsideVietnamBaselineAreas(detailMapLatLng);
+        detailLeafletMarker.setIcon(buildShipMarkerIcon(isInsideBaseline));
+        detailLeafletMarker.setLatLng(detailMapLatLng);
+        detailLeafletMap.setView(detailMapLatLng, 7, { animate: false });
+      }
+      refreshDetailMapSize(7);
+    }
   }
 
   function closePortalAccountMenu() {
@@ -1144,6 +1587,19 @@
     q("#detailLastSync").textContent = "-";
     q("#detailWifiSsid").textContent = "-";
     q("#detailWifiPassword").textContent = "-";
+    q("#detailWifiEnabled").textContent = "-";
+    detailWifiSsidInput.value = "";
+    detailWifiPasswordInput.value = "";
+    detailWifiEnabledInput.checked = false;
+    currentDevicePlanOptions = [];
+    currentDevicePlanPrices = [];
+    detailPlanSelect.innerHTML = `<option value="">${text("detail_plan_select_placeholder")}</option>`;
+    detailPlanFinalPrice.value = "";
+    detailPlanFinalOverChargePrice.value = "";
+    detailPlanList.innerHTML = `<div class="detail-plan-empty">${text("detail_plan_empty")}</div>`;
+    detailPlanStatus.textContent = text("detail_plan_loading");
+    detailPlanAddButton.disabled = !canManageDevices;
+    closeDevicePlanEditor();
     q("#detailTotalUsage").textContent = "-";
     q("#detailTotalUsageLimit").textContent = "-";
     q("#detailUsageLimitTop").textContent = "-";
@@ -1151,6 +1607,7 @@
     q("#detailPriorityOverageLimit").textContent = "-";
     q("#detailPlanName").textContent = "-";
     q("#detailUsageProgress").style.width = "0%";
+    updateDetailMap("", "");
     detailNetworkStatus.textContent = text("detail_network_loading");
     metricCards.forEach((metricCard) => {
       setTelemetryState(metricCard, "detail_chart_loading");
@@ -1166,6 +1623,10 @@
 
     q("#detailWifiSsid").textContent = "-";
     q("#detailWifiPassword").textContent = "-";
+    q("#detailWifiEnabled").textContent = "-";
+    detailWifiSsidInput.value = "";
+    detailWifiPasswordInput.value = "";
+    detailWifiEnabledInput.checked = false;
     detailNetworkStatus.textContent = text("detail_network_loading");
 
     try {
@@ -1180,14 +1641,349 @@
         return;
       }
 
-      q("#detailWifiSsid").textContent = data.ssid ?? data.Ssid ?? "-";
-      q("#detailWifiPassword").textContent = data.password ?? data.Password ?? "-";
+      const ssid = data.ssid ?? data.Ssid ?? "";
+      const password = data.password ?? data.Password ?? "";
+      const enabled = data.enabled ?? data.Enabled;
+      q("#detailWifiSsid").textContent = ssid || "-";
+      q("#detailWifiPassword").textContent = password || "-";
+      q("#detailWifiEnabled").textContent = typeof enabled === "boolean" ? (enabled ? "True" : "False") : "-";
+      detailWifiSsidInput.value = ssid;
+      detailWifiPasswordInput.value = password;
+      detailWifiEnabledInput.checked = enabled !== false;
       detailNetworkStatus.textContent = text("detail_network_ready");
     } catch (error) {
       if (requestId !== currentDetailRequestId) {
         return;
       }
       detailNetworkStatus.textContent = `${text("detail_network_error")}: ${error.message || text("generic_error")}`;
+    }
+  }
+
+  function formatPrice(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? `$${number.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "-";
+  }
+
+  function normalizeDecimalInput(value) {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? number.toFixed(2) : "";
+  }
+
+  function escapeHtml(value) {
+    return `${value ?? ""}`
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function fillDevicePlanPrices(option) {
+    detailPlanFinalPrice.value = normalizeDecimalInput(option?.finalPrice ?? option?.FinalPrice);
+    detailPlanFinalOverChargePrice.value = normalizeDecimalInput(option?.finalOverChargePrice ?? option?.FinalOverChargePrice);
+  }
+
+  function renderDevicePlanList(prices) {
+    detailPlanList.innerHTML = "";
+    if (!Array.isArray(prices) || prices.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "detail-plan-empty";
+      empty.textContent = text("detail_plan_empty");
+      detailPlanList.appendChild(empty);
+      return;
+    }
+
+    const table = document.createElement("table");
+    table.className = "detail-plan-table";
+    table.innerHTML = `
+      <thead>
+        <tr>
+          <th>${text("detail_plan_select")}</th>
+          <th>${text("detail_total_usage")}</th>
+          <th>${text("detail_final_price")}</th>
+          <th>${text("detail_final_overcharge")}</th>
+          <th>${text("col_last_sync")}</th>
+          <th>${text("col_actions")}</th>
+        </tr>
+      </thead>
+      <tbody></tbody>`;
+    const tbody = table.querySelector("tbody");
+    prices.forEach((price) => {
+      const pricingPlanId = Number(price.pricingPlanId ?? price.PricingPlanId ?? 0);
+      const planName = `${price.planName ?? price.PlanName ?? "-"} (${price.planCode ?? price.PlanCode ?? "-"})`;
+      const baseData = Number(price.baseData ?? price.BaseData ?? 0);
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td><strong>${escapeHtml(planName)}</strong></td>
+        <td>${Number.isFinite(baseData) ? baseData.toLocaleString("en-US", { maximumFractionDigits: 2 }) : "-"} GB</td>
+        <td>${formatPrice(price.finalPrice ?? price.FinalPrice)}</td>
+        <td>${formatPrice(price.finalOverChargePrice ?? price.FinalOverChargePrice)}</td>
+        <td>${escapeHtml(price.updatedDateDisplay ?? price.UpdatedDateDisplay ?? "-")}</td>
+        <td>
+          <div class="detail-plan-actions">
+            <button type="button" class="table-action-btn js-edit-device-plan" data-pricing-plan-id="${pricingPlanId}">${text("detail_edit_plan")}</button>
+            <button type="button" class="table-action-btn is-danger js-delete-device-plan" data-pricing-plan-id="${pricingPlanId}">${text("detail_delete_plan")}</button>
+          </div>
+        </td>`;
+      tbody.appendChild(row);
+    });
+    detailPlanList.appendChild(table);
+    bindDevicePlanActions();
+  }
+
+  function bindDevicePlanActions() {
+    detailPlanList.querySelectorAll(".js-edit-device-plan").forEach((button) => {
+      button.addEventListener("click", () => openDevicePlanEditor("edit", Number(button.dataset.pricingPlanId || 0)));
+    });
+    detailPlanList.querySelectorAll(".js-delete-device-plan").forEach((button) => {
+      button.addEventListener("click", () => {
+        const pricingPlanId = Number(button.dataset.pricingPlanId || 0);
+        const price = currentDevicePlanPrices.find((item) => Number(item.pricingPlanId ?? item.PricingPlanId ?? 0) === pricingPlanId);
+        const planName = `${price?.planName ?? price?.PlanName ?? "-"} (${price?.planCode ?? price?.PlanCode ?? "-"})`;
+        deleteDevicePlan(pricingPlanId, planName);
+      });
+    });
+  }
+
+  function populateDevicePlanSelect(selectedPricingPlanId = 0) {
+    detailPlanSelect.innerHTML = `<option value="">${text("detail_plan_select_placeholder")}</option>`;
+    const savedPlanIds = new Set(currentDevicePlanPrices.map((price) => Number(price.pricingPlanId ?? price.PricingPlanId ?? 0)));
+    currentDevicePlanOptions.forEach((option) => {
+      const pricingPlanId = Number(option.pricingPlanId ?? option.PricingPlanId ?? 0);
+      if (devicePlanEditorMode === "create" && savedPlanIds.has(pricingPlanId)) {
+        return;
+      }
+
+      const selectOption = document.createElement("option");
+      selectOption.value = `${pricingPlanId}`;
+      selectOption.textContent = option.displayName ?? option.DisplayName ?? `${option.planName ?? option.PlanName ?? "-"} (${option.planCode ?? option.PlanCode ?? "-"})`;
+      detailPlanSelect.appendChild(selectOption);
+    });
+    detailPlanSelect.value = selectedPricingPlanId ? `${selectedPricingPlanId}` : "";
+  }
+
+  function openDevicePlanEditor(mode = "create", pricingPlanId = 0) {
+    if (!canManageDevices || currentDevicePlanOptions.length === 0) {
+      return;
+    }
+
+    devicePlanEditorMode = mode;
+    const savedPrice = currentDevicePlanPrices.find((price) => Number(price.pricingPlanId ?? price.PricingPlanId ?? 0) === pricingPlanId);
+    devicePlanEditorTitle.textContent = text(mode === "edit" ? "detail_plan_editor_title_edit" : "detail_plan_editor_title");
+    populateDevicePlanSelect(mode === "edit" ? pricingPlanId : 0);
+    detailPlanSelect.disabled = mode === "edit";
+    fillDevicePlanPrices(mode === "edit" ? savedPrice : null);
+    devicePlanEditorModal.hidden = false;
+    applyLanguage(lang);
+  }
+
+  function closeDevicePlanEditor() {
+    if (!devicePlanEditorModal) {
+      return;
+    }
+    devicePlanEditorModal.hidden = true;
+    detailPlanSelect.disabled = false;
+    detailPlanSelect.value = "";
+    fillDevicePlanPrices(null);
+    devicePlanEditorMode = "create";
+  }
+
+  function canAddDevicePlan() {
+    const savedPlanIds = new Set(currentDevicePlanPrices.map((price) => Number(price.pricingPlanId ?? price.PricingPlanId ?? 0)));
+    return currentDevicePlanOptions.some((option) => !savedPlanIds.has(Number(option.pricingPlanId ?? option.PricingPlanId ?? 0)));
+  }
+
+  async function loadDevicePlanData(requestId = currentDetailRequestId) {
+    if (!currentDetailDeviceId || requestId !== currentDetailRequestId) {
+      return;
+    }
+
+    currentDevicePlanOptions = [];
+    currentDevicePlanPrices = [];
+    populateDevicePlanSelect();
+    fillDevicePlanPrices(null);
+    renderDevicePlanList([]);
+    detailPlanStatus.textContent = text("detail_plan_loading");
+    detailPlanAddButton.disabled = true;
+
+    try {
+      const response = await fetch(`${devicePlanDataAction}?id=${encodeURIComponent(currentDetailDeviceId)}`, {
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+      });
+      const { rawText, data, isJson } = await readApiResponse(response);
+      if (!isJson || !response.ok || !(data.success ?? data.Success)) {
+        throw new Error(resolveServerErrorMessage(response, data, rawText, "detail_plan_error"));
+      }
+      if (requestId !== currentDetailRequestId) {
+        return;
+      }
+
+      currentDevicePlanOptions = data.planOptions ?? data.PlanOptions ?? [];
+      currentDevicePlanPrices = data.devicePrices ?? data.DevicePrices ?? [];
+      populateDevicePlanSelect();
+      renderDevicePlanList(currentDevicePlanPrices);
+      detailPlanStatus.textContent = currentDevicePlanOptions.length > 0 ? text("detail_plan_ready") : text("detail_plan_no_options");
+      detailPlanAddButton.disabled = !canManageDevices || !canAddDevicePlan();
+    } catch (error) {
+      if (requestId !== currentDetailRequestId) {
+        return;
+      }
+      detailPlanStatus.textContent = `${text("detail_plan_error")}: ${error.message || text("generic_error")}`;
+      detailPlanAddButton.disabled = true;
+    }
+  }
+
+  function syncSelectedDevicePlanPrices() {
+    const pricingPlanId = Number(detailPlanSelect.value || 0);
+    const option = currentDevicePlanOptions.find((item) => Number(item.pricingPlanId ?? item.PricingPlanId) === pricingPlanId);
+    fillDevicePlanPrices(option);
+  }
+
+  async function submitDevicePlan(event) {
+    event.preventDefault();
+    if (!currentDetailDeviceId || !canManageDevices) {
+      return;
+    }
+
+    const pricingPlanId = Number(detailPlanSelect.value || 0);
+    const priceValues = [
+      detailPlanFinalPrice.value,
+      detailPlanFinalOverChargePrice.value
+    ].map(Number);
+
+    if (!pricingPlanId || priceValues.some((value) => !Number.isFinite(value) || value < 0)) {
+      detailPlanStatus.textContent = text("detail_plan_validation");
+      return;
+    }
+
+    detailPlanSaveButton.disabled = true;
+    detailPlanStatus.textContent = text("processing");
+    const formData = new FormData();
+    const csrfToken = antiForgeryToken(refreshForm);
+    if (csrfToken) formData.append("__RequestVerificationToken", csrfToken);
+    formData.append("DeviceId", `${currentDetailDeviceId}`);
+    formData.append("PricingPlanId", `${pricingPlanId}`);
+    formData.append("FinalPrice", detailPlanFinalPrice.value);
+    formData.append("FinalOverChargePrice", detailPlanFinalOverChargePrice.value);
+
+    try {
+      const response = await fetch(saveDevicePlanAction, { method: "POST", body: formData, headers: { "X-Requested-With": "XMLHttpRequest" } });
+      const { rawText, data, isJson } = await readApiResponse(response);
+      if (!isJson || !response.ok || !(data.success ?? data.Success)) {
+        throw new Error(resolveServerErrorMessage(response, data, rawText, "detail_plan_error"));
+      }
+
+      await loadDevicePlanData();
+      closeDevicePlanEditor();
+      detailPlanStatus.textContent = data.message ?? data.Message ?? text("detail_plan_saved");
+    } catch (error) {
+      detailPlanStatus.textContent = `${text("detail_plan_error")}: ${error.message || text("generic_error")}`;
+    } finally {
+      detailPlanSaveButton.disabled = false;
+    }
+  }
+
+  async function deleteDevicePlan(pricingPlanId, planName) {
+    if (!currentDetailDeviceId || !pricingPlanId || !canManageDevices) {
+      return;
+    }
+    if (!window.confirm(format(text("detail_plan_delete_confirm"), { planName }))) {
+      return;
+    }
+
+    detailPlanStatus.textContent = text("processing");
+    const formData = new FormData();
+    const csrfToken = antiForgeryToken(refreshForm);
+    if (csrfToken) formData.append("__RequestVerificationToken", csrfToken);
+    formData.append("DeviceId", `${currentDetailDeviceId}`);
+    formData.append("PricingPlanId", `${pricingPlanId}`);
+
+    try {
+      const response = await fetch(deleteDevicePlanAction, { method: "POST", body: formData, headers: { "X-Requested-With": "XMLHttpRequest" } });
+      const { rawText, data, isJson } = await readApiResponse(response);
+      if (!isJson || !response.ok || !(data.success ?? data.Success)) {
+        throw new Error(resolveServerErrorMessage(response, data, rawText, "detail_plan_error"));
+      }
+
+      await loadDevicePlanData();
+      detailPlanStatus.textContent = data.message ?? data.Message ?? text("detail_plan_deleted");
+    } catch (error) {
+      detailPlanStatus.textContent = `${text("detail_plan_error")}: ${error.message || text("generic_error")}`;
+    }
+  }
+
+  function formatCommandStatus(messageKey, data) {
+    const jobId = `${data?.jobId ?? data?.JobId ?? ""}`.trim();
+    return jobId
+      ? `${text(messageKey)} ${format(text("detail_command_job"), { jobId })}`
+      : text(messageKey);
+  }
+
+  async function submitWifiUpdate(event) {
+    event.preventDefault();
+    if (!currentDetailDeviceId) {
+      return;
+    }
+
+    const ssid = detailWifiSsidInput.value.trim();
+    const password = detailWifiPasswordInput.value.trim();
+    if (!ssid || !password) {
+      detailNetworkStatus.textContent = text("error_wifi_validation_required");
+      return;
+    }
+
+    detailWifiSaveButton.disabled = true;
+    detailNetworkStatus.textContent = text("processing");
+    const formData = new FormData();
+    const csrfToken = antiForgeryToken(refreshForm);
+    if (csrfToken) formData.append("__RequestVerificationToken", csrfToken);
+    formData.append("Id", `${currentDetailDeviceId}`);
+    formData.append("Ssid", ssid);
+    formData.append("Password", password);
+    formData.append("Enabled", detailWifiEnabledInput.checked ? "true" : "false");
+
+    try {
+      const response = await fetch(updateDeviceWifiAction, { method: "POST", body: formData, headers: { "X-Requested-With": "XMLHttpRequest" } });
+      const { rawText, data, isJson } = await readApiResponse(response);
+      if (!isJson || !response.ok || !(data.success ?? data.Success)) {
+        throw new Error(resolveServerErrorMessage(response, data, rawText, "detail_network_error"));
+      }
+
+      q("#detailWifiSsid").textContent = ssid;
+      q("#detailWifiPassword").textContent = password;
+      q("#detailWifiEnabled").textContent = detailWifiEnabledInput.checked ? "True" : "False";
+      detailNetworkStatus.textContent = formatCommandStatus("detail_wifi_saved", data);
+    } catch (error) {
+      detailNetworkStatus.textContent = `${text("detail_network_error")}: ${error.message || text("generic_error")}`;
+    } finally {
+      detailWifiSaveButton.disabled = false;
+    }
+  }
+
+  async function submitRouterReboot() {
+    if (!currentDetailDeviceId || !window.confirm(text("detail_reboot_confirm"))) {
+      return;
+    }
+
+    detailRouterRebootButton.disabled = true;
+    detailNetworkStatus.textContent = text("processing");
+    const formData = new FormData();
+    const csrfToken = antiForgeryToken(refreshForm);
+    if (csrfToken) formData.append("__RequestVerificationToken", csrfToken);
+    formData.append("id", `${currentDetailDeviceId}`);
+
+    try {
+      const response = await fetch(rebootDeviceRouterAction, { method: "POST", body: formData, headers: { "X-Requested-With": "XMLHttpRequest" } });
+      const { rawText, data, isJson } = await readApiResponse(response);
+      if (!isJson || !response.ok || !(data.success ?? data.Success)) {
+        throw new Error(resolveServerErrorMessage(response, data, rawText, "detail_network_error"));
+      }
+
+      detailNetworkStatus.textContent = formatCommandStatus("detail_reboot_submitted", data);
+    } catch (error) {
+      detailNetworkStatus.textContent = `${text("detail_network_error")}: ${error.message || text("generic_error")}`;
+    } finally {
+      detailRouterRebootButton.disabled = false;
     }
   }
 
@@ -1403,6 +2199,7 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5c5.23 0 9.27 4.11 10.57 6-.85 1.23-2.98 3.64-6.06 5.08C15.1 16.75 13.57 17 12 17c-5.23 0-9.27-4.11-10.57-6C2.73 9.11 6.77 5 12 5Zm0 2c-3.73 0-6.93 2.46-8.43 4 1.5 1.54 4.7 4 8.43 4s6.93-2.46 8.43-4C18.93 9.46 15.73 7 12 7Zm0 1.5A2.5 2.5 0 1 1 9.5 11 2.5 2.5 0 0 1 12 8.5Zm0 2A.5.5 0 1 0 12.5 11 .5.5 0 0 0 12 10.5Z"/></svg>
           <span data-i18n="view_action">${text("view_action")}</span>
         </button>
+        ${canManageDevices ? `
         <button type="button" class="table-action-btn js-edit-device" data-device-id="${deviceId}">
           <span data-i18n="edit_action">${text("edit_action")}</span>
         </button>
@@ -1410,6 +2207,7 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h2v8H7V9Zm4 0h2v8h-2V9Zm4 0h2v8h-2V9ZM6 21a2 2 0 0 1-2-2V8h16v11a2 2 0 0 1-2 2H6Z"/></svg>
           <span data-i18n="delete_action">${text("delete_action")}</span>
         </button>
+        ` : ""}
       </div>`;
   }
   function setDetailProcessing(isProcessing, sourceButton) {
@@ -1493,9 +2291,27 @@
   }
 
   function closeCreateModal() { modal.hidden = true; document.body.style.overflow = detail.hidden ? "" : "hidden"; setProcessing(false); }
-  function closeDetailModal() { detail.hidden = true; document.body.style.overflow = modal.hidden ? "" : "hidden"; setDetailProcessing(false); currentDetailDeviceId = 0; currentDetailDeviceCode = ""; }
+  function closeDetailModal(updateHistory = false) {
+    if (detailMapFullscreen) {
+      setMapFullscreen(false);
+    }
+    detail.hidden = true;
+    document.body.style.overflow = modal.hidden ? "" : "hidden";
+    setDetailProcessing(false);
+    currentDetailDeviceId = 0;
+    currentDetailDeviceCode = "";
+    if (updateHistory) {
+      window.history.pushState({ page: currentPage, pageSize: currentPageSize, search: currentSearchTerm }, "", buildListUrl());
+    }
+  }
 
-  async function openDetail(sourceButton) {
+  async function openDetail(source, options = {}) {
+    const deviceId = typeof source === "number" ? source : Number(source?.dataset?.deviceId || 0);
+    const sourceButton = typeof source === "number" ? null : source;
+    if (!deviceId) {
+      return;
+    }
+
     applyLanguage(lang);
     setActiveDetailTab("information");
     resetDetailView();
@@ -1504,7 +2320,7 @@
     const requestId = ++currentDetailRequestId;
     setDetailProcessing(true, sourceButton);
 	    try {
-	      const response = await fetch(`${deviceDetailDataAction}?id=${encodeURIComponent(sourceButton.dataset.deviceId)}`, { headers: { "X-Requested-With": "XMLHttpRequest" } });
+	      const response = await fetch(`${deviceDetailDataAction}?id=${encodeURIComponent(deviceId)}`, { headers: { "X-Requested-With": "XMLHttpRequest" } });
 	      const { rawText, data, isJson } = await readApiResponse(response);
 	      if (!isJson || !response.ok) {
 	        window.alert(resolveServerErrorMessage(response, data, rawText));
@@ -1533,8 +2349,12 @@
       q("#detailPriorityOverageLimit").textContent = data.priorityOverageLimitDisplay ?? data.PriorityOverageLimitDisplay ?? "-";
       q("#detailPlanName").textContent = data.planName ?? data.PlanName ?? "-";
       q("#detailUsageProgress").style.width = `${data.usageProgressPercent ?? data.UsageProgressPercent ?? "0"}%`;
-      currentDetailDeviceId = Number(sourceButton.dataset.deviceId || 0);
+      updateDetailMap(data.latitude ?? data.Latitude ?? "", data.longitude ?? data.Longitude ?? "");
+      currentDetailDeviceId = deviceId;
       currentDetailDeviceCode = data.deviceCode ?? data.DeviceCode ?? "";
+      if (options.pushHistory !== false) {
+        window.history.pushState({ page: currentPage, pageSize: currentPageSize, search: currentSearchTerm, detailId: deviceId }, "", buildDetailUrl(deviceId));
+      }
       setActiveTelemetryRange(900);
       if (requestId !== currentDetailRequestId) {
         return;
@@ -1546,7 +2366,8 @@
         }
         await Promise.all([
           loadTelemetryTimeline(requestId),
-          loadNetworkingData(requestId)
+          loadNetworkingData(requestId),
+          loadDevicePlanData(requestId)
         ]);
       }, 0);
       return;
@@ -1661,7 +2482,7 @@
       const tokenExpiredUtc = device.tokenExpiredTimeUtcIso ?? device.TokenExpiredTimeUtcIso ?? "";
       const lastSync = device.lastSysnTimeVietnam ?? device.LastSysnTimeVietnam ?? "-";
       const deviceName = device.deviceName ?? device.DeviceName ?? "-";
-      const clientSynced = device.clientSynced === true || device.ClientSynced === true ? "true" : "false";
+      const clientSynced = device.clientSynced === true || device.ClientSynced === true || device.isSyncFresh === true || device.IsSyncFresh === true ? "true" : "false";
 
 	      return `
 	        <tr data-device-id="${deviceId}" data-token-expired-utc="${tokenExpiredUtc}" data-client-synced="${clientSynced}">
@@ -1762,21 +2583,12 @@
     renderPagination();
     syncSearchUi();
     if (pushHistory) {
-      const url = new URL(window.location.href);
-      url.searchParams.set("page", `${currentPage}`);
-      url.searchParams.set("pageSize", `${currentPageSize}`);
-      if (currentSearchTerm) {
-        url.searchParams.set("search", currentSearchTerm);
-      } else {
-        url.searchParams.delete("search");
-      }
-
-      window.history.pushState({ page: currentPage, pageSize: currentPageSize, search: currentSearchTerm }, "", url);
+      window.history.pushState({ page: currentPage, pageSize: currentPageSize, search: currentSearchTerm }, "", buildListUrl());
     }
     await syncDeviceRowsOnLoad();
   }
 
-  function prepareSyncDeviceRow(row) {
+  function prepareSyncDeviceRow(row, showLoading = true) {
     const availabilityCell = row.querySelector("[data-role='availability']");
     const usageCell = row.querySelector("[data-role='usage']");
     const planNameCell = row.querySelector("[data-role='plan-name']");
@@ -1792,8 +2604,10 @@
     };
 
     row.classList.add("is-syncing");
-    if (availabilityCell) availabilityCell.innerHTML = renderCellLoading("status");
-    if (usageCell) usageCell.innerHTML = renderCellLoading("usage");
+    if (showLoading) {
+      if (availabilityCell) availabilityCell.innerHTML = renderCellLoading("status");
+      if (usageCell) usageCell.innerHTML = renderCellLoading("usage");
+    }
 
     return state;
   }
@@ -1821,9 +2635,12 @@
       const response = await fetch(refreshForm.action, { method: "POST", body: formData, headers: { "X-Requested-With": "XMLHttpRequest" } });
       const rawText = await response.text();
       let data = {};
-      try { data = rawText ? JSON.parse(rawText) : {}; } catch { return; }
+      try { data = rawText ? JSON.parse(rawText) : {}; } catch (parseError) { throw parseError; }
       const success = data.success ?? data.Success ?? false;
-      if (!response.ok || !success) { console.warn("Device refresh failed", data); return; }
+      if (!response.ok || !success) {
+        const message = data.message || data.Message || data.messageEn || data.MessageEn || `${response.status} ${response.statusText}`;
+        throw new Error(message);
+      }
       row.dataset.tokenExpiredUtc = data.tokenExpiredTimeUtc ?? data.TokenExpiredTimeUtc ?? "";
       const availability = data.availability ?? data.Availability ?? "";
       const usage = data.usageDataDisplay ?? data.UsageDataDisplay ?? "-";
@@ -1857,6 +2674,7 @@
       if (availabilityCell) availabilityCell.innerHTML = originalAvailability;
       if (usageCell) usageCell.innerHTML = originalUsage;
       if (planNameCell) planNameCell.textContent = originalPlanName;
+      row.dataset.clientSynced = "false";
     } finally {
       row.classList.remove("is-syncing");
     }
@@ -1871,7 +2689,7 @@
       return;
     }
 
-    const preparedRows = rowsToSync.map((row) => ({ row, state: prepareSyncDeviceRow(row) }));
+    const preparedRows = rowsToSync.map((row) => ({ row, state: prepareSyncDeviceRow(row, false) }));
     const concurrency = Math.min(3, preparedRows.length);
     let cursor = 0;
 
@@ -1893,7 +2711,10 @@
   setActiveTelemetryRange(900);
   metricCards.forEach((metricCard) => { metricCard.state.dataset.stateKey = "detail_chart_loading"; });
   applyLanguage(lang);
-  window.history.replaceState({ page: currentPage, pageSize: currentPageSize, search: currentSearchTerm }, "", window.location.href);
+  window.history.replaceState(
+    { page: currentPage, pageSize: currentPageSize, search: currentSearchTerm, detailId: initialSelectedDeviceId || undefined },
+    "",
+    window.location.href);
   qa(".language-btn:not(.detail-language-btn)").forEach((button) => button.addEventListener("click", () => applyLanguage(button.dataset.lang)));
   qa(".detail-language-btn").forEach((button) => button.addEventListener("click", () => applyLanguage(button.dataset.lang)));
   portalNavToggle?.addEventListener("click", (event) => {
@@ -1913,11 +2734,21 @@
   detailTelemetryReload.addEventListener("click", async () => {
     await loadTelemetryTimeline();
   });
-  q("#openDeviceModal").addEventListener("click", openCreateModal);
+  detailMapFullscreenButton?.addEventListener("click", toggleMapFullscreen);
+  detailWifiForm.addEventListener("submit", submitWifiUpdate);
+  detailRouterRebootButton.addEventListener("click", submitRouterReboot);
+  detailPlanAddButton.addEventListener("click", () => openDevicePlanEditor("create"));
+  closeDevicePlanEditorModal.addEventListener("click", closeDevicePlanEditor);
+  cancelDevicePlanEditorModal.addEventListener("click", closeDevicePlanEditor);
+  detailPlanSelect.addEventListener("change", syncSelectedDevicePlanPrices);
+  detailPlanForm.addEventListener("submit", submitDevicePlan);
+  q("#openDeviceModal")?.addEventListener("click", openCreateModal);
   q("#closeDeviceModal").addEventListener("click", closeCreateModal);
   q("#cancelDeviceModal").addEventListener("click", closeCreateModal);
-  q("#closeDeviceDetailModal").addEventListener("click", closeDetailModal);
+  q("#closeDeviceDetailModal").addEventListener("click", () => closeDetailModal(true));
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && detailMapFullscreen) setMapFullscreen(false);
+    if (event.key === "Escape") closeDevicePlanEditor();
     if (event.key === "Escape") closePortalAccountMenu();
     if (event.key === "Escape") closePortalNavMenu();
   });
@@ -1936,11 +2767,19 @@
   });
   window.addEventListener("popstate", async (event) => {
     const state = event.state;
+    if (state?.detailId) {
+      await loadPage(Number(state.page || 1), Number(state.pageSize || currentPageSize), false, state.search || "");
+      await openDetail(Number(state.detailId), { pushHistory: false });
+      return;
+    }
+
     if (state?.page && state?.pageSize) {
+      closeDetailModal(false);
       await loadPage(Number(state.page), Number(state.pageSize), false, state.search || "");
       return;
     }
 
+    closeDetailModal(false);
     const url = new URL(window.location.href);
     const page = Number(url.searchParams.get("page") || "1");
     const pageSize = Number(url.searchParams.get("pageSize") || `${currentPageSize}`);
@@ -1981,6 +2820,9 @@
   });
   bindRowActions(document);
   renderPagination();
+  if (initialSelectedDeviceId) {
+    openDetail(initialSelectedDeviceId, { pushHistory: false });
+  }
   syncDeviceRowsOnLoad();
 })();
 </script>

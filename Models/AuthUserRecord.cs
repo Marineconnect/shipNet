@@ -10,6 +10,7 @@ public class AuthUserRecord
     public string? Avatar { get; set; }
     public string? UserType { get; set; }
     public int? TenantId { get; set; }
+    public int? DeviceId { get; set; }
     public string? Phone { get; set; }
     public string? Email { get; set; }
     public string? IdentificationNumber { get; set; }
@@ -19,6 +20,14 @@ public class AuthUserRecord
 
     public bool IsTenantUser =>
         string.Equals(UserType?.Trim(), ManagedUserType.Tenant, StringComparison.OrdinalIgnoreCase);
+
+    public bool IsShipAdmin =>
+        string.Equals(UserType?.Trim(), ManagedUserType.ShipAdmin, StringComparison.OrdinalIgnoreCase);
+
+    public bool IsCrew =>
+        string.Equals(UserType?.Trim(), ManagedUserType.Crew, StringComparison.OrdinalIgnoreCase);
+
+    public bool CanManageShipUsers => !IsCrew;
 
     public bool HasTenantScope => TenantId.HasValue && TenantId.Value > 0;
 }

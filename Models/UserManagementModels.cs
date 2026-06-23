@@ -9,10 +9,13 @@ public class UserManagementIndexViewModel
     public UserManagementFormViewModel CreateForm { get; set; } = new();
     public UserManagementFormViewModel EditForm { get; set; } = new();
     public List<DeviceTenantOptionViewModel> Tenants { get; set; } = [];
+    public List<UserVesselOptionViewModel> Vessels { get; set; } = [];
+    public List<string> CreatableUserGroups { get; set; } = [];
     public bool OpenCreateModal { get; set; }
     public bool OpenEditModal { get; set; }
     public int CurrentPage { get; set; } = 1;
     public int PageSize { get; set; } = 10;
+    public string ActiveUserGroup { get; set; } = ManagedUserType.Admin;
     public int TotalUsers { get; set; }
     public int TotalPages => PageSize <= 0 ? 1 : Math.Max(1, (int)Math.Ceiling(TotalUsers / (double)PageSize));
     public bool HasPreviousPage => CurrentPage > 1;
@@ -21,6 +24,8 @@ public class UserManagementIndexViewModel
     public int? CurrentTenantId { get; set; }
     public string? CurrentTenantName { get; set; }
     public bool CanSelectTenant => !IsTenantScoped;
+    public bool CanManageUsers { get; set; } = true;
+    public bool CanCreateUsers => CreatableUserGroups.Count > 0;
 }
 
 public class UserManagementPageResult
@@ -44,13 +49,19 @@ public class UserListItemViewModel
     public string UserGroup { get; set; } = ManagedUserType.Admin;
     public int? TenantId { get; set; }
     public string? TenantName { get; set; }
+    public int? DeviceId { get; set; }
+    public string? VesselName { get; set; }
+    public string? DeviceCode { get; set; }
     public DateTime? LastOnlineTime { get; set; }
     public DateTime? LastUpdatePassword { get; set; }
 
     public string DisplayNameOrUsername => string.IsNullOrWhiteSpace(DisplayName) ? Username : DisplayName;
     public string UserGroupDisplay => ManagedUserType.ToDisplay(UserGroup);
-    public string TenantDisplay => string.Equals(UserGroup, ManagedUserType.Tenant, StringComparison.OrdinalIgnoreCase)
+    public string TenantDisplay => ManagedUserType.RequiresTenant(UserGroup)
         ? (string.IsNullOrWhiteSpace(TenantName) ? "-" : TenantName)
+        : "-";
+    public string VesselDisplay => ManagedUserType.RequiresVessel(UserGroup)
+        ? (string.IsNullOrWhiteSpace(VesselName) ? "-" : VesselName)
         : "-";
     public string LastOnlineTimeVietnam => FormatDateTime(LastOnlineTime);
     public string LastUpdatePasswordVietnam => FormatDateTime(LastUpdatePassword);
@@ -104,6 +115,9 @@ public class UserManagementFormViewModel
     [Display(Name = "Tenant")]
     public int? TenantId { get; set; }
 
+    [Display(Name = "Tàu")]
+    public int? DeviceId { get; set; }
+
     [StringLength(50)]
     public string Status { get; set; } = "active";
 
@@ -117,31 +131,62 @@ public static class ManagedUserType
 {
     public const string Admin = "admin";
     public const string Tenant = "tenant";
+    public const string ShipAdmin = "ship_admin";
+    public const string Crew = "crew";
+
+    public static readonly string[] AllGroups = [Admin, Tenant, ShipAdmin, Crew];
 
     public static string NormalizeGroup(string? userGroup)
     {
-        return string.Equals(userGroup, Tenant, StringComparison.OrdinalIgnoreCase)
-            ? Tenant
-            : Admin;
-    }
-
-    public static string Parse(string? rawUserType)
-    {
-        if (string.IsNullOrWhiteSpace(rawUserType))
+        if (string.IsNullOrWhiteSpace(userGroup))
         {
             return Admin;
         }
 
-        var normalized = rawUserType.Trim();
-        return string.Equals(normalized, Tenant, StringComparison.OrdinalIgnoreCase)
-            ? Tenant
-            : Admin;
+        var normalized = userGroup.Trim();
+        if (string.Equals(normalized, Tenant, StringComparison.OrdinalIgnoreCase)) return Tenant;
+        if (string.Equals(normalized, ShipAdmin, StringComparison.OrdinalIgnoreCase)) return ShipAdmin;
+        if (string.Equals(normalized, Crew, StringComparison.OrdinalIgnoreCase)) return Crew;
+        return Admin;
+    }
+
+    public static string Parse(string? rawUserType)
+    {
+        return NormalizeGroup(rawUserType);
     }
 
     public static string ToDisplay(string? userGroup)
     {
-        return NormalizeGroup(userGroup) == Tenant
-            ? "Tenant"
-            : "Tài khoản quản trị";
+        return NormalizeGroup(userGroup) switch
+        {
+            Tenant => "Tenant",
+            ShipAdmin => "Admin tàu",
+            Crew => "Thuyền viên",
+            _ => "Tài khoản quản trị"
+        };
     }
+
+    public static bool RequiresTenant(string? userGroup)
+    {
+        var normalized = NormalizeGroup(userGroup);
+        return normalized is Tenant or ShipAdmin or Crew;
+    }
+
+    public static bool RequiresVessel(string? userGroup)
+    {
+        var normalized = NormalizeGroup(userGroup);
+        return normalized is ShipAdmin or Crew;
+    }
+}
+
+public class UserVesselOptionViewModel
+{
+    public int Id { get; set; }
+    public string VesselName { get; set; } = string.Empty;
+    public string DeviceCode { get; set; } = string.Empty;
+    public int? TenantId { get; set; }
+    public string TenantName { get; set; } = string.Empty;
+    public string DisplayName => string.IsNullOrWhiteSpace(DeviceCode)
+        ? VesselName
+        : $"{VesselName} ({DeviceCode})";
 }

@@ -6,8 +6,9 @@ public interface ISqlAuthService
 {
     Task<AuthUserRecord?> GetUserByIdAsync(int id, CancellationToken cancellationToken = default);
     Task<AuthUserRecord?> GetUserByUsernameAsync(string username, CancellationToken cancellationToken = default);
-    Task<UserManagementPageResult> GetManagedUsersAsync(int page, int pageSize, int? tenantId = null, CancellationToken cancellationToken = default);
-    Task<UserManagementFormViewModel?> GetManagedUserByIdAsync(int id, int? tenantId = null, CancellationToken cancellationToken = default);
+    Task<UserManagementPageResult> GetManagedUsersAsync(int page, int pageSize, int? tenantId = null, int? deviceId = null, string? userGroup = null, CancellationToken cancellationToken = default);
+    Task<UserManagementFormViewModel?> GetManagedUserByIdAsync(int id, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default);
+    Task<List<UserVesselOptionViewModel>> GetVesselOptionsAsync(int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default);
     PasswordVerificationResult VerifyPassword(string rawPassword, string storedPassword);
     string EncodePassword(string rawPassword);
     Task UpdateLoginAuditAsync(string username, string? ipAddress, CancellationToken cancellationToken = default);

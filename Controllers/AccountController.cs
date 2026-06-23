@@ -98,6 +98,11 @@ public class AccountController(
             claims.Add(new Claim("TenantID", user.TenantId.Value.ToString()));
         }
 
+        if (user.DeviceId.HasValue && user.DeviceId.Value > 0)
+        {
+            claims.Add(new Claim("DeviceID", user.DeviceId.Value.ToString()));
+        }
+
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
         var principal = new ClaimsPrincipal(identity);
 
@@ -134,8 +139,15 @@ public class AccountController(
             return RedirectToAction(nameof(Login));
         }
 
-        var allowedTenantId = currentUser.IsTenantUser ? currentUser.TenantId ?? -1 : (int?)null;
-        var targetSummary = await authService.GetManagedUserByIdAsync(id, allowedTenantId, HttpContext.RequestAborted);
+        if (currentUser.IsCrew)
+        {
+            TempData["UserManagementError"] = "Tài khoản thuyền viên không có quyền đăng nhập bằng tài khoản khác.";
+            return RedirectToAction("Index", "Dashboard");
+        }
+
+        var allowedTenantId = currentUser.IsTenantUser || currentUser.IsShipAdmin ? currentUser.TenantId ?? -1 : (int?)null;
+        var allowedDeviceId = currentUser.IsShipAdmin ? currentUser.DeviceId ?? -1 : (int?)null;
+        var targetSummary = await authService.GetManagedUserByIdAsync(id, allowedTenantId, allowedDeviceId, HttpContext.RequestAborted);
         if (targetSummary is null)
         {
             TempData["UserManagementError"] = "Không tìm thấy tài khoản hoặc bạn không có quyền đăng nhập bằng tài khoản này.";

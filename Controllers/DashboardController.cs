@@ -25,7 +25,7 @@ public class DashboardController(
         {
             var currentUser = await GetCurrentUserAsync();
             var normalizedSearch = NormalizeSearchTerm(search);
-            var result = await deviceService.GetDevicesAsync(page, pageSize, normalizedSearch, GetAllowedTenantId(currentUser), HttpContext.RequestAborted);
+            var result = await deviceService.GetDevicesAsync(page, pageSize, normalizedSearch, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
             return Json(new
             {
                 currentPage = page < 1 ? 1 : page,
@@ -46,23 +46,30 @@ public class DashboardController(
     }
 
     [HttpGet]
-    public async Task<IActionResult> Details(int id)
+    public async Task<IActionResult> Details(int id, int page = 1, int pageSize = 10, string? search = null)
     {
         var currentUser = await GetCurrentUserAsync();
-        var device = await deviceService.GetDeviceByIdAsync(id, GetAllowedTenantId(currentUser), HttpContext.RequestAborted);
+        var device = await deviceService.GetDeviceByIdAsync(id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
         if (device is null)
         {
             return NotFound();
         }
 
-        return View("~/Views/Dashboard/Details.cshtml", device);
+        var model = await BuildDashboardViewModelAsync(page, pageSize, search);
+        model.SelectedDeviceId = id;
+        return View("~/Views/Dashboard/Index.cshtml", model);
     }
 
     [HttpGet]
     public async Task<IActionResult> DeviceEditData(int id)
     {
         var currentUser = await GetCurrentUserAsync();
-        var device = await deviceService.GetDeviceByIdAsync(id, GetAllowedTenantId(currentUser), HttpContext.RequestAborted);
+        if (!CanManageDevices(currentUser))
+        {
+            return Forbid();
+        }
+
+        var device = await deviceService.GetDeviceByIdAsync(id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
         if (device is null)
         {
             return AjaxError(
@@ -83,7 +90,7 @@ public class DashboardController(
             var currentUser = await GetCurrentUserAsync();
             var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
             int? userId = int.TryParse(userIdValue, out var parsedUserId) ? parsedUserId : null;
-            var device = await deviceService.GetDeviceDetailAsync(id, userId, GetAllowedTenantId(currentUser), HttpContext.RequestAborted);
+            var device = await deviceService.GetDeviceDetailAsync(id, userId, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
             if (device is null)
             {
                 return AjaxError(
@@ -91,6 +98,12 @@ public class DashboardController(
                     "device_not_found",
                     "Khong tim thay thiet bi hoac ban khong co quyen truy cap.",
                     "The device was not found or you do not have access.");
+            }
+
+            if (!CanViewMap(currentUser))
+            {
+                device.Latitude = string.Empty;
+                device.Longitude = string.Empty;
             }
 
             return Json(device);
@@ -111,13 +124,13 @@ public class DashboardController(
         try
         {
             var currentUser = await GetCurrentUserAsync();
-            var result = await deviceService.GetDeviceWifiAsync(id, GetAllowedTenantId(currentUser), HttpContext.RequestAborted);
+            var result = await deviceService.GetDeviceWifiAsync(id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
             if (!result.Success)
             {
                 var statusCode = result.ErrorCode switch
                 {
                     "device_not_found" => StatusCodes.Status404NotFound,
-                    "missing_wifi_identifiers" => StatusCodes.Status400BadRequest,
+                    "missing_wifi_identifiers" or "router_device_not_found" or "wifi_endpoint_not_found" => StatusCodes.Status400BadRequest,
                     "missing_api_credentials" => StatusCodes.Status500InternalServerError,
                     "missing_access_token" => StatusCodes.Status502BadGateway,
                     _ => StatusCodes.Status502BadGateway
@@ -141,13 +154,204 @@ public class DashboardController(
         }
     }
 
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> UpdateDeviceWifi([FromForm] UpdateDeviceWifiRequest request)
+    {
+        try
+        {
+            var currentUser = await GetCurrentUserAsync();
+            var result = await deviceService.UpdateDeviceWifiAsync(request, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            if (!result.Success)
+            {
+                var statusCode = result.ErrorCode switch
+                {
+                    "device_not_found" => StatusCodes.Status404NotFound,
+                    "missing_wifi_identifiers" or "router_device_not_found" or "wifi_validation_required" => StatusCodes.Status400BadRequest,
+                    "missing_api_credentials" => StatusCodes.Status500InternalServerError,
+                    "missing_access_token" => StatusCodes.Status502BadGateway,
+                    _ => StatusCodes.Status502BadGateway
+                };
+
+                return StatusCode(statusCode, result);
+            }
+
+            return Json(result);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new DeviceCommandResult
+            {
+                Success = false,
+                ErrorCode = "server_exception",
+                Message = ex.Message,
+                MessageEn = ex.Message,
+                RawResponse = ex.ToString()
+            });
+        }
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> DevicePlanData(int id)
+    {
+        try
+        {
+            var currentUser = await GetCurrentUserAsync();
+            var result = await deviceService.GetDevicePlanManagementAsync(id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            if (!result.Success)
+            {
+                var statusCode = result.ErrorCode switch
+                {
+                    "device_not_found" => StatusCodes.Status404NotFound,
+                    "missing_tenant" => StatusCodes.Status400BadRequest,
+                    _ => StatusCodes.Status500InternalServerError
+                };
+
+                return StatusCode(statusCode, result);
+            }
+
+            return Json(result);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new DevicePlanManagementResult
+            {
+                Success = false,
+                ErrorCode = "server_exception",
+                Message = ex.Message,
+                MessageEn = ex.Message
+            });
+        }
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaveDevicePlan([FromForm] SaveDevicePlanRequest request)
+    {
+        try
+        {
+            var currentUser = await GetCurrentUserAsync();
+            if (!CanManageDevices(currentUser))
+            {
+                return Forbid();
+            }
+
+            var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            int? userId = int.TryParse(userIdValue, out var parsedUserId) ? parsedUserId : null;
+            var username = string.IsNullOrWhiteSpace(User.Identity?.Name) ? "system" : User.Identity.Name!;
+            var result = await deviceService.SaveDevicePlanAsync(request, userId, username, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            if (!result.Success)
+            {
+                var statusCode = result.ErrorCode switch
+                {
+                    "device_not_found" => StatusCodes.Status404NotFound,
+                    "missing_tenant" or "validation_required" or "invalid_price" or "plan_not_found" => StatusCodes.Status400BadRequest,
+                    _ => StatusCodes.Status500InternalServerError
+                };
+
+                return StatusCode(statusCode, result);
+            }
+
+            return Json(result);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new SaveDevicePlanResult
+            {
+                Success = false,
+                ErrorCode = "server_exception",
+                Message = ex.Message,
+                MessageEn = ex.Message
+            });
+        }
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteDevicePlan([FromForm] DeleteDevicePlanRequest request)
+    {
+        try
+        {
+            var currentUser = await GetCurrentUserAsync();
+            if (!CanManageDevices(currentUser))
+            {
+                return Forbid();
+            }
+
+            var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            int? userId = int.TryParse(userIdValue, out var parsedUserId) ? parsedUserId : null;
+            var username = string.IsNullOrWhiteSpace(User.Identity?.Name) ? "system" : User.Identity.Name!;
+            var result = await deviceService.DeleteDevicePlanAsync(request, userId, username, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            if (!result.Success)
+            {
+                var statusCode = result.ErrorCode switch
+                {
+                    "device_not_found" or "plan_not_found" => StatusCodes.Status404NotFound,
+                    "validation_required" => StatusCodes.Status400BadRequest,
+                    _ => StatusCodes.Status500InternalServerError
+                };
+
+                return StatusCode(statusCode, result);
+            }
+
+            return Json(result);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new DeleteDevicePlanResult
+            {
+                Success = false,
+                ErrorCode = "server_exception",
+                Message = ex.Message,
+                MessageEn = ex.Message
+            });
+        }
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> RebootDeviceRouter(int id)
+    {
+        try
+        {
+            var currentUser = await GetCurrentUserAsync();
+            var result = await deviceService.RebootDeviceRouterAsync(id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            if (!result.Success)
+            {
+                var statusCode = result.ErrorCode switch
+                {
+                    "device_not_found" => StatusCodes.Status404NotFound,
+                    "missing_wifi_identifiers" or "router_device_not_found" => StatusCodes.Status400BadRequest,
+                    "missing_api_credentials" => StatusCodes.Status500InternalServerError,
+                    "missing_access_token" => StatusCodes.Status502BadGateway,
+                    _ => StatusCodes.Status502BadGateway
+                };
+
+                return StatusCode(statusCode, result);
+            }
+
+            return Json(result);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new DeviceCommandResult
+            {
+                Success = false,
+                ErrorCode = "server_exception",
+                Message = ex.Message,
+                MessageEn = ex.Message,
+                RawResponse = ex.ToString()
+            });
+        }
+    }
+
     [HttpGet]
     public async Task<IActionResult> TelemetryTimeline(int id, long start, long end, string metric = "uplink_throughput")
     {
         try
         {
             var currentUser = await GetCurrentUserAsync();
-            var device = await deviceService.GetDeviceByIdAsync(id, GetAllowedTenantId(currentUser), HttpContext.RequestAborted);
+            var device = await deviceService.GetDeviceByIdAsync(id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
             if (device is null)
             {
                 return AjaxError(
@@ -203,9 +407,9 @@ public class DashboardController(
         try
         {
             var currentUser = await GetCurrentUserAsync();
-            if (currentUser?.IsTenantUser == true)
+            if (!CanManageDevices(currentUser))
             {
-                request.TenantId = currentUser.TenantId;
+                return Forbid();
             }
 
             var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -236,8 +440,13 @@ public class DashboardController(
         try
         {
             var currentUser = await GetCurrentUserAsync();
+            if (!CanManageDevices(currentUser))
+            {
+                return Forbid();
+            }
+
             var allowedTenantId = GetAllowedTenantId(currentUser);
-            var existingDevice = await deviceService.GetDeviceByIdAsync(request.Id, allowedTenantId, HttpContext.RequestAborted);
+            var existingDevice = await deviceService.GetDeviceByIdAsync(request.Id, allowedTenantId, GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
             if (existingDevice is null)
             {
                 return AjaxError(
@@ -245,11 +454,6 @@ public class DashboardController(
                     "device_not_found",
                     "Khong tim thay thiet bi hoac ban khong co quyen truy cap.",
                     "The device was not found or you do not have access.");
-            }
-
-            if (currentUser?.IsTenantUser == true)
-            {
-                request.TenantId = currentUser.TenantId;
             }
 
             var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -280,7 +484,12 @@ public class DashboardController(
         try
         {
             var currentUser = await GetCurrentUserAsync();
-            var existingDevice = await deviceService.GetDeviceByIdAsync(id, GetAllowedTenantId(currentUser), HttpContext.RequestAborted);
+            if (!CanManageDevices(currentUser))
+            {
+                return Forbid();
+            }
+
+            var existingDevice = await deviceService.GetDeviceByIdAsync(id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
             if (existingDevice is null)
             {
                 return AjaxError(
@@ -317,7 +526,7 @@ public class DashboardController(
         try
         {
             var currentUser = await GetCurrentUserAsync();
-            var existingDevice = await deviceService.GetDeviceByIdAsync(id, GetAllowedTenantId(currentUser), HttpContext.RequestAborted);
+            var existingDevice = await deviceService.GetDeviceByIdAsync(id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
             if (existingDevice is null)
             {
                 return AjaxError(
@@ -353,7 +562,8 @@ public class DashboardController(
         var normalizedPageSize = pageSize <= 0 ? 10 : pageSize;
         var normalizedSearch = NormalizeSearchTerm(search);
         var allowedTenantId = GetAllowedTenantId(currentUser);
-        var devicePage = await deviceService.GetDevicesAsync(normalizedPage, normalizedPageSize, normalizedSearch, allowedTenantId, HttpContext.RequestAborted);
+        var allowedDeviceId = GetAllowedDeviceId(currentUser);
+        var devicePage = await deviceService.GetDevicesAsync(normalizedPage, normalizedPageSize, normalizedSearch, allowedTenantId, allowedDeviceId, HttpContext.RequestAborted);
         var tenants = await tenantService.GetTenantOptionsAsync(allowedTenantId, HttpContext.RequestAborted);
 
         return new DeviceDashboardViewModel
@@ -364,9 +574,11 @@ public class DashboardController(
             PageSize = normalizedPageSize,
             TotalDevices = devicePage.TotalDevices,
             SearchTerm = normalizedSearch ?? string.Empty,
-            IsTenantScoped = currentUser?.IsTenantUser == true,
+            IsTenantScoped = currentUser?.IsTenantUser == true || currentUser?.IsShipAdmin == true || currentUser?.IsCrew == true,
             CurrentTenantId = currentUser?.TenantId,
-            CurrentTenantName = tenants.FirstOrDefault(tenant => tenant.Id == currentUser?.TenantId)?.TenantName
+            CurrentTenantName = tenants.FirstOrDefault(tenant => tenant.Id == currentUser?.TenantId)?.TenantName,
+            CanManageDevices = CanManageDevices(currentUser),
+            CanViewMap = CanViewMap(currentUser)
         };
     }
 
@@ -383,7 +595,26 @@ public class DashboardController(
 
     private static int? GetAllowedTenantId(AuthUserRecord? user)
     {
-        return user?.IsTenantUser == true ? user.TenantId ?? -1 : null;
+        return user?.IsTenantUser == true || user?.IsShipAdmin == true || user?.IsCrew == true
+            ? user.TenantId ?? -1
+            : null;
+    }
+
+    private static int? GetAllowedDeviceId(AuthUserRecord? user)
+    {
+        return user?.IsShipAdmin == true || user?.IsCrew == true
+            ? user.DeviceId ?? -1
+            : null;
+    }
+
+    private static bool CanManageDevices(AuthUserRecord? user)
+    {
+        return user is not null && !user.IsTenantUser && !user.IsShipAdmin && !user.IsCrew;
+    }
+
+    private static bool CanViewMap(AuthUserRecord? user)
+    {
+        return user is not null && !user.IsShipAdmin && !user.IsCrew;
     }
 
     private static string? NormalizeSearchTerm(string? search)

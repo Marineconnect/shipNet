@@ -1,0 +1,30 @@
+@model CurrencyExchangeRateFormViewModel
+
+<div class="form-group">
+  <label asp-for="FromCurrency">Từ đồng / From Currency</label>
+  <input asp-for="FromCurrency" class="input" maxlength="10" />
+  <span asp-validation-for="FromCurrency" class="field-error"></span>
+</div>
+<div class="form-group">
+  <label asp-for="ToCurrency">Sang đồng / To Currency</label>
+  <input asp-for="ToCurrency" class="input" maxlength="10" />
+  <span asp-validation-for="ToCurrency" class="field-error"></span>
+</div>
+<div class="form-group">
+  <label asp-for="Rate">Tỷ giá / Rate</label>
+  <input asp-for="Rate" class="input" type="number" min="0" step="0.0001" />
+  <span asp-validation-for="Rate" class="field-error"></span>
+</div>
+<div class="form-group">
+  <label asp-for="EffectiveDate">Ngày bắt đầu áp dụng / Effective Date</label>
+  <input asp-for="EffectiveDate" class="input" type="date" />
+  <span asp-validation-for="EffectiveDate" class="field-error"></span>
+</div>
+<div class="form-group">
+  <label asp-for="Status">Trạng thái / Status</label>
+  <select asp-for="Status" class="input">
+    <option value="active">Hoạt động / Active</option>
+    <option value="inactive">Không hoạt động / Inactive</option>
+  </select>
+  <span asp-validation-for="Status" class="field-error"></span>
+</div>

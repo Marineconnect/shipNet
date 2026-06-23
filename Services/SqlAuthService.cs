@@ -21,6 +21,7 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
         ?? throw new InvalidOperationException("Missing connection string: DefaultConnection");
 
     private readonly string _tokenKey = configuration["Security:TokenKey"] ?? string.Empty;
+    private bool _shipUserColumnsEnsured;
 
     public async Task<AuthUserRecord?> GetUserByIdAsync(int id, CancellationToken cancellationToken = default)
     {
@@ -37,6 +38,7 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
                 [Avatar],
                 [UserType],
                 [TenantID],
+                [DeviceID],
                 [Phone],
                 [Email],
                 [IdentificationNumber]
@@ -46,6 +48,7 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
 
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
+        await EnsureShipUserColumnsAsync(connection, null, cancellationToken);
 
         await using var command = new SqlCommand(query, connection);
         command.Parameters.Add("@id", SqlDbType.Int).Value = id;
@@ -74,6 +77,7 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
                 [Avatar],
                 [UserType],
                 [TenantID],
+                [DeviceID],
                 [Phone],
                 [Email],
                 [IdentificationNumber]
@@ -83,6 +87,7 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
 
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
+        await EnsureShipUserColumnsAsync(connection, null, cancellationToken);
 
         await using var command = new SqlCommand(query, connection);
         command.Parameters.AddWithValue("@username", username);
@@ -96,12 +101,14 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
         return MapAuthUser(reader);
     }
 
-    public async Task<UserManagementPageResult> GetManagedUsersAsync(int page, int pageSize, int? tenantId = null, CancellationToken cancellationToken = default)
+    public async Task<UserManagementPageResult> GetManagedUsersAsync(int page, int pageSize, int? tenantId = null, int? deviceId = null, string? userGroup = null, CancellationToken cancellationToken = default)
     {
         const string countQuery = """
             SELECT COUNT(1)
             FROM [TblMRUser]
             WHERE (@tenantId IS NULL OR [TenantID] = @tenantId)
+              AND (@deviceId IS NULL OR [DeviceID] = @deviceId)
+              AND (@userGroup IS NULL OR [UserType] = @userGroup)
             """;
 
         const string listQuery = """
@@ -116,12 +123,18 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
                 u.[IdentificationNumber],
                 u.[UserType],
                 u.[TenantID],
+                u.[DeviceID],
                 u.[Lastonlinetime],
                 u.[LastUpdatePassword],
-                t.[TenantName]
+                t.[TenantName],
+                d.[VesselName],
+                d.[DeviceCode]
             FROM [TblMRUser] u
             LEFT JOIN [TblTenant] t ON t.[ID] = u.[TenantID]
+            LEFT JOIN [TblDevices] d ON d.[ID] = u.[DeviceID]
             WHERE (@tenantId IS NULL OR u.[TenantID] = @tenantId)
+              AND (@deviceId IS NULL OR u.[DeviceID] = @deviceId)
+              AND (@userGroup IS NULL OR u.[UserType] = @userGroup)
             ORDER BY u.[ID] DESC
             OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
             """;
@@ -131,11 +144,15 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
 
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
+        await EnsureShipUserColumnsAsync(connection, null, cancellationToken);
+        var normalizedUserGroup = string.IsNullOrWhiteSpace(userGroup) ? null : ManagedUserType.NormalizeGroup(userGroup);
 
         int totalUsers;
         await using (var countCommand = new SqlCommand(countQuery, connection))
         {
             countCommand.Parameters.Add("@tenantId", SqlDbType.Int).Value = (object?)tenantId ?? DBNull.Value;
+            countCommand.Parameters.Add("@deviceId", SqlDbType.Int).Value = (object?)deviceId ?? DBNull.Value;
+            countCommand.Parameters.Add("@userGroup", SqlDbType.NVarChar, 50).Value = (object?)normalizedUserGroup ?? DBNull.Value;
             totalUsers = Convert.ToInt32(await countCommand.ExecuteScalarAsync(cancellationToken));
         }
 
@@ -147,6 +164,8 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
         await using (var listCommand = new SqlCommand(listQuery, connection))
         {
             listCommand.Parameters.Add("@tenantId", SqlDbType.Int).Value = (object?)tenantId ?? DBNull.Value;
+            listCommand.Parameters.Add("@deviceId", SqlDbType.Int).Value = (object?)deviceId ?? DBNull.Value;
+            listCommand.Parameters.Add("@userGroup", SqlDbType.NVarChar, 50).Value = (object?)normalizedUserGroup ?? DBNull.Value;
             listCommand.Parameters.Add("@offset", SqlDbType.Int).Value = offset;
             listCommand.Parameters.Add("@pageSize", SqlDbType.Int).Value = normalizedPageSize;
 
@@ -166,7 +185,7 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
         };
     }
 
-    public async Task<UserManagementFormViewModel?> GetManagedUserByIdAsync(int id, int? tenantId = null, CancellationToken cancellationToken = default)
+    public async Task<UserManagementFormViewModel?> GetManagedUserByIdAsync(int id, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
     {
         const string query = """
             SELECT TOP 1
@@ -177,20 +196,24 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
                 [Avatar],
                 [UserType],
                 [TenantID],
+                [DeviceID],
                 [Phone],
                 [Email],
                 [IdentificationNumber]
             FROM [TblMRUser]
             WHERE [ID] = @id
               AND (@tenantId IS NULL OR [TenantID] = @tenantId)
+              AND (@deviceId IS NULL OR [DeviceID] = @deviceId)
             """;
 
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
+        await EnsureShipUserColumnsAsync(connection, null, cancellationToken);
 
         await using var command = new SqlCommand(query, connection);
         command.Parameters.Add("@id", SqlDbType.Int).Value = id;
         command.Parameters.Add("@tenantId", SqlDbType.Int).Value = (object?)tenantId ?? DBNull.Value;
+        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = (object?)deviceId ?? DBNull.Value;
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
@@ -199,6 +222,45 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
         }
 
         return MapManagedUserForm(reader);
+    }
+
+    public async Task<List<UserVesselOptionViewModel>> GetVesselOptionsAsync(int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
+    {
+        const string query = """
+            SELECT
+                d.[ID],
+                d.[VesselName],
+                d.[DeviceCode],
+                d.[TenantID],
+                t.[TenantName]
+            FROM [TblDevices] d
+            LEFT JOIN [TblTenant] t ON t.[ID] = d.[TenantID]
+            WHERE (@tenantId IS NULL OR d.[TenantID] = @tenantId)
+              AND (@deviceId IS NULL OR d.[ID] = @deviceId)
+            ORDER BY d.[VesselName] ASC, d.[DeviceCode] ASC, d.[ID] ASC
+            """;
+
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var vessels = new List<UserVesselOptionViewModel>();
+        await using var command = new SqlCommand(query, connection);
+        command.Parameters.Add("@tenantId", SqlDbType.Int).Value = (object?)tenantId ?? DBNull.Value;
+        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = (object?)deviceId ?? DBNull.Value;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            vessels.Add(new UserVesselOptionViewModel
+            {
+                Id = reader["ID"] is int id ? id : 0,
+                VesselName = reader["VesselName"]?.ToString() ?? string.Empty,
+                DeviceCode = reader["DeviceCode"]?.ToString() ?? string.Empty,
+                TenantId = reader["TenantID"] as int?,
+                TenantName = reader["TenantName"]?.ToString() ?? string.Empty
+            });
+        }
+
+        return vessels;
     }
 
     public PasswordVerificationResult VerifyPassword(string rawPassword, string storedPassword)
@@ -348,15 +410,16 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
     {
         const string query = """
             INSERT INTO [TblMRUser]
-                ([USName], [USPass], [DisplayName], [Status], [Avatar], [UserType], [TenantID], [Phone], [Email], [IdentificationNumber], [LastUpdatePassword])
+                ([USName], [USPass], [DisplayName], [Status], [Avatar], [UserType], [TenantID], [DeviceID], [Phone], [Email], [IdentificationNumber], [LastUpdatePassword])
             OUTPUT INSERTED.[ID]
             VALUES
-                (@username, @password, @displayName, @status, @avatar, @userType, @tenantId, @phone, @email, @identificationNumber, GETDATE())
+                (@username, @password, @displayName, @status, @avatar, @userType, @tenantId, @deviceId, @phone, @email, @identificationNumber, GETDATE())
             """;
 
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await EnsureShipUserColumnsAsync(connection, transaction, cancellationToken);
 
         await using var command = new SqlCommand(query, connection, transaction);
         command.Parameters.Add("@username", SqlDbType.NVarChar, 50).Value = model.Username;
@@ -366,13 +429,14 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
         command.Parameters.Add("@avatar", SqlDbType.NVarChar, 550).Value = (object?)model.ExistingLogoPath ?? DBNull.Value;
         command.Parameters.Add("@userType", SqlDbType.NVarChar, 50).Value = ManagedUserType.NormalizeGroup(model.UserGroup);
         command.Parameters.Add("@tenantId", SqlDbType.Int).Value = (object?)model.TenantId ?? DBNull.Value;
+        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = (object?)model.DeviceId ?? DBNull.Value;
         command.Parameters.Add("@phone", SqlDbType.NVarChar, 50).Value = (object?)model.Phone ?? DBNull.Value;
         command.Parameters.Add("@email", SqlDbType.NVarChar, 50).Value = (object?)model.Email ?? DBNull.Value;
         command.Parameters.Add("@identificationNumber", SqlDbType.NVarChar, 50).Value = (object?)model.IdentificationNumber ?? DBNull.Value;
 
         var userId = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
 
-        var auditDetail = $"Created user '{model.Username}' (ID: {userId}) with group '{ManagedUserType.NormalizeGroup(model.UserGroup)}' and tenant '{model.TenantId?.ToString() ?? "-"}' by '{auditUsername}'.";
+        var auditDetail = $"Created user '{model.Username}' (ID: {userId}) with group '{ManagedUserType.NormalizeGroup(model.UserGroup)}', tenant '{model.TenantId?.ToString() ?? "-"}', vessel '{model.DeviceId?.ToString() ?? "-"}' by '{auditUsername}'.";
         await InsertUserAuditAsync(connection, transaction, auditUserId, CreateManagedUserAuditAction, auditDetail, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
@@ -394,6 +458,7 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
                 [Avatar],
                 [UserType],
                 [TenantID],
+                [DeviceID],
                 [Phone],
                 [Email],
                 [IdentificationNumber]
@@ -410,6 +475,7 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
                 [Avatar] = @avatar,
                 [UserType] = @userType,
                 [TenantID] = @tenantId,
+                [DeviceID] = @deviceId,
                 [Phone] = @phone,
                 [Email] = @email,
                 [IdentificationNumber] = @identificationNumber
@@ -419,6 +485,7 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await EnsureShipUserColumnsAsync(connection, transaction, cancellationToken);
 
         UserManagementFormViewModel? existingUser;
         await using (var selectCommand = new SqlCommand(selectQuery, connection, transaction))
@@ -442,6 +509,7 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
             updateCommand.Parameters.Add("@avatar", SqlDbType.NVarChar, 550).Value = (object?)model.ExistingLogoPath ?? DBNull.Value;
             updateCommand.Parameters.Add("@userType", SqlDbType.NVarChar, 50).Value = ManagedUserType.NormalizeGroup(model.UserGroup);
             updateCommand.Parameters.Add("@tenantId", SqlDbType.Int).Value = (object?)model.TenantId ?? DBNull.Value;
+            updateCommand.Parameters.Add("@deviceId", SqlDbType.Int).Value = (object?)model.DeviceId ?? DBNull.Value;
             updateCommand.Parameters.Add("@phone", SqlDbType.NVarChar, 50).Value = (object?)model.Phone ?? DBNull.Value;
             updateCommand.Parameters.Add("@email", SqlDbType.NVarChar, 50).Value = (object?)model.Email ?? DBNull.Value;
             updateCommand.Parameters.Add("@identificationNumber", SqlDbType.NVarChar, 50).Value = (object?)model.IdentificationNumber ?? DBNull.Value;
@@ -535,6 +603,7 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
             Avatar = reader["Avatar"]?.ToString(),
             UserType = reader["UserType"]?.ToString(),
             TenantId = reader["TenantID"] as int?,
+            DeviceId = reader["DeviceID"] as int?,
             Phone = reader["Phone"]?.ToString(),
             Email = reader["Email"]?.ToString(),
             IdentificationNumber = reader["IdentificationNumber"]?.ToString(),
@@ -561,6 +630,9 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
             UserGroup = group,
             TenantId = reader["TenantID"] as int?,
             TenantName = reader["TenantName"]?.ToString(),
+            DeviceId = reader["DeviceID"] as int?,
+            VesselName = reader["VesselName"]?.ToString(),
+            DeviceCode = reader["DeviceCode"]?.ToString(),
             LastOnlineTime = reader["Lastonlinetime"] as DateTime?,
             LastUpdatePassword = reader["LastUpdatePassword"] as DateTime?
         };
@@ -579,6 +651,7 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
             ExistingLogoPath = reader["Avatar"]?.ToString(),
             UserGroup = group,
             TenantId = reader["TenantID"] as int?,
+            DeviceId = reader["DeviceID"] as int?,
             Phone = reader["Phone"]?.ToString(),
             Email = reader["Email"]?.ToString(),
             IdentificationNumber = reader["IdentificationNumber"]?.ToString()
@@ -632,6 +705,11 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
             changedFields.Add("TenantID");
         }
 
+        if (existingUser.DeviceId != updatedUser.DeviceId)
+        {
+            changedFields.Add("DeviceID");
+        }
+
         if (!string.Equals(NormalizeOptionalValue(existingUser.Status), NormalizeOptionalValue(updatedUser.Status), StringComparison.OrdinalIgnoreCase))
         {
             changedFields.Add("Status");
@@ -645,6 +723,25 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
     private static string? NormalizeOptionalValue(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private async Task EnsureShipUserColumnsAsync(SqlConnection connection, SqlTransaction? transaction, CancellationToken cancellationToken)
+    {
+        if (_shipUserColumnsEnsured)
+        {
+            return;
+        }
+
+        const string query = """
+            IF COL_LENGTH('TblMRUser', 'DeviceID') IS NULL
+            BEGIN
+                ALTER TABLE [TblMRUser] ADD [DeviceID] int NULL;
+            END
+            """;
+
+        await using var command = new SqlCommand(query, connection, transaction);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        _shipUserColumnsEnsured = true;
     }
 
     private static async Task InsertUserAuditAsync(

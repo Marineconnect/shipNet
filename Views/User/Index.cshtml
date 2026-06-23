@@ -1,6 +1,7 @@
 @model UserManagementIndexViewModel
 @using System.Security.Claims
 @{
+    ViewData["ActiveNav"] = "user";
     ViewData["Title"] = "Quản lý người dùng";
 
     string? ResolveLogoUrl(string? path)
@@ -55,71 +56,38 @@
     var pageWindowEnd = Math.Min(totalPages, Model.CurrentPage + 2);
     var showLeadingEllipsis = pageWindowStart > 2;
     var showTrailingEllipsis = pageWindowEnd < totalPages - 1;
+    var userGroups = new[]
+    {
+        ManagedUserType.Admin,
+        ManagedUserType.Tenant,
+        ManagedUserType.ShipAdmin,
+        ManagedUserType.Crew
+    };
 }
 
 <div class="device-page">
   <div class="device-shell">
-    <header class="portal-nav">
-      <div class="portal-nav-brand">
-        <div class="portal-nav-mark">S</div>
-        <div>
-          <div class="portal-nav-title">Shipnet Portal</div>
-          <div class="portal-nav-subtitle">Fleet Operations Console</div>
-        </div>
-      </div>
-      <button type="button" class="portal-nav-toggle" id="portalNavToggle" aria-expanded="false" aria-label="Toggle navigation">
-        <span></span>
-        <span></span>
-        <span></span>
-      </button>
-      <div class="portal-nav-panel" id="portalNavPanel">
-        <nav class="portal-nav-links" aria-label="Primary">
-          <a asp-controller="Dashboard" asp-action="Index" class="portal-nav-link">Quản lý thiết bị</a>
-          <a asp-controller="Tenant" asp-action="Index" class="portal-nav-link">Quản lý tenant</a>
-          <a asp-controller="User" asp-action="Index" class="portal-nav-link is-active">Quản lý người dùng</a>
-        </nav>
-        <div class="portal-nav-tools">
-          <div class="portal-account-menu">
-            <button type="button" class="portal-account" id="portalAccountButton" aria-haspopup="menu" aria-expanded="false">
-              <div class="portal-account-avatar @(string.IsNullOrWhiteSpace(accountAvatarUrl) ? string.Empty : "has-image")" style="@accountAvatarStyle">@accountAvatarLabel</div>
-              <div class="portal-account-copy">
-                <strong>@accountDisplayName</strong>
-                <span>@accountUsername</span>
-              </div>
-              <span class="portal-account-caret" aria-hidden="true"></span>
-            </button>
-            <div class="portal-account-dropdown" id="portalAccountDropdown" hidden>
-              <a asp-controller="Account" asp-action="UserDetail" class="portal-account-item">Thông tin tài khoản</a>
-              <a asp-controller="Account" asp-action="UserDetail" asp-fragment="password-section" class="portal-account-item">Đổi mật khẩu</a>
-              <form asp-controller="Account" asp-action="Logout" method="post" class="portal-account-form">
-                @Html.AntiForgeryToken()
-                <button type="submit" class="portal-account-item is-danger">Đăng xuất</button>
-              </form>
-            </div>
-          </div>
-        </div>
-      </div>
-    </header>
+        <partial name="_PortalNav" />
 
     <div class="device-topbar">
       <div>
-        <div class="device-brand">Shipnet portal</div>
-        <h1>Quản lý người dùng</h1>
+        <div class="device-brand">Shipnet Portal</div>
+        <h1>Quản lý người dùng / User Management</h1>
         <p>
           @if (Model.IsTenantScoped)
           {
-            @:Bạn đang quản lý người dùng trong tenant <strong>@(Model.CurrentTenantName ?? "-")</strong>.
+            @:Bạn đang quản lý người dùng trong tenant / You are managing users in tenant <strong>@(Model.CurrentTenantName ?? "-")</strong>.
           }
           else
           {
-            @:Thêm mới và cập nhật tài khoản quản trị hoặc tài khoản tenant ngay trên cùng màn hình danh sách.
+            @:Thêm mới và cập nhật tài khoản quản trị hoặc tài khoản tenant ngay trên cùng màn hình danh sách / Create and update admin or tenant accounts directly from the list page.
           }
         </p>
       </div>
       <div class="device-actions">
         <button type="button" class="btn-primary add-device-btn" id="openUserCreateModal">
           <span class="add-device-icon">+</span>
-          <span>Thêm người dùng</span>
+          <span>Thêm người dùng / Add User</span>
         </button>
       </div>
     </div>
@@ -136,31 +104,45 @@
     <section class="device-card">
       <div class="device-card-head">
         <div>
-          <h2>User List</h2>
-          <p>Tổng số người dùng: <strong>@Model.TotalUsers</strong></p>
+          <h2>Danh sách người dùng / User List</h2>
+          <p>Tổng số người dùng / Total users: <strong>@Model.TotalUsers</strong></p>
         </div>
+      </div>
+      <div class="detail-tabbar user-group-tabs" role="tablist" aria-label="User groups">
+        @foreach (var tabGroup in userGroups.Where(group => Model.CreatableUserGroups.Contains(group) || string.Equals(group, Model.ActiveUserGroup, StringComparison.OrdinalIgnoreCase)))
+        {
+          <a asp-controller="User"
+             asp-action="Index"
+             asp-route-group="@tabGroup"
+             asp-route-page="1"
+             asp-route-pageSize="@Model.PageSize"
+             class="detail-tab-btn @(string.Equals(Model.ActiveUserGroup, tabGroup, StringComparison.OrdinalIgnoreCase) ? "is-active" : string.Empty)">
+            @ManagedUserType.ToDisplay(tabGroup)
+          </a>
+        }
       </div>
       <div class="table-wrap">
         <table class="device-table user-table">
           <thead>
             <tr>
-              <th>Avatar</th>
-              <th>Username</th>
-              <th>Tên hiển thị</th>
-              <th>Nhóm</th>
-              <th>Tenant</th>
-              <th>Email</th>
-              <th>Phone</th>
-              <th>Trạng thái</th>
-              <th>Online gần nhất</th>
-              <th>Tác vụ</th>
+              <th>Ảnh đại diện / Avatar</th>
+              <th>Username / Username</th>
+              <th>Tên hiển thị / Display Name</th>
+              <th>Nhóm / Group</th>
+              <th>Tenant / Tenant</th>
+              <th>Tàu / Vessel</th>
+              <th>Email / Email</th>
+              <th>Điện thoại / Phone</th>
+              <th>Trạng thái / Status</th>
+              <th>Online gần nhất / Last Online</th>
+              <th>Tác vụ / Actions</th>
             </tr>
           </thead>
           <tbody>
             @if (Model.Users.Count == 0)
             {
               <tr>
-                <td colspan="10" class="tenant-empty">Chưa có người dùng nào.</td>
+                <td colspan="11" class="tenant-empty">Chưa có người dùng nào / No users found.</td>
               </tr>
             }
             else
@@ -190,6 +172,7 @@
                   <td>@user.DisplayNameOrUsername</td>
                   <td>@user.UserGroupDisplay</td>
                   <td>@user.TenantDisplay</td>
+                  <td>@user.VesselDisplay</td>
                   <td>@(string.IsNullOrWhiteSpace(user.Email) ? "-" : user.Email)</td>
                   <td>@(string.IsNullOrWhiteSpace(user.Phone) ? "-" : user.Phone)</td>
                   <td>
@@ -207,16 +190,17 @@
                         <button type="submit"
                                 class="table-action-btn"
                                 data-login-as-username="@user.Username">
-                          <span>Đăng nhập</span>
+                          <span>Đăng nhập / Login as</span>
                         </button>
                       </form>
                       <a asp-controller="User"
                          asp-action="Edit"
                          asp-route-id="@user.Id"
+                         asp-route-group="@Model.ActiveUserGroup"
                          asp-route-page="@Model.CurrentPage"
                          asp-route-pageSize="@Model.PageSize"
                          class="table-action-btn">
-                        <span>Sửa</span>
+                        <span>Sửa / Edit</span>
                       </a>
                     </div>
                   </td>
@@ -228,27 +212,29 @@
       </div>
       <div class="device-pagination">
         <div class="device-pagination-meta">
-          <span>Hiển thị <strong>@startItem-@endItem</strong> / <strong>@Model.TotalUsers</strong> người dùng</span>
+          <span>Hiển thị / Showing <strong>@startItem-@endItem</strong> / <strong>@Model.TotalUsers</strong> người dùng / users</span>
           <form asp-controller="User" asp-action="Index" method="get" class="page-size-wrap">
+            <input type="hidden" name="group" value="@Model.ActiveUserGroup" />
             <input type="hidden" name="page" value="1" />
-            <label for="userPageSizeSelect">Số dòng</label>
+            <label for="userPageSizeSelect">Số dòng / Rows</label>
             <select id="userPageSizeSelect" name="pageSize" class="page-size-select">
               <option value="10" selected="@(Model.PageSize == 10)">10</option>
               <option value="20" selected="@(Model.PageSize == 20)">20</option>
               <option value="50" selected="@(Model.PageSize == 50)">50</option>
             </select>
           </form>
-          <span>Trang <strong>@Model.CurrentPage</strong> / <strong>@totalPages</strong></span>
+          <span>Trang / Page <strong>@Model.CurrentPage</strong> / <strong>@totalPages</strong></span>
         </div>
         <div class="device-pagination-actions">
           @if (Model.HasPreviousPage)
           {
             <a asp-controller="User"
                asp-action="Index"
+               asp-route-group="@Model.ActiveUserGroup"
                asp-route-page="@(Model.CurrentPage - 1)"
                asp-route-pageSize="@Model.PageSize"
                class="pagination-btn"
-               aria-label="Trang trước">‹</a>
+               aria-label="Trang trước / Previous page">‹</a>
           }
           else
           {
@@ -257,7 +243,7 @@
 
           @if (pageWindowStart > 1)
           {
-            <a asp-controller="User" asp-action="Index" asp-route-page="1" asp-route-pageSize="@Model.PageSize" class="pagination-btn">1</a>
+            <a asp-controller="User" asp-action="Index" asp-route-group="@Model.ActiveUserGroup" asp-route-page="1" asp-route-pageSize="@Model.PageSize" class="pagination-btn">1</a>
           }
           @if (showLeadingEllipsis)
           {
@@ -272,7 +258,7 @@
             }
             else
             {
-              <a asp-controller="User" asp-action="Index" asp-route-page="@pageNumber" asp-route-pageSize="@Model.PageSize" class="pagination-btn">@pageNumber</a>
+              <a asp-controller="User" asp-action="Index" asp-route-group="@Model.ActiveUserGroup" asp-route-page="@pageNumber" asp-route-pageSize="@Model.PageSize" class="pagination-btn">@pageNumber</a>
             }
           }
 
@@ -282,17 +268,18 @@
           }
           @if (pageWindowEnd < totalPages)
           {
-            <a asp-controller="User" asp-action="Index" asp-route-page="@totalPages" asp-route-pageSize="@Model.PageSize" class="pagination-btn">@totalPages</a>
+            <a asp-controller="User" asp-action="Index" asp-route-group="@Model.ActiveUserGroup" asp-route-page="@totalPages" asp-route-pageSize="@Model.PageSize" class="pagination-btn">@totalPages</a>
           }
 
           @if (Model.HasNextPage)
           {
             <a asp-controller="User"
                asp-action="Index"
+               asp-route-group="@Model.ActiveUserGroup"
                asp-route-page="@(Model.CurrentPage + 1)"
                asp-route-pageSize="@Model.PageSize"
                class="pagination-btn"
-               aria-label="Trang sau">›</a>
+               aria-label="Trang sau / Next page">›</a>
           }
           else
           {
@@ -308,10 +295,10 @@
   <div class="device-modal user-management-modal" role="dialog" aria-modal="true" aria-labelledby="userCreateModalTitle">
     <div class="device-modal-head">
       <div>
-        <h2 id="userCreateModalTitle">Thêm người dùng</h2>
-        <p>Tạo tài khoản mới và gán nhóm quản trị hoặc tenant ngay trong popup thông tin tài khoản.</p>
+        <h2 id="userCreateModalTitle">Thêm người dùng / Add User</h2>
+        <p>Tạo tài khoản mới và gán nhóm quản trị hoặc tenant ngay trong popup thông tin tài khoản / Create a new account and assign admin or tenant group in the account form.</p>
       </div>
-      <button type="button" class="modal-close" id="closeUserCreateModal" aria-label="Close">×</button>
+      <button type="button" class="modal-close" id="closeUserCreateModal" aria-label="Đóng / Close">×</button>
     </div>
     <form asp-controller="User" asp-action="Create" method="post" enctype="multipart/form-data" class="device-modal-form">
       @Html.AntiForgeryToken()
@@ -335,14 +322,14 @@
               <img src="" alt="User logo preview" class="user-profile-logo" id="createLogoPreview" hidden />
             }
           </div>
-          <div class="user-profile-logo-note">Preview avatar cho tài khoản mới.</div>
+          <div class="user-profile-logo-note">Xem trước avatar cho tài khoản mới / Preview avatar for the new account.</div>
           <dl class="user-profile-meta user-management-profile-meta">
             <div>
               <dt>Username</dt>
               <dd>@(string.IsNullOrWhiteSpace(Model.CreateForm.Username) ? "-" : Model.CreateForm.Username)</dd>
             </div>
             <div>
-              <dt>Nhóm</dt>
+              <dt>Nhóm / Group</dt>
               <dd>@ManagedUserType.ToDisplay(Model.CreateForm.UserGroup)</dd>
             </div>
             <div>
@@ -364,8 +351,8 @@
         <section class="user-detail-card">
           <div class="user-detail-card-head">
             <div>
-              <h2>User Detail</h2>
-              <p>Sử dụng lại biểu mẫu thông tin tài khoản và bổ sung phân nhóm người dùng.</p>
+              <h2>Chi tiết người dùng / User Detail</h2>
+              <p>Sử dụng lại biểu mẫu thông tin tài khoản và bổ sung phân nhóm người dùng / Use the account information form with additional user group fields.</p>
             </div>
           </div>
           <div class="user-detail-form user-management-form-body">
@@ -406,13 +393,14 @@
                 <span asp-validation-for="CreateForm.Password" class="field-error"></span>
               </div>
 
-              @if (Model.IsTenantScoped)
+              @if (Model.CreatableUserGroups.Count == 1)
               {
-                <input asp-for="CreateForm.UserGroup" type="hidden" value="@ManagedUserType.Tenant" />
+                <input asp-for="CreateForm.UserGroup" type="hidden" value="@Model.CreateForm.UserGroup" />
                 <input asp-for="CreateForm.TenantId" type="hidden" value="@Model.CurrentTenantId" />
+                <input asp-for="CreateForm.DeviceId" type="hidden" />
                 <div class="form-group">
-                  <label>Nhóm tài khoản</label>
-                  <input class="input" value="Tenant" readonly />
+                  <label>Nhóm tài khoản / Account Group</label>
+                  <input class="input" value="@ManagedUserType.ToDisplay(Model.CreateForm.UserGroup)" readonly />
                 </div>
 
                 <div class="form-group">
@@ -426,8 +414,10 @@
                 <div class="form-group">
                   <label asp-for="CreateForm.UserGroup"></label>
                   <select asp-for="CreateForm.UserGroup" class="input user-group-select" id="createUserGroupSelect">
-                    <option value="@ManagedUserType.Admin">Tài khoản quản trị</option>
-                    <option value="@ManagedUserType.Tenant">Tenant</option>
+                    @foreach (var groupOption in Model.CreatableUserGroups)
+                    {
+                      <option value="@groupOption">@ManagedUserType.ToDisplay(groupOption)</option>
+                    }
                   </select>
                   <span asp-validation-for="CreateForm.UserGroup" class="field-error"></span>
                 </div>
@@ -435,13 +425,25 @@
                 <div class="form-group" id="createTenantSelectWrap">
                   <label asp-for="CreateForm.TenantId"></label>
                   <select asp-for="CreateForm.TenantId" class="input">
-                    <option value="">Chọn tenant</option>
+                    <option value="">Chọn tenant / Select tenant</option>
                     @foreach (var tenant in Model.Tenants)
                     {
                       <option value="@tenant.Id">@tenant.TenantName</option>
                     }
                   </select>
                   <span asp-validation-for="CreateForm.TenantId" class="field-error"></span>
+                </div>
+
+                <div class="form-group" id="createVesselSelectWrap">
+                  <label asp-for="CreateForm.DeviceId"></label>
+                  <select asp-for="CreateForm.DeviceId" class="input">
+                    <option value="">Chọn tàu / Select vessel</option>
+                    @foreach (var vessel in Model.Vessels)
+                    {
+                      <option value="@vessel.Id" data-tenant-id="@vessel.TenantId">@vessel.DisplayName</option>
+                    }
+                  </select>
+                  <span asp-validation-for="CreateForm.DeviceId" class="field-error"></span>
                 </div>
               }
             </div>
@@ -451,8 +453,8 @@
               <label class="user-logo-upload">
                 <input asp-for="CreateForm.LogoFile" accept=".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif" class="user-logo-input" />
                 <span class="user-logo-upload-copy">
-                  <strong>Tải logo mới</strong>
-                  <small>Hỗ trợ JPG, PNG, WEBP, GIF. Tối đa 3MB.</small>
+                  <strong>Tải logo mới / Upload new logo</strong>
+                  <small>Hỗ trợ JPG, PNG, WEBP, GIF. Tối đa 3MB / Supports JPG, PNG, WEBP, GIF. Max 3MB.</small>
                 </span>
               </label>
               <span asp-validation-for="CreateForm.LogoFile" class="field-error"></span>
@@ -462,8 +464,8 @@
       </div>
 
       <div class="device-modal-actions">
-        <button type="button" class="btn-secondary" id="cancelUserCreateModal">Hủy</button>
-        <button type="submit" class="btn-primary">Tạo người dùng</button>
+        <button type="button" class="btn-secondary" id="cancelUserCreateModal">Hủy / Cancel</button>
+        <button type="submit" class="btn-primary">Tạo người dùng / Create User</button>
       </div>
     </form>
   </div>
@@ -473,10 +475,10 @@
   <div class="device-modal user-management-modal" role="dialog" aria-modal="true" aria-labelledby="userEditModalTitle">
     <div class="device-modal-head">
       <div>
-        <h2 id="userEditModalTitle">Cập nhật người dùng</h2>
-        <p>Chỉnh sửa thông tin, nhóm tài khoản và tenant của người dùng hiện có.</p>
+        <h2 id="userEditModalTitle">Cập nhật người dùng / Update User</h2>
+        <p>Chỉnh sửa thông tin, nhóm tài khoản và tenant của người dùng hiện có / Edit information, account group, and tenant for the selected user.</p>
       </div>
-      <button type="button" class="modal-close" id="closeUserEditModal" aria-label="Close">×</button>
+      <button type="button" class="modal-close" id="closeUserEditModal" aria-label="Đóng / Close">×</button>
     </div>
     <form asp-controller="User" asp-action="Edit" method="post" enctype="multipart/form-data" class="device-modal-form">
       @Html.AntiForgeryToken()
@@ -502,14 +504,14 @@
               <img src="" alt="User logo preview" class="user-profile-logo" id="editLogoPreview" hidden />
             }
           </div>
-          <div class="user-profile-logo-note">Logo và nhóm của tài khoản sẽ cập nhật sau khi lưu.</div>
+          <div class="user-profile-logo-note">Logo và nhóm của tài khoản sẽ cập nhật sau khi lưu / Logo and group are updated after saving.</div>
           <dl class="user-profile-meta user-management-profile-meta">
             <div>
               <dt>Username</dt>
               <dd>@(string.IsNullOrWhiteSpace(Model.EditForm.Username) ? "-" : Model.EditForm.Username)</dd>
             </div>
             <div>
-              <dt>Nhóm</dt>
+              <dt>Nhóm / Group</dt>
               <dd>@ManagedUserType.ToDisplay(Model.EditForm.UserGroup)</dd>
             </div>
             <div>
@@ -531,8 +533,8 @@
         <section class="user-detail-card">
           <div class="user-detail-card-head">
             <div>
-              <h2>User Detail</h2>
-              <p>Biểu mẫu dùng cùng cấu trúc với thông tin tài khoản, chỉ thêm phần nhóm người dùng và tenant.</p>
+              <h2>Chi tiết người dùng / User Detail</h2>
+              <p>Biểu mẫu dùng cùng cấu trúc với thông tin tài khoản, chỉ thêm phần nhóm người dùng và tenant / Same account form with added user group and tenant fields.</p>
             </div>
           </div>
           <div class="user-detail-form user-management-form-body">
@@ -567,13 +569,14 @@
                 <span asp-validation-for="EditForm.IdentificationNumber" class="field-error"></span>
               </div>
 
-              @if (Model.IsTenantScoped)
+              @if (Model.CreatableUserGroups.Count == 1)
               {
-                <input asp-for="EditForm.UserGroup" type="hidden" value="@ManagedUserType.Tenant" />
+                <input asp-for="EditForm.UserGroup" type="hidden" value="@Model.EditForm.UserGroup" />
                 <input asp-for="EditForm.TenantId" type="hidden" value="@Model.CurrentTenantId" />
+                <input asp-for="EditForm.DeviceId" type="hidden" />
                 <div class="form-group">
-                  <label>Nhóm tài khoản</label>
-                  <input class="input" value="Tenant" readonly />
+                  <label>Nhóm tài khoản / Account Group</label>
+                  <input class="input" value="@ManagedUserType.ToDisplay(Model.EditForm.UserGroup)" readonly />
                 </div>
 
                 <div class="form-group">
@@ -587,8 +590,10 @@
                 <div class="form-group">
                   <label asp-for="EditForm.UserGroup"></label>
                   <select asp-for="EditForm.UserGroup" class="input user-group-select" id="editUserGroupSelect">
-                    <option value="@ManagedUserType.Admin">Tài khoản quản trị</option>
-                    <option value="@ManagedUserType.Tenant">Tenant</option>
+                    @foreach (var groupOption in Model.CreatableUserGroups)
+                    {
+                      <option value="@groupOption">@ManagedUserType.ToDisplay(groupOption)</option>
+                    }
                   </select>
                   <span asp-validation-for="EditForm.UserGroup" class="field-error"></span>
                 </div>
@@ -596,13 +601,25 @@
                 <div class="form-group" id="editTenantSelectWrap">
                   <label asp-for="EditForm.TenantId"></label>
                   <select asp-for="EditForm.TenantId" class="input">
-                    <option value="">Chọn tenant</option>
+                    <option value="">Chọn tenant / Select tenant</option>
                     @foreach (var tenant in Model.Tenants)
                     {
                       <option value="@tenant.Id">@tenant.TenantName</option>
                     }
                   </select>
                   <span asp-validation-for="EditForm.TenantId" class="field-error"></span>
+                </div>
+
+                <div class="form-group" id="editVesselSelectWrap">
+                  <label asp-for="EditForm.DeviceId"></label>
+                  <select asp-for="EditForm.DeviceId" class="input">
+                    <option value="">Chọn tàu / Select vessel</option>
+                    @foreach (var vessel in Model.Vessels)
+                    {
+                      <option value="@vessel.Id" data-tenant-id="@vessel.TenantId">@vessel.DisplayName</option>
+                    }
+                  </select>
+                  <span asp-validation-for="EditForm.DeviceId" class="field-error"></span>
                 </div>
               }
             </div>
@@ -612,8 +629,8 @@
               <label class="user-logo-upload">
                 <input asp-for="EditForm.LogoFile" accept=".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif" class="user-logo-input" />
                 <span class="user-logo-upload-copy">
-                  <strong>Tải logo mới</strong>
-                  <small>Hỗ trợ JPG, PNG, WEBP, GIF. Tối đa 3MB.</small>
+                  <strong>Tải logo mới / Upload new logo</strong>
+                  <small>Hỗ trợ JPG, PNG, WEBP, GIF. Tối đa 3MB / Supports JPG, PNG, WEBP, GIF. Max 3MB.</small>
                 </span>
               </label>
               <span asp-validation-for="EditForm.LogoFile" class="field-error"></span>
@@ -623,8 +640,8 @@
       </div>
 
       <div class="device-modal-actions">
-        <button type="button" class="btn-secondary" id="cancelUserEditModal">Hủy</button>
-        <button type="submit" class="btn-primary">Lưu thay đổi</button>
+        <button type="button" class="btn-secondary" id="cancelUserEditModal">Hủy / Cancel</button>
+        <button type="submit" class="btn-primary">Lưu thay đổi / Save Changes</button>
       </div>
     </form>
   </div>
@@ -673,20 +690,30 @@
         });
       }
 
-      function bindTenantVisibility(selectId, wrapId) {
+      function bindTenantVisibility(selectId, wrapId, vesselWrapId) {
         const select = document.getElementById(selectId);
         const wrap = document.getElementById(wrapId);
         const tenantSelect = wrap?.querySelector("select");
+        const vesselWrap = document.getElementById(vesselWrapId);
+        const vesselSelect = vesselWrap?.querySelector("select");
 
         function syncVisibility() {
-          const isTenant = select?.value === "tenant";
+          const group = select?.value || "";
+          const requiresTenant = group === "tenant" || group === "ship_admin" || group === "crew";
+          const requiresVessel = group === "ship_admin" || group === "crew";
           if (!wrap) {
             return;
           }
 
-          wrap.hidden = !isTenant;
-          if (!isTenant && tenantSelect) {
+          wrap.hidden = !requiresTenant;
+          if (!requiresTenant && tenantSelect) {
             tenantSelect.value = "";
+          }
+          if (vesselWrap) {
+            vesselWrap.hidden = !requiresVessel;
+          }
+          if (!requiresVessel && vesselSelect) {
+            vesselSelect.value = "";
           }
         }
 
@@ -776,8 +803,8 @@
 
       bindLogoPreview("CreateForm_LogoFile", "createLogoPreview", "createLogoFallback");
       bindLogoPreview("EditForm_LogoFile", "editLogoPreview", "editLogoFallback");
-      bindTenantVisibility("createUserGroupSelect", "createTenantSelectWrap");
-      bindTenantVisibility("editUserGroupSelect", "editTenantSelectWrap");
+      bindTenantVisibility("createUserGroupSelect", "createTenantSelectWrap", "createVesselSelectWrap");
+      bindTenantVisibility("editUserGroupSelect", "editTenantSelectWrap", "editVesselSelectWrap");
 
       syncBodyOverflow();
     })();

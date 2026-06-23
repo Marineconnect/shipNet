@@ -1,0 +1,311 @@
+@model CurrencyExchangeIndexViewModel
+@{
+    ViewData["Title"] = "Quy đổi tiền tệ";
+    ViewData["ActiveNav"] = "currency";
+
+    string DateInput(DateTime value) => value.ToString("yyyy-MM-dd");
+
+    var successMessage = TempData["CurrencyExchangeSuccess"]?.ToString();
+    var errorMessage = TempData["CurrencyExchangeError"]?.ToString();
+    var totalPages = Model.TotalPages;
+    var startItem = Model.TotalRates == 0 ? 0 : ((Model.CurrentPage - 1) * Model.PageSize) + 1;
+    var endItem = Model.TotalRates == 0 ? 0 : Math.Min(Model.CurrentPage * Model.PageSize, Model.TotalRates);
+    var createModalHidden = Model.OpenCreateModal ? string.Empty : " hidden";
+    var editModalHidden = Model.OpenEditModal ? string.Empty : " hidden";
+}
+
+<div class="device-page">
+  <div class="device-shell">
+    <partial name="_PortalNav" />
+
+    <div class="device-topbar">
+      <div>
+        <div class="device-brand">Cài đặt / Settings</div>
+        <h1>Quy đổi tiền tệ / Currency Exchange</h1>
+        <p>Quản lý các mốc tỷ giá theo ngày hiệu lực để billing và thanh toán có cùng một nguồn cấu hình / Manage effective-date exchange rates so billing and payment use the same configuration source.</p>
+      </div>
+      <div class="device-actions">
+        <button type="button" class="btn-primary add-device-btn" id="openCurrencyCreateModal">
+          <span class="add-device-icon">+</span>
+          <span>Thêm tỷ giá / Add Rate</span>
+        </button>
+      </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+      <div class="tenant-feedback is-success">@successMessage</div>
+    }
+    else if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+      <div class="tenant-feedback is-error" role="alert">@errorMessage</div>
+    }
+
+    <section class="device-card currency-converter-card">
+      <div class="device-card-head">
+        <div>
+          <h2>Bộ quy đổi tiền tệ / Currency Converter</h2>
+          <p>Chọn đồng tiền nguồn, đồng tiền đích và ngày cần áp dụng tỷ giá / Select source currency, target currency, and conversion date.</p>
+        </div>
+      </div>
+      <form asp-controller="CurrencyExchange" asp-action="Convert" method="post" class="currency-converter-form">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="page" value="@Model.CurrentPage" />
+        <input type="hidden" name="pageSize" value="@Model.PageSize" />
+        <label class="detail-field">
+          <span>Số tiền / Amount</span>
+          <input asp-for="ConversionForm.Amount" type="number" min="0" step="0.0001" />
+          <span asp-validation-for="ConversionForm.Amount" class="field-error"></span>
+        </label>
+        <label class="detail-field">
+          <span>Từ đồng / From Currency</span>
+          <input asp-for="ConversionForm.FromCurrency" maxlength="10" />
+          <span asp-validation-for="ConversionForm.FromCurrency" class="field-error"></span>
+        </label>
+        <label class="detail-field">
+          <span>Sang đồng / To Currency</span>
+          <input asp-for="ConversionForm.ToCurrency" maxlength="10" />
+          <span asp-validation-for="ConversionForm.ToCurrency" class="field-error"></span>
+        </label>
+        <label class="detail-field">
+          <span>Ngày quy đổi / Conversion Date</span>
+          <input asp-for="ConversionForm.ConversionDate" type="date" value="@DateInput(Model.ConversionForm.ConversionDate)" />
+          <span asp-validation-for="ConversionForm.ConversionDate" class="field-error"></span>
+        </label>
+        <div class="currency-converter-actions">
+          <button type="submit" class="btn-primary">Quy đổi / Convert</button>
+        </div>
+      </form>
+      @if (Model.ConversionResult is not null)
+      {
+        <div class="currency-result">
+          <div>
+            <span>Kết quả / Result</span>
+            <strong>@Model.ConversionResult.AmountDisplay @Model.ConversionResult.FromCurrency = @Model.ConversionResult.ConvertedAmountDisplay @Model.ConversionResult.ToCurrency</strong>
+          </div>
+          <div>
+            <span>Tỷ giá áp dụng / Applied Rate</span>
+            <strong>1 @Model.ConversionResult.FromCurrency = @Model.ConversionResult.RateDisplay @Model.ConversionResult.ToCurrency</strong>
+          </div>
+          <div>
+            <span>Ngày hiệu lực / Effective Date</span>
+            <strong>@Model.ConversionResult.EffectiveDateDisplay</strong>
+          </div>
+        </div>
+      }
+    </section>
+
+    <section class="device-card">
+      <div class="device-card-head">
+        <div>
+          <h2>Dòng thời gian tỷ giá / Exchange Rate Timeline</h2>
+          <p>Tổng số mốc tỷ giá / Total rates: <strong>@Model.TotalRates</strong></p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="device-table subscription-table">
+          <thead>
+            <tr>
+              <th>Cặp tiền / Currency Pair</th>
+              <th>Tỷ giá / Rate</th>
+              <th>Ngày hiệu lực / Effective Date</th>
+              <th>Trạng thái / Status</th>
+              <th>Cập nhật lúc / Updated At</th>
+              <th>Tác vụ / Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            @if (Model.Rates.Count == 0)
+            {
+              <tr>
+                <td colspan="6" class="tenant-empty">Chưa có mốc tỷ giá nào / No exchange rates found.</td>
+              </tr>
+            }
+            else
+            {
+              @foreach (var rate in Model.Rates)
+              {
+                <tr>
+                  <td>@rate.PairDisplay</td>
+                  <td>1 @rate.FromCurrency = @rate.RateDisplay @rate.ToCurrency</td>
+                  <td>@rate.EffectiveDateDisplay</td>
+                  <td><span class="subscription-status @rate.Status">@rate.Status</span></td>
+                  <td>
+                    <div>@rate.UpdatedDateDisplay</div>
+                    <div class="tenant-meta">@(string.IsNullOrWhiteSpace(rate.UpdatedBy) ? "-" : rate.UpdatedBy)</div>
+                  </td>
+                  <td>
+                    <div class="table-actions">
+                      <a asp-controller="CurrencyExchange"
+                         asp-action="Edit"
+                         asp-route-id="@rate.Id"
+                         asp-route-page="@Model.CurrentPage"
+                         asp-route-pageSize="@Model.PageSize"
+                         class="table-action-btn">
+                        <span>Sửa / Edit</span>
+                      </a>
+                      <form asp-controller="CurrencyExchange"
+                            asp-action="Delete"
+                            asp-route-id="@rate.Id"
+                            asp-route-page="@Model.CurrentPage"
+                            asp-route-pageSize="@Model.PageSize"
+                            method="post"
+                            onsubmit="return confirm('Xóa mốc tỷ giá này? / Delete this exchange rate?');">
+                        @Html.AntiForgeryToken()
+                        <button type="submit" class="table-action-btn is-danger">Xóa / Delete</button>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              }
+            }
+          </tbody>
+        </table>
+      </div>
+      <div class="device-pagination">
+        <div class="device-pagination-meta">
+          <span>Hiển thị / Showing <strong>@startItem-@endItem</strong> / <strong>@Model.TotalRates</strong> mốc / rates</span>
+          <form asp-controller="CurrencyExchange" asp-action="Index" method="get" class="page-size-wrap">
+            <input type="hidden" name="page" value="1" />
+            <label for="currencyPageSizeSelect">Số dòng / Rows</label>
+            <select id="currencyPageSizeSelect" name="pageSize" class="page-size-select">
+              <option value="10" selected="@(Model.PageSize == 10)">10</option>
+              <option value="20" selected="@(Model.PageSize == 20)">20</option>
+              <option value="50" selected="@(Model.PageSize == 50)">50</option>
+            </select>
+          </form>
+          <span>Trang / Page <strong>@Model.CurrentPage</strong> / <strong>@totalPages</strong></span>
+        </div>
+        <div class="device-pagination-actions">
+          @if (Model.HasPreviousPage)
+          {
+            <a asp-controller="CurrencyExchange" asp-action="Index" asp-route-page="@(Model.CurrentPage - 1)" asp-route-pageSize="@Model.PageSize" class="pagination-btn">‹</a>
+          }
+          else
+          {
+            <span class="pagination-btn is-disabled" aria-disabled="true">‹</span>
+          }
+          @if (Model.HasNextPage)
+          {
+            <a asp-controller="CurrencyExchange" asp-action="Index" asp-route-page="@(Model.CurrentPage + 1)" asp-route-pageSize="@Model.PageSize" class="pagination-btn">›</a>
+          }
+          else
+          {
+            <span class="pagination-btn is-disabled" aria-disabled="true">›</span>
+          }
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="currencyCreateModal"@createModalHidden>
+  <div class="device-modal subscription-modal" role="dialog" aria-modal="true" aria-labelledby="currencyCreateTitle">
+    <div class="device-modal-head">
+      <div>
+        <h2 id="currencyCreateTitle">Thêm mốc tỷ giá / Add Exchange Rate</h2>
+        <p>Ví dụ: từ 01/06/2025, 1 USD = 27000 VND / Example: from 01/06/2025, 1 USD = 27000 VND.</p>
+      </div>
+      <button type="button" class="modal-close" id="closeCurrencyCreateModal" aria-label="Đóng / Close">×</button>
+    </div>
+    <form asp-controller="CurrencyExchange" asp-action="Create" method="post">
+      @Html.AntiForgeryToken()
+      <input asp-for="CreateForm.CurrentPage" type="hidden" />
+      <input asp-for="CreateForm.PageSize" type="hidden" />
+      <div class="form-grid">
+        <partial name="_CurrencyRateFields" for="CreateForm" />
+      </div>
+      <div class="device-modal-actions">
+        <button type="button" class="btn-secondary" id="cancelCurrencyCreateModal">Hủy / Cancel</button>
+        <button type="submit" class="btn-primary">Lưu tỷ giá / Save Rate</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="currencyEditModal"@editModalHidden>
+  <div class="device-modal subscription-modal" role="dialog" aria-modal="true" aria-labelledby="currencyEditTitle">
+    <div class="device-modal-head">
+      <div>
+        <h2 id="currencyEditTitle">Sửa mốc tỷ giá / Edit Exchange Rate</h2>
+        <p>Cập nhật cặp tiền, tỷ giá hoặc ngày hiệu lực / Update currency pair, rate, or effective date.</p>
+      </div>
+      <button type="button" class="modal-close" id="closeCurrencyEditModal" aria-label="Đóng / Close">×</button>
+    </div>
+    <form asp-controller="CurrencyExchange" asp-action="Edit" method="post">
+      @Html.AntiForgeryToken()
+      <input asp-for="EditForm.Id" type="hidden" />
+      <input asp-for="EditForm.CurrentPage" type="hidden" />
+      <input asp-for="EditForm.PageSize" type="hidden" />
+      <div class="form-grid">
+        <partial name="_CurrencyRateFields" for="EditForm" />
+      </div>
+      <div class="device-modal-actions">
+        <button type="button" class="btn-secondary" id="cancelCurrencyEditModal">Hủy / Cancel</button>
+        <button type="submit" class="btn-primary">Lưu thay đổi / Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+@section Scripts {
+  <partial name="_ValidationScriptsPartial" />
+  <script>
+    (() => {
+      const createModal = document.getElementById("currencyCreateModal");
+      const editModal = document.getElementById("currencyEditModal");
+      const pageSizeSelect = document.getElementById("currencyPageSizeSelect");
+      const navToggle = document.getElementById("portalNavToggle");
+      const navPanel = document.getElementById("portalNavPanel");
+      const accountButton = document.getElementById("portalAccountButton");
+      const accountDropdown = document.getElementById("portalAccountDropdown");
+
+      function syncBodyOverflow() {
+        document.body.style.overflow = (createModal && !createModal.hidden) || (editModal && !editModal.hidden) ? "hidden" : "";
+      }
+
+      function closeCreateModal() {
+        if (createModal) createModal.hidden = true;
+        syncBodyOverflow();
+      }
+
+      function closeEditModal() {
+        if (editModal) editModal.hidden = true;
+        syncBodyOverflow();
+      }
+
+      document.getElementById("openCurrencyCreateModal")?.addEventListener("click", () => {
+        if (createModal) createModal.hidden = false;
+        syncBodyOverflow();
+      });
+      document.getElementById("closeCurrencyCreateModal")?.addEventListener("click", closeCreateModal);
+      document.getElementById("cancelCurrencyCreateModal")?.addEventListener("click", closeCreateModal);
+      document.getElementById("closeCurrencyEditModal")?.addEventListener("click", closeEditModal);
+      document.getElementById("cancelCurrencyEditModal")?.addEventListener("click", closeEditModal);
+      pageSizeSelect?.addEventListener("change", (event) => {
+        if (!event.isTrusted && !event.detail?.liveSelectUserSelection) return;
+        pageSizeSelect.form?.submit();
+      });
+      navToggle?.addEventListener("click", () => {
+        const willOpen = !navPanel?.classList.contains("is-open");
+        navPanel?.classList.toggle("is-open", willOpen);
+        navToggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
+      });
+      accountButton?.addEventListener("click", () => {
+        if (!accountDropdown) return;
+        const willOpen = accountDropdown.hidden;
+        accountDropdown.hidden = !willOpen;
+        accountButton.setAttribute("aria-expanded", willOpen ? "true" : "false");
+      });
+      document.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof Node)) return;
+        if (accountButton && accountDropdown && !accountButton.contains(target) && !accountDropdown.contains(target)) {
+          accountButton.setAttribute("aria-expanded", "false");
+          accountDropdown.hidden = true;
+        }
+      });
+      syncBodyOverflow();
+    })();
+  </script>
+}

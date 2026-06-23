@@ -1,0 +1,121 @@
+@model SystemSettingsIndexViewModel
+@{
+    ViewData["Title"] = "Cài đặt chung";
+    ViewData["ActiveNav"] = "settings";
+
+    var successMessage = TempData["SystemSettingsSuccess"]?.ToString();
+    var errorMessage = TempData["SystemSettingsError"]?.ToString();
+    var editModalHidden = Model.OpenEditModal ? string.Empty : " hidden";
+}
+
+<div class="device-page">
+  <div class="device-shell">
+    <partial name="_PortalNav" />
+
+    <div class="device-topbar">
+      <div>
+        <div class="device-brand">Cài đặt / Settings</div>
+        <h1>Cài đặt chung / System Settings</h1>
+        <p>Quản lý các thông số nền của hệ thống, bao gồm cấu hình 9Pay, Telegram và phí giao dịch QR / Manage system-level settings, including 9Pay, Telegram, and QR transaction fee configuration.</p>
+      </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+      <div class="tenant-feedback is-success">@successMessage</div>
+    }
+    else if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+      <div class="tenant-feedback is-error" role="alert">@errorMessage</div>
+    }
+
+    @foreach (var group in Model.Settings.GroupBy(setting => setting.Category))
+    {
+      <section class="device-card system-settings-card">
+        <div class="device-card-head">
+          <div>
+            <h2>@group.Key</h2>
+            <p>@group.Count() thông số cấu hình / configuration settings.</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="device-table subscription-table">
+            <thead>
+              <tr>
+                <th>Tên cài đặt / Setting Name</th>
+                <th>Mã / Code</th>
+                <th>Giá trị / Value</th>
+                <th>Mô tả / Description</th>
+                <th>Cập nhật lúc / Updated At</th>
+                <th>Tác vụ / Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              @foreach (var setting in group)
+              {
+                <tr>
+                  <td>@setting.DisplayName</td>
+                  <td><span class="tenant-meta">@setting.SettingCode</span></td>
+                  <td>@(string.IsNullOrWhiteSpace(setting.DisplayValue) ? "-" : setting.DisplayValue)</td>
+                  <td class="tenant-cell-wrap">@setting.Description</td>
+                  <td>
+                    <div>@setting.UpdatedDateDisplay</div>
+                    <div class="tenant-meta">@(string.IsNullOrWhiteSpace(setting.UpdatedBy) ? "-" : setting.UpdatedBy)</div>
+                  </td>
+                  <td>
+                    <a asp-controller="SystemSettings" asp-action="Edit" asp-route-id="@setting.Id" class="table-action-btn">Sửa / Edit</a>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </section>
+    }
+  </div>
+</div>
+
+<div class="modal-backdrop" id="systemSettingEditModal"@editModalHidden>
+  <div class="device-modal subscription-modal" role="dialog" aria-modal="true" aria-labelledby="systemSettingEditTitle">
+    <div class="device-modal-head">
+      <div>
+        <h2 id="systemSettingEditTitle">Sửa cài đặt / Edit Setting</h2>
+        <p>@Model.EditForm.DisplayName</p>
+      </div>
+      <button type="button" class="modal-close" id="closeSystemSettingEditModal" aria-label="Đóng / Close">×</button>
+    </div>
+    <form asp-controller="SystemSettings" asp-action="Edit" method="post">
+      @Html.AntiForgeryToken()
+      <input asp-for="EditForm.Id" type="hidden" />
+      <input asp-for="EditForm.Category" type="hidden" />
+      <input asp-for="EditForm.SettingCode" type="hidden" />
+      <input asp-for="EditForm.DisplayName" type="hidden" />
+      <input asp-for="EditForm.IsSecret" type="hidden" />
+      <div class="form-group">
+        <label asp-for="EditForm.SettingValue">Giá trị / Value</label>
+        <input asp-for="EditForm.SettingValue" class="input" type="@(Model.EditForm.IsSecret ? "password" : "text")" autocomplete="off" />
+        <span asp-validation-for="EditForm.SettingValue" class="field-error"></span>
+      </div>
+      <div class="device-modal-actions">
+        <button type="button" class="btn-secondary" id="cancelSystemSettingEditModal">Hủy / Cancel</button>
+        <button type="submit" class="btn-primary">Lưu thay đổi / Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+@section Scripts {
+  <partial name="_ValidationScriptsPartial" />
+  <script>
+    (() => {
+      const editModal = document.getElementById("systemSettingEditModal");
+      function closeEditModal() {
+        if (editModal) editModal.hidden = true;
+        document.body.style.overflow = "";
+      }
+      if (editModal && !editModal.hidden) document.body.style.overflow = "hidden";
+      document.getElementById("closeSystemSettingEditModal")?.addEventListener("click", closeEditModal);
+      document.getElementById("cancelSystemSettingEditModal")?.addEventListener("click", closeEditModal);
+    })();
+  </script>
+}

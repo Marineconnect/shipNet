@@ -12,12 +12,13 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
 {
     private const string CreateDeviceAuditAction = "created_Device";
     private const string UpdateDeviceAuditAction = "updated_Device";
+    private const string SaveDevicePlanAuditAction = "saved_device_pricing";
 
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")
         ?? throw new InvalidOperationException("Missing connection string: DefaultConnection");
     private bool? _hasPlanNameColumn;
 
-    public async Task<DevicePageResult> GetDevicesAsync(int page, int pageSize, string? searchTerm = null, int? tenantId = null, CancellationToken cancellationToken = default)
+    public async Task<DevicePageResult> GetDevicesAsync(int page, int pageSize, string? searchTerm = null, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
     {
         page = page < 1 ? 1 : page;
         pageSize = pageSize <= 0 ? 10 : pageSize;
@@ -34,11 +35,26 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         var planNameSelect = hasPlanNameColumn
             ? "d.[PlanName],"
             : "CAST(NULL AS nvarchar(255)) AS [PlanName],";
+        var planDataLimitSelect = hasPlanNameColumn
+            ? "COALESCE(planLimit.[BaseData], d.[PriorityData]) AS [PlanDataLimit],"
+            : "d.[PriorityData] AS [PlanDataLimit],";
+        var planDataLimitApply = hasPlanNameColumn
+            ? """
+            OUTER APPLY (
+                SELECT TOP 1 pp.[BaseData]
+                FROM [dbo].[TblPricingPlan] pp
+                WHERE pp.[PlanName] = d.[PlanName]
+                   OR pp.[PlanCode] = d.[PlanName]
+                ORDER BY CASE WHEN pp.[PlanName] = d.[PlanName] THEN 0 ELSE 1 END, pp.[ID]
+            ) planLimit
+            """
+            : string.Empty;
         var countQuery = $"""
             SELECT COUNT(1)
             FROM [TblDevices] d
             LEFT JOIN [TblTenant] t ON t.[ID] = d.[TenantID]
             WHERE (@tenantId IS NULL OR d.[TenantID] = @tenantId)
+              AND (@deviceId IS NULL OR d.[ID] = @deviceId)
             {searchClause}
             """;
         var query = $"""
@@ -53,6 +69,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                 d.[Availability],
                 d.[UsageData],
                 d.[PriorityData],
+                {planDataLimitSelect}
                 d.[OverageData],
                 d.[Latitude],
                 d.[Longitude],
@@ -65,7 +82,9 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                 d.[LastSysnTime]
             FROM [TblDevices] d
             LEFT JOIN [TblTenant] t ON t.[ID] = d.[TenantID]
+            {planDataLimitApply}
             WHERE (@tenantId IS NULL OR d.[TenantID] = @tenantId)
+              AND (@deviceId IS NULL OR d.[ID] = @deviceId)
             {searchClause}
             ORDER BY d.[LastUpdateTime] DESC, d.[DeviceName] ASC
             OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
@@ -73,12 +92,14 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
 
         await using var countCommand = new SqlCommand(countQuery, connection);
         countCommand.Parameters.Add("@tenantId", SqlDbType.Int).Value = (object?)tenantId ?? DBNull.Value;
+        countCommand.Parameters.Add("@deviceId", SqlDbType.Int).Value = (object?)deviceId ?? DBNull.Value;
         AddDeviceSearchParameters(countCommand, normalizedSearchTerm, searchPattern);
         var totalResult = await countCommand.ExecuteScalarAsync(cancellationToken);
         var totalDevices = totalResult is int total ? total : Convert.ToInt32(totalResult ?? 0);
 
         await using var command = new SqlCommand(query, connection);
         command.Parameters.Add("@tenantId", SqlDbType.Int).Value = (object?)tenantId ?? DBNull.Value;
+        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = (object?)deviceId ?? DBNull.Value;
         AddDeviceSearchParameters(command, normalizedSearchTerm, searchPattern);
         command.Parameters.AddWithValue("@offset", offset);
         command.Parameters.AddWithValue("@pageSize", pageSize);
@@ -97,7 +118,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                 KitId = reader["KITID"]?.ToString() ?? string.Empty,
                 Availability = reader["Availability"]?.ToString() ?? string.Empty,
                 UsageData = reader["UsageData"] as decimal?,
-                PriorityData = reader["PriorityData"] as decimal?,
+                PriorityData = reader["PlanDataLimit"] as decimal?,
                 OverageData = reader["OverageData"] as decimal?,
                 Latitude = reader["Latitude"]?.ToString() ?? string.Empty,
                 Longitude = reader["Longitude"]?.ToString() ?? string.Empty,
@@ -118,9 +139,29 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         };
     }
 
-    public async Task<DeviceDetailViewModel?> GetDeviceByIdAsync(int id, int? tenantId = null, CancellationToken cancellationToken = default)
+    public async Task<DeviceDetailViewModel?> GetDeviceByIdAsync(int id, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
     {
-        const string query = """
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        var hasPlanNameColumn = await HasPlanNameColumnAsync(connection, cancellationToken);
+        var planNameSelect = hasPlanNameColumn
+            ? "d.[PlanName],"
+            : "CAST(NULL AS nvarchar(255)) AS [PlanName],";
+        var planDataLimitSelect = hasPlanNameColumn
+            ? "COALESCE(planLimit.[BaseData], d.[PriorityData]) AS [PlanDataLimit],"
+            : "d.[PriorityData] AS [PlanDataLimit],";
+        var planDataLimitApply = hasPlanNameColumn
+            ? """
+            OUTER APPLY (
+                SELECT TOP 1 pp.[BaseData]
+                FROM [dbo].[TblPricingPlan] pp
+                WHERE pp.[PlanName] = d.[PlanName]
+                   OR pp.[PlanCode] = d.[PlanName]
+                ORDER BY CASE WHEN pp.[PlanName] = d.[PlanName] THEN 0 ELSE 1 END, pp.[ID]
+            ) planLimit
+            """
+            : string.Empty;
+        var deviceQuery = $"""
             SELECT TOP 1
                 d.[ID],
                 d.[DeviceName],
@@ -132,32 +173,28 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                 d.[Availability],
                 d.[UsageData],
                 d.[PriorityData],
+                {planDataLimitSelect}
                 d.[OverageData],
                 d.[Latitude],
                 d.[Longitude],
                 d.[SystemType],
                 d.[KITNumber],
                 d.[ServiceLine],
+                {planNameSelect}
                 d.[LastUpdateTime],
                 d.[TokenExpiredTime],
                 d.[LastSysnTime]
             FROM [TblDevices] d
             LEFT JOIN [TblTenant] t ON t.[ID] = d.[TenantID]
+            {planDataLimitApply}
             WHERE d.[ID] = @id
               AND (@tenantId IS NULL OR d.[TenantID] = @tenantId)
+              AND (@deviceId IS NULL OR d.[ID] = @deviceId)
             """;
-
-        await using var connection = new SqlConnection(_connectionString);
-        await connection.OpenAsync(cancellationToken);
-        var hasPlanNameColumn = await HasPlanNameColumnAsync(connection, cancellationToken);
-
-        var deviceQuery = hasPlanNameColumn
-            ? query.Replace("d.[ServiceLine],", "d.[ServiceLine],\n                d.[PlanName],")
-            : query;
-
         await using var command = new SqlCommand(deviceQuery, connection);
         command.Parameters.AddWithValue("@id", id);
         command.Parameters.Add("@tenantId", SqlDbType.Int).Value = (object?)tenantId ?? DBNull.Value;
+        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = (object?)deviceId ?? DBNull.Value;
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
@@ -176,7 +213,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             KitId = reader["KITID"]?.ToString() ?? string.Empty,
             Availability = reader["Availability"]?.ToString() ?? string.Empty,
             SubscriptionUsageGb = reader["UsageData"] as decimal?,
-            SubscriptionLimitGb = reader["PriorityData"] as decimal?,
+            SubscriptionLimitGb = reader["PlanDataLimit"] as decimal?,
             PriorityOverageGb = reader["OverageData"] as decimal?,
             Latitude = reader["Latitude"]?.ToString() ?? string.Empty,
             Longitude = reader["Longitude"]?.ToString() ?? string.Empty,
@@ -190,38 +227,56 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         };
     }
 
-    public async Task<DeviceDetailViewModel?> GetDeviceDetailAsync(int id, int? userId = null, int? tenantId = null, CancellationToken cancellationToken = default)
+    public async Task<DeviceDetailViewModel?> GetDeviceDetailAsync(int id, int? userId = null, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
     {
-        await RefreshDeviceInternalAsync(id, onlyIfTokenExpired: false, cancellationToken: cancellationToken, userId: userId, auditRefreshWhenTokenRenewed: true);
-
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
 
-        var device = await GetDeviceByIdInternalAsync(connection, id, cancellationToken, allowedTenantId: tenantId);
+        var device = await GetDeviceByIdInternalAsync(connection, id, cancellationToken, allowedTenantId: tenantId, allowedDeviceId: deviceId);
         if (device is null)
         {
             return null;
         }
 
+        try
+        {
+            var refreshResult = await RefreshDeviceInternalAsync(id, onlyIfTokenExpired: false, cancellationToken: cancellationToken, userId: userId, auditRefreshWhenTokenRenewed: true);
+            if (refreshResult.Success)
+            {
+                device = await GetDeviceByIdInternalAsync(connection, id, cancellationToken, allowedTenantId: tenantId, allowedDeviceId: deviceId) ?? device;
+            }
+        }
+        catch when (!cancellationToken.IsCancellationRequested)
+        {
+            // Keep returning the last synchronized database snapshot when the upstream API is unavailable.
+        }
+
         if (!string.IsNullOrWhiteSpace(device.DeviceCode) && !string.IsNullOrWhiteSpace(device.TokenString))
         {
-            var usage = await RequestTerminalUsageAsync(device.DeviceCode, device.TokenString, cancellationToken);
-            if (usage.Success)
+            try
             {
-                device.SubscriptionUsageGb = usage.SubscriptionUsageGb;
-                device.SubscriptionLimitGb = usage.SubscriptionLimitGb;
-                device.PriorityOverageGb = usage.PriorityOverageGb;
-                device.PriorityOverageLimitGb = usage.PriorityOverageLimitGb;
-                device.PlanName = usage.PlanName;
+                var usage = await RequestTerminalUsageAsync(device.DeviceCode, device.TokenString, cancellationToken);
+                if (usage.Success)
+                {
+                    device.SubscriptionUsageGb = usage.SubscriptionUsageGb;
+                    device.SubscriptionLimitGb = usage.SubscriptionLimitGb;
+                    device.PriorityOverageGb = usage.PriorityOverageGb;
+                    device.PriorityOverageLimitGb = usage.PriorityOverageLimitGb;
+                    device.PlanName = usage.PlanName;
 
-                await UpdateDeviceUsageSummaryAsync(
-                    connection,
-                    id,
-                    usage.SubscriptionUsageGb,
-                    usage.SubscriptionLimitGb,
-                    usage.PriorityOverageGb,
-                    usage.PlanName,
-                    cancellationToken);
+                    await UpdateDeviceUsageSummaryAsync(
+                        connection,
+                        id,
+                        usage.SubscriptionUsageGb,
+                        usage.SubscriptionLimitGb,
+                        usage.PriorityOverageGb,
+                        usage.PlanName,
+                        cancellationToken);
+                }
+            }
+            catch when (!cancellationToken.IsCancellationRequested)
+            {
+                // Usage is supplemental for the detail popup; stale database values are preferable to a failed detail load.
             }
         }
 
@@ -316,12 +371,12 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         return await RequestTelemetryTimelineAsync(device.DeviceCode, accessToken, start, end, metric, cancellationToken);
     }
 
-    public async Task<DeviceWifiResult> GetDeviceWifiAsync(int id, int? tenantId = null, CancellationToken cancellationToken = default)
+    public async Task<DeviceWifiResult> GetDeviceWifiAsync(int id, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
     {
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
 
-        var device = await GetDeviceByIdInternalAsync(connection, id, cancellationToken, allowedTenantId: tenantId);
+        var device = await GetDeviceByIdInternalAsync(connection, id, cancellationToken, allowedTenantId: tenantId, allowedDeviceId: deviceId);
         if (device is null)
         {
             return new DeviceWifiResult
@@ -334,8 +389,8 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         }
 
         var terminalId = device.DeviceCode?.Trim() ?? string.Empty;
-        var deviceId = device.KitId?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(terminalId) || string.IsNullOrWhiteSpace(deviceId))
+        var routerKitId = device.KitId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(terminalId) || string.IsNullOrWhiteSpace(routerKitId))
         {
             return new DeviceWifiResult
             {
@@ -344,7 +399,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                 Message = "Thieu KITID hoac KITNumber de lay thong tin WiFi.",
                 MessageEn = "KITID or KITNumber is missing for the WiFi request.",
                 TerminalId = terminalId,
-                DeviceId = deviceId
+                DeviceId = routerKitId
             };
         }
 
@@ -361,7 +416,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                     Message = "Thieu client_id hoac client_secret trong TblSettings",
                     MessageEn = "Missing client_id or client_secret in TblSettings",
                     TerminalId = terminalId,
-                    DeviceId = deviceId
+                    DeviceId = routerKitId
                 };
             }
 
@@ -376,7 +431,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                     MessageEn = tokenCall.MessageEn,
                     RawResponse = tokenCall.RawResponse,
                     TerminalId = terminalId,
-                    DeviceId = deviceId
+                    DeviceId = routerKitId
                 };
             }
 
@@ -393,11 +448,304 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                 Message = "Khong co access token hop le de lay thong tin WiFi.",
                 MessageEn = "No valid access token was available for the WiFi request.",
                 TerminalId = terminalId,
-                DeviceId = deviceId
+                DeviceId = routerKitId
             };
         }
 
-        return await RequestDeviceWifiAsync(terminalId, deviceId, accessToken, cancellationToken);
+        var routerDevice = await ResolveRouterDeviceIdAsync(terminalId, accessToken, cancellationToken);
+        if (!routerDevice.Success)
+        {
+            return new DeviceWifiResult
+            {
+                Success = false,
+                ErrorCode = routerDevice.ErrorCode,
+                Message = routerDevice.Message,
+                MessageEn = routerDevice.MessageEn,
+                RawResponse = routerDevice.RawResponse,
+                TerminalId = terminalId,
+                DeviceId = routerKitId
+            };
+        }
+
+        var wifiResult = await RequestDeviceWifiAsync(terminalId, routerDevice.DeviceId, accessToken, cancellationToken);
+        if (!wifiResult.Success &&
+            string.Equals(wifiResult.ErrorCode, "wifi_endpoint_not_found", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(routerKitId) &&
+            !string.Equals(routerKitId, routerDevice.DeviceId, StringComparison.OrdinalIgnoreCase))
+        {
+            var fallbackResult = await RequestDeviceWifiAsync(terminalId, routerKitId, accessToken, cancellationToken);
+            if (fallbackResult.Success)
+            {
+                return fallbackResult;
+            }
+
+            fallbackResult.RawResponse = BuildSyncApiResult(wifiResult.RawResponse, fallbackResult.RawResponse);
+            return fallbackResult;
+        }
+
+        return wifiResult;
+    }
+
+    public async Task<DeviceCommandResult> UpdateDeviceWifiAsync(UpdateDeviceWifiRequest request, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
+    {
+        request.Ssid = request.Ssid.Trim();
+        request.Password = request.Password.Trim();
+        if (request.Id <= 0 || string.IsNullOrWhiteSpace(request.Ssid) || string.IsNullOrWhiteSpace(request.Password))
+        {
+            return new DeviceCommandResult
+            {
+                ErrorCode = "wifi_validation_required",
+                Message = "SSID va mat khau WiFi la bat buoc.",
+                MessageEn = "SSID and WiFi password are required."
+            };
+        }
+
+        var context = await GetDeviceCommandContextAsync(request.Id, tenantId, deviceId, useRouterDevice: true, cancellationToken);
+        if (!context.Success)
+        {
+            return context;
+        }
+
+        return await RequestUpdateDeviceWifiAsync(context.TerminalId, context.DeviceId, context.AccessToken, request.Ssid, request.Password, request.Enabled, cancellationToken);
+    }
+
+    public async Task<DevicePlanManagementResult> GetDevicePlanManagementAsync(int id, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureDevicePricingSchemaAsync(connection, null, cancellationToken);
+
+        var device = await GetDeviceByIdInternalAsync(connection, id, cancellationToken, allowedTenantId: tenantId, allowedDeviceId: deviceId);
+        if (device is null)
+        {
+            return new DevicePlanManagementResult
+            {
+                Success = false,
+                ErrorCode = "device_not_found",
+                Message = "Không tìm thấy thiết bị hoặc bạn không có quyền truy cập.",
+                MessageEn = "The device was not found or you do not have access."
+            };
+        }
+
+        if (!device.TenantId.HasValue)
+        {
+            return new DevicePlanManagementResult
+            {
+                Success = false,
+                ErrorCode = "missing_tenant",
+                Message = "Thiết bị chưa được gán tenant.",
+                MessageEn = "The device has no tenant assigned.",
+                DeviceId = device.Id,
+                TenantName = device.TenantName
+            };
+        }
+
+        return new DevicePlanManagementResult
+        {
+            Success = true,
+            DeviceId = device.Id,
+            TenantId = device.TenantId,
+            TenantName = device.TenantName,
+            PlanOptions = await GetDevicePlanOptionsAsync(connection, device.TenantId.Value, cancellationToken),
+            DevicePrices = await GetDevicePlanPricesAsync(connection, device.Id, cancellationToken)
+        };
+    }
+
+    public async Task<SaveDevicePlanResult> SaveDevicePlanAsync(SaveDevicePlanRequest request, int? userId, string username, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
+    {
+        if (request.DeviceId <= 0 || request.PricingPlanId <= 0)
+        {
+            return new SaveDevicePlanResult
+            {
+                Success = false,
+                ErrorCode = "validation_required",
+                Message = "Vui lòng chọn thiết bị và gói giá.",
+                MessageEn = "Please choose a device and pricing plan."
+            };
+        }
+
+        if (request.FinalPrice < 0 || request.FinalOverChargePrice < 0)
+        {
+            return new SaveDevicePlanResult
+            {
+                Success = false,
+                ErrorCode = "invalid_price",
+                Message = "Đơn giá phải lớn hơn hoặc bằng 0.",
+                MessageEn = "Prices must be greater than or equal to 0."
+            };
+        }
+
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await EnsureDevicePricingSchemaAsync(connection, transaction, cancellationToken);
+
+        var device = await GetDeviceByIdInternalAsync(connection, request.DeviceId, cancellationToken, transaction, tenantId, deviceId);
+        if (device is null)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return new SaveDevicePlanResult
+            {
+                Success = false,
+                ErrorCode = "device_not_found",
+                Message = "Không tìm thấy thiết bị hoặc bạn không có quyền truy cập.",
+                MessageEn = "The device was not found or you do not have access."
+            };
+        }
+
+        if (!device.TenantId.HasValue)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return new SaveDevicePlanResult
+            {
+                Success = false,
+                ErrorCode = "missing_tenant",
+                Message = "Thiết bị chưa được gán tenant.",
+                MessageEn = "The device has no tenant assigned."
+            };
+        }
+
+        var planOption = await GetDevicePlanOptionAsync(connection, transaction, device.TenantId.Value, request.PricingPlanId, cancellationToken);
+        if (planOption is null)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return new SaveDevicePlanResult
+            {
+                Success = false,
+                ErrorCode = "plan_not_found",
+                Message = "Gói giá không thuộc tenant quản lý thiết bị.",
+                MessageEn = "The pricing plan does not belong to the device tenant."
+            };
+        }
+
+        request.ResellerPrice = planOption.ResellerPrice;
+        request.ResellerOverChargePrice = planOption.ResellerOverChargePrice;
+
+        var existingId = await GetExistingDevicePlanPriceIdAsync(connection, transaction, request.DeviceId, request.PricingPlanId, cancellationToken);
+        var created = !existingId.HasValue;
+        if (created)
+        {
+            const string insertQuery = """
+                INSERT INTO [TblDevicePricing]
+                    ([DeviceId], [TenantId], [PricingPlanId], [ResellerPrice], [FinalPrice], [ResellerOverChargePrice], [FinalOverChargePrice], [Created_Date], [Created_By], [Updated_Date], [Updated_By])
+                VALUES
+                    (@deviceId, @tenantId, @pricingPlanId, @resellerPrice, @finalPrice, @resellerOverChargePrice, @finalOverChargePrice, GETDATE(), @createdBy, GETDATE(), @updatedBy)
+                """;
+            await using var insertCommand = new SqlCommand(insertQuery, connection, transaction);
+            AddDevicePlanPriceParameters(insertCommand, request, device.TenantId.Value);
+            insertCommand.Parameters.Add("@createdBy", SqlDbType.NVarChar, 50).Value = username;
+            insertCommand.Parameters.Add("@updatedBy", SqlDbType.NVarChar, 50).Value = username;
+            await insertCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+        else
+        {
+            const string updateQuery = """
+                UPDATE [TblDevicePricing]
+                SET
+                    [TenantId] = @tenantId,
+                    [ResellerPrice] = @resellerPrice,
+                    [FinalPrice] = @finalPrice,
+                    [ResellerOverChargePrice] = @resellerOverChargePrice,
+                    [FinalOverChargePrice] = @finalOverChargePrice,
+                    [Updated_Date] = GETDATE(),
+                    [Updated_By] = @updatedBy
+                WHERE [ID] = @id
+                """;
+            await using var updateCommand = new SqlCommand(updateQuery, connection, transaction);
+            updateCommand.Parameters.Add("@id", SqlDbType.Int).Value = existingId.Value;
+            AddDevicePlanPriceParameters(updateCommand, request, device.TenantId.Value);
+            updateCommand.Parameters.Add("@updatedBy", SqlDbType.NVarChar, 50).Value = username;
+            await updateCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await InsertAuditAsync(connection, transaction, userId, request.DeviceId, $"Saved device pricing for plan '{planOption.PlanCode}' by '{username}'.", SaveDevicePlanAuditAction, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        var savedPrices = await GetDevicePlanPricesAsync(connection, request.DeviceId, cancellationToken);
+        var savedPrice = savedPrices.FirstOrDefault(price => price.PricingPlanId == request.PricingPlanId);
+        return new SaveDevicePlanResult
+        {
+            Success = true,
+            Created = created,
+            Message = created ? "Thêm gói thiết bị thành công." : "Cập nhật gói thiết bị thành công.",
+            MessageEn = created ? "Device plan created successfully." : "Device plan updated successfully.",
+            Price = savedPrice
+        };
+    }
+
+    public async Task<DeleteDevicePlanResult> DeleteDevicePlanAsync(DeleteDevicePlanRequest request, int? userId, string username, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
+    {
+        if (request.DeviceId <= 0 || request.PricingPlanId <= 0)
+        {
+            return new DeleteDevicePlanResult
+            {
+                Success = false,
+                ErrorCode = "validation_required",
+                Message = "Vui lòng chọn thiết bị và gói giá.",
+                MessageEn = "Please choose a device and pricing plan."
+            };
+        }
+
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await EnsureDevicePricingSchemaAsync(connection, transaction, cancellationToken);
+
+        var device = await GetDeviceByIdInternalAsync(connection, request.DeviceId, cancellationToken, transaction, tenantId, deviceId);
+        if (device is null)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return new DeleteDevicePlanResult
+            {
+                Success = false,
+                ErrorCode = "device_not_found",
+                Message = "Không tìm thấy thiết bị hoặc bạn không có quyền truy cập.",
+                MessageEn = "The device was not found or you do not have access."
+            };
+        }
+
+        const string query = """
+            DELETE FROM [TblDevicePricing]
+            WHERE [DeviceId] = @deviceId
+              AND [PricingPlanId] = @pricingPlanId
+            """;
+        await using var command = new SqlCommand(query, connection, transaction);
+        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = request.DeviceId;
+        command.Parameters.Add("@pricingPlanId", SqlDbType.Int).Value = request.PricingPlanId;
+        var affectedRows = await command.ExecuteNonQueryAsync(cancellationToken);
+
+        if (affectedRows <= 0)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return new DeleteDevicePlanResult
+            {
+                Success = false,
+                ErrorCode = "plan_not_found",
+                Message = "Gói thiết bị không tồn tại.",
+                MessageEn = "The device plan was not found."
+            };
+        }
+
+        await InsertAuditAsync(connection, transaction, userId, request.DeviceId, $"Deleted device pricing plan ID {request.PricingPlanId} by '{username}'.", SaveDevicePlanAuditAction, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return new DeleteDevicePlanResult
+        {
+            Success = true,
+            Message = "Xóa gói thiết bị thành công.",
+            MessageEn = "Device plan deleted successfully."
+        };
+    }
+
+    public async Task<DeviceCommandResult> RebootDeviceRouterAsync(int id, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
+    {
+        var context = await GetDeviceCommandContextAsync(id, tenantId, deviceId, useRouterDevice: false, cancellationToken);
+        if (!context.Success)
+        {
+            return context;
+        }
+
+        return await RequestRebootDeviceAsync(context.TerminalId, context.DeviceId, context.AccessToken, cancellationToken);
     }
 
     public Task<RefreshDeviceResult> RefreshExpiredDeviceAsync(int id, CancellationToken cancellationToken = default)
@@ -684,6 +1032,132 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         return count > 0;
     }
 
+    private async Task<DeviceCommandContext> GetDeviceCommandContextAsync(
+        int id,
+        int? tenantId,
+        int? deviceId,
+        bool useRouterDevice,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var device = await GetDeviceByIdInternalAsync(connection, id, cancellationToken, allowedTenantId: tenantId, allowedDeviceId: deviceId);
+        if (device is null)
+        {
+            return new DeviceCommandContext
+            {
+                Success = false,
+                ErrorCode = "device_not_found",
+                Message = "Khong tim thay thiet bi hoac ban khong co quyen truy cap.",
+                MessageEn = "The device was not found or you do not have access."
+            };
+        }
+
+        var terminalId = device.DeviceCode?.Trim() ?? string.Empty;
+        var routerKitId = device.KitId?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(terminalId) || string.IsNullOrWhiteSpace(routerKitId))
+        {
+            return new DeviceCommandContext
+            {
+                Success = false,
+                ErrorCode = "missing_wifi_identifiers",
+                Message = "Thieu KITID hoac KITNumber de thuc hien lenh router.",
+                MessageEn = "KITID or KITNumber is missing for the router command.",
+                TerminalId = terminalId,
+                DeviceId = routerKitId
+            };
+        }
+
+        var accessToken = device.TokenString;
+        if (string.IsNullOrWhiteSpace(accessToken) || IsTokenExpired(device.TokenExpiredTime))
+        {
+            var settings = await GetApiCredentialsAsync(connection, null, cancellationToken);
+            if (string.IsNullOrWhiteSpace(settings.ClientId) || string.IsNullOrWhiteSpace(settings.ClientSecret))
+            {
+                return new DeviceCommandContext
+                {
+                    Success = false,
+                    ErrorCode = "missing_api_credentials",
+                    Message = "Thieu client_id hoac client_secret trong TblSettings",
+                    MessageEn = "Missing client_id or client_secret in TblSettings",
+                    TerminalId = terminalId,
+                    DeviceId = routerKitId
+                };
+            }
+
+            var tokenCall = await RequestDeviceTokenAsync(settings.ClientId, settings.ClientSecret, terminalId, cancellationToken);
+            if (!tokenCall.Success)
+            {
+                return new DeviceCommandContext
+                {
+                    Success = false,
+                    ErrorCode = tokenCall.ErrorCode,
+                    Message = tokenCall.Message,
+                    MessageEn = tokenCall.MessageEn,
+                    RawResponse = tokenCall.RawResponse,
+                    TerminalId = terminalId,
+                    DeviceId = routerKitId
+                };
+            }
+
+            accessToken = tokenCall.AccessToken ?? string.Empty;
+            await UpdateDeviceTokenAsync(connection, id, accessToken, tokenCall.ExpiredTime, cancellationToken);
+        }
+
+        if (string.IsNullOrWhiteSpace(accessToken))
+        {
+            return new DeviceCommandContext
+            {
+                Success = false,
+                ErrorCode = "missing_access_token",
+                Message = "Khong co access token hop le de thuc hien lenh router.",
+                MessageEn = "No valid access token was available for the router command.",
+                TerminalId = terminalId,
+                DeviceId = routerKitId
+            };
+        }
+
+        if (!useRouterDevice)
+        {
+            return new DeviceCommandContext
+            {
+                Success = true,
+                TerminalId = terminalId,
+                DeviceId = routerKitId,
+                AccessToken = accessToken
+            };
+        }
+
+        var routerDevice = await ResolveRouterDeviceIdAsync(terminalId, accessToken, cancellationToken);
+        if (!routerDevice.Success)
+        {
+            return new DeviceCommandContext
+            {
+                Success = false,
+                ErrorCode = routerDevice.ErrorCode,
+                Message = routerDevice.Message,
+                MessageEn = routerDevice.MessageEn,
+                RawResponse = routerDevice.RawResponse,
+                TerminalId = terminalId,
+                DeviceId = routerKitId
+            };
+        }
+
+        return new DeviceCommandContext
+        {
+            Success = true,
+            TerminalId = terminalId,
+            DeviceId = routerDevice.DeviceId,
+            AccessToken = accessToken
+        };
+    }
+
+    private sealed class DeviceCommandContext : DeviceCommandResult
+    {
+        public string AccessToken { get; set; } = string.Empty;
+    }
+
     private async Task<(string ClientId, string ClientSecret)> GetApiCredentialsAsync(SqlConnection connection, SqlTransaction? transaction, CancellationToken cancellationToken)
     {
         const string query = """
@@ -844,9 +1318,28 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         int id,
         CancellationToken cancellationToken,
         SqlTransaction? transaction = null,
-        int? allowedTenantId = null)
+        int? allowedTenantId = null,
+        int? allowedDeviceId = null)
     {
-        const string query = """
+        var hasPlanNameColumn = await HasPlanNameColumnAsync(connection, cancellationToken, transaction);
+        var planNameSelect = hasPlanNameColumn
+            ? "d.[PlanName],"
+            : "CAST(NULL AS nvarchar(255)) AS [PlanName],";
+        var planDataLimitSelect = hasPlanNameColumn
+            ? "COALESCE(planLimit.[BaseData], d.[PriorityData]) AS [PlanDataLimit],"
+            : "d.[PriorityData] AS [PlanDataLimit],";
+        var planDataLimitApply = hasPlanNameColumn
+            ? """
+            OUTER APPLY (
+                SELECT TOP 1 pp.[BaseData]
+                FROM [dbo].[TblPricingPlan] pp
+                WHERE pp.[PlanName] = d.[PlanName]
+                   OR pp.[PlanCode] = d.[PlanName]
+                ORDER BY CASE WHEN pp.[PlanName] = d.[PlanName] THEN 0 ELSE 1 END, pp.[ID]
+            ) planLimit
+            """
+            : string.Empty;
+        var deviceQuery = $"""
             SELECT TOP 1
                 d.[ID],
                 d.[DeviceName],
@@ -859,29 +1352,28 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                 d.[Availability],
                 d.[UsageData],
                 d.[PriorityData],
+                {planDataLimitSelect}
                 d.[OverageData],
                 d.[Latitude],
                 d.[Longitude],
                 d.[SystemType],
                 d.[KITNumber],
                 d.[ServiceLine],
+                {planNameSelect}
                 d.[LastUpdateTime],
                 d.[TokenExpiredTime],
                 d.[LastSysnTime]
             FROM [TblDevices] d
             LEFT JOIN [TblTenant] t ON t.[ID] = d.[TenantID]
+            {planDataLimitApply}
             WHERE d.[ID] = @id
               AND (@tenantId IS NULL OR d.[TenantID] = @tenantId)
+              AND (@deviceId IS NULL OR d.[ID] = @deviceId)
             """;
-
-        var hasPlanNameColumn = await HasPlanNameColumnAsync(connection, cancellationToken, transaction);
-        var deviceQuery = hasPlanNameColumn
-            ? query.Replace("d.[ServiceLine],", "d.[ServiceLine],\n                d.[PlanName],")
-            : query;
-
         await using var command = new SqlCommand(deviceQuery, connection, transaction);
         command.Parameters.AddWithValue("@id", id);
         command.Parameters.Add("@tenantId", SqlDbType.Int).Value = (object?)allowedTenantId ?? DBNull.Value;
+        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = (object?)allowedDeviceId ?? DBNull.Value;
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
 
         if (!await reader.ReadAsync(cancellationToken))
@@ -901,7 +1393,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             KitId = reader["KITID"]?.ToString() ?? string.Empty,
             Availability = reader["Availability"]?.ToString() ?? string.Empty,
             SubscriptionUsageGb = reader["UsageData"] as decimal?,
-            SubscriptionLimitGb = reader["PriorityData"] as decimal?,
+            SubscriptionLimitGb = reader["PlanDataLimit"] as decimal?,
             PriorityOverageGb = reader["OverageData"] as decimal?,
             Latitude = reader["Latitude"]?.ToString() ?? string.Empty,
             Longitude = reader["Longitude"]?.ToString() ?? string.Empty,
@@ -1153,6 +1645,201 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         var result = await command.ExecuteScalarAsync(cancellationToken);
         _hasPlanNameColumn = Convert.ToInt32(result ?? 0) > 0;
         return _hasPlanNameColumn.Value;
+    }
+
+    private static async Task EnsureDevicePricingSchemaAsync(SqlConnection connection, SqlTransaction? transaction, CancellationToken cancellationToken)
+    {
+        const string query = """
+            IF OBJECT_ID(N'[dbo].[TblDevicePricing]', N'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[TblDevicePricing](
+                    [ID] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_TblDevicePricing] PRIMARY KEY,
+                    [DeviceId] int NOT NULL,
+                    [TenantId] int NOT NULL,
+                    [PricingPlanId] int NOT NULL,
+                    [ResellerPrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblDevicePricing_ResellerPrice] DEFAULT(0),
+                    [FinalPrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblDevicePricing_FinalPrice] DEFAULT(0),
+                    [ResellerOverChargePrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblDevicePricing_ResellerOverChargePrice] DEFAULT(0),
+                    [FinalOverChargePrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblDevicePricing_FinalOverChargePrice] DEFAULT(0),
+                    [Created_Date] datetime NULL,
+                    [Created_By] nvarchar(50) NULL,
+                    [Updated_Date] datetime NULL,
+                    [Updated_By] nvarchar(50) NULL
+                );
+            END;
+
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.indexes
+                WHERE name = N'UX_TblDevicePricing_Device_Plan'
+                  AND object_id = OBJECT_ID(N'[dbo].[TblDevicePricing]')
+            )
+            BEGIN
+                CREATE UNIQUE INDEX [UX_TblDevicePricing_Device_Plan]
+                    ON [dbo].[TblDevicePricing]([DeviceId], [PricingPlanId]);
+            END;
+            """;
+
+        await using var command = new SqlCommand(query, connection, transaction);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task<List<DevicePlanOptionViewModel>> GetDevicePlanOptionsAsync(SqlConnection connection, int tenantId, CancellationToken cancellationToken)
+    {
+        const string query = """
+            SELECT
+                tp.[ID] AS [TenantPricingId],
+                tp.[PricingPlanId],
+                pp.[PlanName],
+                pp.[PlanCode],
+                pp.[BaseData],
+                tp.[ResellerPrice],
+                tp.[FinalPrice],
+                tp.[ResellerOverChargePrice],
+                tp.[FinalOverChargePrice]
+            FROM [TblTenantPricing] tp
+            INNER JOIN [TblPricingPlan] pp ON pp.[ID] = tp.[PricingPlanId]
+            WHERE tp.[TenantId] = @tenantId
+            ORDER BY pp.[PlanName] ASC, pp.[PlanCode] ASC
+            """;
+
+        var options = new List<DevicePlanOptionViewModel>();
+        await using var command = new SqlCommand(query, connection);
+        command.Parameters.Add("@tenantId", SqlDbType.Int).Value = tenantId;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            options.Add(MapDevicePlanOption(reader));
+        }
+
+        return options;
+    }
+
+    private static async Task<DevicePlanOptionViewModel?> GetDevicePlanOptionAsync(SqlConnection connection, SqlTransaction transaction, int tenantId, int pricingPlanId, CancellationToken cancellationToken)
+    {
+        const string query = """
+            SELECT TOP 1
+                tp.[ID] AS [TenantPricingId],
+                tp.[PricingPlanId],
+                pp.[PlanName],
+                pp.[PlanCode],
+                pp.[BaseData],
+                tp.[ResellerPrice],
+                tp.[FinalPrice],
+                tp.[ResellerOverChargePrice],
+                tp.[FinalOverChargePrice]
+            FROM [TblTenantPricing] tp
+            INNER JOIN [TblPricingPlan] pp ON pp.[ID] = tp.[PricingPlanId]
+            WHERE tp.[TenantId] = @tenantId
+              AND tp.[PricingPlanId] = @pricingPlanId
+            """;
+
+        await using var command = new SqlCommand(query, connection, transaction);
+        command.Parameters.Add("@tenantId", SqlDbType.Int).Value = tenantId;
+        command.Parameters.Add("@pricingPlanId", SqlDbType.Int).Value = pricingPlanId;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken) ? MapDevicePlanOption(reader) : null;
+    }
+
+    private static async Task<List<DevicePlanPriceViewModel>> GetDevicePlanPricesAsync(SqlConnection connection, int deviceId, CancellationToken cancellationToken)
+    {
+        const string query = """
+            SELECT
+                dp.[ID],
+                dp.[DeviceId],
+                dp.[PricingPlanId],
+                pp.[PlanName],
+                pp.[PlanCode],
+                pp.[BaseData],
+                dp.[ResellerPrice],
+                dp.[FinalPrice],
+                dp.[ResellerOverChargePrice],
+                dp.[FinalOverChargePrice],
+                dp.[Updated_Date],
+                dp.[Updated_By]
+            FROM [TblDevicePricing] dp
+            INNER JOIN [TblPricingPlan] pp ON pp.[ID] = dp.[PricingPlanId]
+            WHERE dp.[DeviceId] = @deviceId
+            ORDER BY pp.[PlanName] ASC, pp.[PlanCode] ASC
+            """;
+
+        var prices = new List<DevicePlanPriceViewModel>();
+        await using var command = new SqlCommand(query, connection);
+        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = deviceId;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            prices.Add(MapDevicePlanPrice(reader));
+        }
+
+        return prices;
+    }
+
+    private static async Task<int?> GetExistingDevicePlanPriceIdAsync(SqlConnection connection, SqlTransaction transaction, int deviceId, int pricingPlanId, CancellationToken cancellationToken)
+    {
+        const string query = "SELECT TOP 1 [ID] FROM [TblDevicePricing] WHERE [DeviceId] = @deviceId AND [PricingPlanId] = @pricingPlanId";
+        await using var command = new SqlCommand(query, connection, transaction);
+        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = deviceId;
+        command.Parameters.Add("@pricingPlanId", SqlDbType.Int).Value = pricingPlanId;
+        var scalar = await command.ExecuteScalarAsync(cancellationToken);
+        return scalar is null || scalar == DBNull.Value ? null : Convert.ToInt32(scalar);
+    }
+
+    private static DevicePlanOptionViewModel MapDevicePlanOption(SqlDataReader reader)
+    {
+        return new DevicePlanOptionViewModel
+        {
+            TenantPricingId = reader["TenantPricingId"] is int tenantPricingId ? tenantPricingId : 0,
+            PricingPlanId = reader["PricingPlanId"] is int pricingPlanId ? pricingPlanId : 0,
+            PlanName = reader["PlanName"]?.ToString() ?? string.Empty,
+            PlanCode = reader["PlanCode"]?.ToString() ?? string.Empty,
+            BaseData = ReadDecimal(reader, "BaseData"),
+            ResellerPrice = ReadDecimal(reader, "ResellerPrice"),
+            FinalPrice = ReadDecimal(reader, "FinalPrice"),
+            ResellerOverChargePrice = ReadDecimal(reader, "ResellerOverChargePrice"),
+            FinalOverChargePrice = ReadDecimal(reader, "FinalOverChargePrice")
+        };
+    }
+
+    private static DevicePlanPriceViewModel MapDevicePlanPrice(SqlDataReader reader)
+    {
+        return new DevicePlanPriceViewModel
+        {
+            Id = reader["ID"] is int id ? id : 0,
+            DeviceId = reader["DeviceId"] is int deviceId ? deviceId : 0,
+            PricingPlanId = reader["PricingPlanId"] is int pricingPlanId ? pricingPlanId : 0,
+            PlanName = reader["PlanName"]?.ToString() ?? string.Empty,
+            PlanCode = reader["PlanCode"]?.ToString() ?? string.Empty,
+            BaseData = ReadDecimal(reader, "BaseData"),
+            ResellerPrice = ReadDecimal(reader, "ResellerPrice"),
+            FinalPrice = ReadDecimal(reader, "FinalPrice"),
+            ResellerOverChargePrice = ReadDecimal(reader, "ResellerOverChargePrice"),
+            FinalOverChargePrice = ReadDecimal(reader, "FinalOverChargePrice"),
+            UpdatedDate = reader["Updated_Date"] as DateTime?,
+            UpdatedBy = reader["Updated_By"]?.ToString()
+        };
+    }
+
+    private static decimal ReadDecimal(SqlDataReader reader, string columnName)
+    {
+        return reader[columnName] is decimal value ? value : 0m;
+    }
+
+    private static void AddDevicePlanPriceParameters(SqlCommand command, SaveDevicePlanRequest request, int tenantId)
+    {
+        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = request.DeviceId;
+        command.Parameters.Add("@tenantId", SqlDbType.Int).Value = tenantId;
+        command.Parameters.Add("@pricingPlanId", SqlDbType.Int).Value = request.PricingPlanId;
+        AddDecimalParameter(command, "@resellerPrice", request.ResellerPrice);
+        AddDecimalParameter(command, "@finalPrice", request.FinalPrice);
+        AddDecimalParameter(command, "@resellerOverChargePrice", request.ResellerOverChargePrice);
+        AddDecimalParameter(command, "@finalOverChargePrice", request.FinalOverChargePrice);
+    }
+
+    private static void AddDecimalParameter(SqlCommand command, string name, decimal value)
+    {
+        command.Parameters.Add(name, SqlDbType.Decimal).Value = value;
+        command.Parameters[name].Precision = 18;
+        command.Parameters[name].Scale = 2;
     }
 
     private static string BuildDeviceSearchClause(bool hasPlanNameColumn)
@@ -1426,7 +2113,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         try
         {
             using var document = JsonDocument.Parse(rawResponse);
-            if (document.RootElement.ValueKind != JsonValueKind.Array || document.RootElement.GetArrayLength() == 0)
+            if (!TryFindDeviceArray(document.RootElement, out var devicesElement) || devicesElement.GetArrayLength() == 0)
             {
                 return (
                     false,
@@ -1438,9 +2125,9 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                     string.Empty);
             }
 
-            var firstDevice = document.RootElement[0];
-            var kitId = firstDevice.TryGetProperty("id", out var idElement) ? idElement.GetString() : null;
-            var availability = firstDevice.TryGetProperty("availability", out var availabilityElement)
+            var selectedDevice = FindPreferredDevice(devicesElement, preferRouter: true) ?? devicesElement[0];
+            var kitId = selectedDevice.TryGetProperty("id", out var idElement) ? idElement.GetString() : null;
+            var availability = selectedDevice.TryGetProperty("availability", out var availabilityElement)
                 ? availabilityElement.GetString() ?? "unknown"
                 : "unknown";
 
@@ -1658,6 +2345,20 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
 
         if (response.StatusCode != HttpStatusCode.OK)
         {
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return new DeviceWifiResult
+                {
+                    Success = false,
+                    ErrorCode = "wifi_endpoint_not_found",
+                    Message = "API WiFi khong tim thay cau hinh router cho device nay.",
+                    MessageEn = "The WiFi API did not find router configuration for this device.",
+                    RawResponse = rawResponse,
+                    TerminalId = terminalId,
+                    DeviceId = deviceId
+                };
+            }
+
             return new DeviceWifiResult
             {
                 Success = false,
@@ -1682,7 +2383,8 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                 TerminalId = terminalId,
                 DeviceId = deviceId,
                 Ssid = FindJsonStringValue(root, "ssid", "wifiSsid", "wiFiSsid", "networkName", "name"),
-                Password = FindJsonStringValue(root, "password", "passphrase", "wifiPassword", "wiFiPassword", "psk")
+                Password = FindJsonStringValue(root, "password", "passphrase", "wifiPassword", "wiFiPassword", "psk"),
+                Enabled = FindJsonBooleanValue(root, "enabled", "wifiEnabled", "wiFiEnabled", "isEnabled")
             };
         }
         catch (JsonException)
@@ -1696,6 +2398,157 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                 RawResponse = rawResponse,
                 TerminalId = terminalId,
                 DeviceId = deviceId
+            };
+        }
+    }
+
+    private async Task<DeviceCommandResult> RequestUpdateDeviceWifiAsync(
+        string terminalId,
+        string deviceId,
+        string accessToken,
+        string ssid,
+        string password,
+        bool enabled,
+        CancellationToken cancellationToken)
+    {
+        var client = httpClientFactory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"https://api.mykvh.com/v3/terminals/{Uri.EscapeDataString(terminalId)}/devices/{Uri.EscapeDataString(deviceId)}/wifi");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        request.Content = new StringContent(
+            JsonSerializer.Serialize(new
+            {
+                ssid,
+                password,
+                enabled
+            }),
+            Encoding.UTF8,
+            "application/json");
+
+        using var response = await client.SendAsync(request, cancellationToken);
+        var rawResponse = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return new DeviceCommandResult
+            {
+                Success = false,
+                ErrorCode = "wifi_update_api_error",
+                Message = $"API cap nhat WiFi tra ve loi {(int)response.StatusCode}",
+                MessageEn = $"WiFi update API returned error {(int)response.StatusCode}",
+                RawResponse = rawResponse,
+                TerminalId = terminalId,
+                DeviceId = deviceId
+            };
+        }
+
+        return new DeviceCommandResult
+        {
+            Success = true,
+            Message = "Da gui lenh cap nhat WiFi.",
+            MessageEn = "WiFi update command was submitted.",
+            RawResponse = rawResponse,
+            TerminalId = terminalId,
+            DeviceId = deviceId,
+            JobId = ExtractJobId(rawResponse)
+        };
+    }
+
+    private async Task<DeviceCommandResult> RequestRebootDeviceAsync(
+        string terminalId,
+        string deviceId,
+        string accessToken,
+        CancellationToken cancellationToken)
+    {
+        var client = httpClientFactory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"https://api.mykvh.com/v3/terminals/{Uri.EscapeDataString(terminalId)}/devices/{Uri.EscapeDataString(deviceId)}/reboot");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        using var response = await client.SendAsync(request, cancellationToken);
+        var rawResponse = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return new DeviceCommandResult
+            {
+                Success = false,
+                ErrorCode = "router_reboot_api_error",
+                Message = $"API reboot router tra ve loi {(int)response.StatusCode}",
+                MessageEn = $"Router reboot API returned error {(int)response.StatusCode}",
+                RawResponse = rawResponse,
+                TerminalId = terminalId,
+                DeviceId = deviceId
+            };
+        }
+
+        return new DeviceCommandResult
+        {
+            Success = true,
+            Message = "Da gui lenh reboot router.",
+            MessageEn = "Router reboot command was submitted.",
+            RawResponse = rawResponse,
+            TerminalId = terminalId,
+            DeviceId = deviceId,
+            JobId = ExtractJobId(rawResponse)
+        };
+    }
+
+    private async Task<DeviceCommandResult> ResolveRouterDeviceIdAsync(string terminalId, string accessToken, CancellationToken cancellationToken)
+    {
+        var client = httpClientFactory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.mykvh.com/v3/terminals/{Uri.EscapeDataString(terminalId)}/devices");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        using var response = await client.SendAsync(request, cancellationToken);
+        var rawResponse = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (response.StatusCode != HttpStatusCode.OK)
+        {
+            return new DeviceCommandResult
+            {
+                Success = false,
+                ErrorCode = "terminal_devices_error",
+                Message = $"API danh sach thiet bi tra ve loi {(int)response.StatusCode}",
+                MessageEn = $"Terminal devices API returned error {(int)response.StatusCode}",
+                RawResponse = rawResponse,
+                TerminalId = terminalId
+            };
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(rawResponse);
+            var routerDeviceId = FindRouterDeviceId(document.RootElement);
+            if (string.IsNullOrWhiteSpace(routerDeviceId))
+            {
+                return new DeviceCommandResult
+                {
+                    Success = false,
+                    ErrorCode = "router_device_not_found",
+                    Message = "Khong tim thay Starlink WiFi router trong danh sach device cua terminal nay.",
+                    MessageEn = "No Starlink WiFi router was found in this terminal's device list.",
+                    RawResponse = rawResponse,
+                    TerminalId = terminalId
+                };
+            }
+
+            return new DeviceCommandResult
+            {
+                Success = true,
+                RawResponse = rawResponse,
+                TerminalId = terminalId,
+                DeviceId = routerDeviceId
+            };
+        }
+        catch (JsonException)
+        {
+            return new DeviceCommandResult
+            {
+                Success = false,
+                ErrorCode = "terminal_devices_invalid_json",
+                Message = "API danh sach thiet bi tra ve JSON khong hop le.",
+                MessageEn = "The terminal devices API returned invalid JSON.",
+                RawResponse = rawResponse,
+                TerminalId = terminalId
             };
         }
     }
@@ -1983,6 +2836,189 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         }
 
         return string.Empty;
+    }
+
+    private static bool? FindJsonBooleanValue(JsonElement element, params string[] propertyNames)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var propertyName in propertyNames)
+            {
+                if (!element.TryGetProperty(propertyName, out var propertyValue))
+                {
+                    continue;
+                }
+
+                if (propertyValue.ValueKind == JsonValueKind.True)
+                {
+                    return true;
+                }
+
+                if (propertyValue.ValueKind == JsonValueKind.False)
+                {
+                    return false;
+                }
+
+                if (propertyValue.ValueKind == JsonValueKind.String &&
+                    bool.TryParse(propertyValue.GetString(), out var parsedValue))
+                {
+                    return parsedValue;
+                }
+            }
+
+            foreach (var property in element.EnumerateObject())
+            {
+                var value = FindJsonBooleanValue(property.Value, propertyNames);
+                if (value.HasValue)
+                {
+                    return value;
+                }
+            }
+        }
+
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                var value = FindJsonBooleanValue(item, propertyNames);
+                if (value.HasValue)
+                {
+                    return value;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static string ExtractJobId(string rawResponse)
+    {
+        if (string.IsNullOrWhiteSpace(rawResponse))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(rawResponse);
+            return FindJsonStringValue(document.RootElement, "job_id", "jobId", "jobID", "id");
+        }
+        catch (JsonException)
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string? FindPreferredDeviceId(JsonElement devicesElement, bool preferRouter)
+    {
+        var device = FindPreferredDevice(devicesElement, preferRouter);
+        return device?.TryGetProperty("id", out var idElement) == true
+            ? idElement.GetString()
+            : null;
+    }
+
+    private static string? FindRouterDeviceId(JsonElement devicesElement)
+    {
+        if (!TryFindDeviceArray(devicesElement, out var deviceArray))
+        {
+            return null;
+        }
+
+        foreach (var device in deviceArray.EnumerateArray())
+        {
+            if (device.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            var type = FindJsonStringValue(device, "type", "device_type", "deviceType");
+            if (!type.Contains("router", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return FindJsonStringValue(device, "id", "device_id", "deviceId");
+        }
+
+        return null;
+    }
+
+    private static bool TryFindDeviceArray(JsonElement element, out JsonElement devicesElement)
+    {
+        if (IsDeviceArray(element))
+        {
+            devicesElement = element;
+            return true;
+        }
+
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var propertyName in new[] { "devices", "data", "items", "results" })
+            {
+                if (element.TryGetProperty(propertyName, out var child) && IsDeviceArray(child))
+                {
+                    devicesElement = child;
+                    return true;
+                }
+            }
+
+            foreach (var property in element.EnumerateObject())
+            {
+                if (TryFindDeviceArray(property.Value, out devicesElement))
+                {
+                    return true;
+                }
+            }
+        }
+
+        devicesElement = default;
+        return false;
+    }
+
+    private static bool IsDeviceArray(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Array)
+        {
+            return false;
+        }
+
+        return element.GetArrayLength() == 0 ||
+            element.EnumerateArray().Any(item =>
+                item.ValueKind == JsonValueKind.Object &&
+                (item.TryGetProperty("id", out _) ||
+                 item.TryGetProperty("device_id", out _) ||
+                 item.TryGetProperty("deviceId", out _)));
+    }
+
+    private static JsonElement? FindPreferredDevice(JsonElement devicesElement, bool preferRouter)
+    {
+        if (devicesElement.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        JsonElement? fallback = null;
+        foreach (var device in devicesElement.EnumerateArray())
+        {
+            if (device.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            fallback ??= device;
+            if (!preferRouter)
+            {
+                continue;
+            }
+
+            var type = FindJsonStringValue(device, "type", "device_type", "deviceType");
+            if (type.Contains("router", StringComparison.OrdinalIgnoreCase))
+            {
+                return device;
+            }
+        }
+
+        return fallback;
     }
 
     private static string GetJsonScalarString(JsonElement element)

@@ -1,0 +1,826 @@
+@model PricingPlanIndexViewModel
+@using System.Security.Claims
+@{
+    ViewData["ActiveNav"] = "pricing";
+    ViewData["Title"] = "Quản lý gói cước";
+
+    string? ResolveLogoUrl(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        if (Uri.IsWellFormedUriString(path, UriKind.Absolute))
+        {
+            return path;
+        }
+
+        return path.StartsWith("/")
+            ? Url.Content($"~{path}")
+            : Url.Content($"~/{path.TrimStart('~', '/')}");
+    }
+
+    string Money(decimal value) => $"${value:#,##0.##}";
+    string Data(decimal value) => $"{value:#,##0.##} GB";
+
+    var accountDisplayName = User.FindFirst("DisplayName")?.Value;
+    if (string.IsNullOrWhiteSpace(accountDisplayName))
+    {
+        accountDisplayName = User.Identity?.Name;
+    }
+
+    var accountUsername = User.Identity?.Name ?? accountDisplayName ?? "User";
+    var accountAvatarUrl = ResolveLogoUrl(User.FindFirst("Avatar")?.Value);
+    var accountAvatarLabel = !string.IsNullOrWhiteSpace(accountDisplayName)
+        ? accountDisplayName.Trim()[0].ToString().ToUpperInvariant()
+        : "U";
+    var accountAvatarStyle = !string.IsNullOrWhiteSpace(accountAvatarUrl)
+        ? $"background-image:url('{accountAvatarUrl}')"
+        : null;
+    var successMessage = TempData["PricingSuccess"]?.ToString();
+    var errorMessage = TempData["PricingError"]?.ToString();
+    var createModalHidden = Model.OpenCreateModal ? string.Empty : " hidden";
+    var editModalHidden = Model.OpenEditModal ? string.Empty : " hidden";
+    var tenantCreateModalHidden = Model.OpenTenantPriceCreateModal ? string.Empty : " hidden";
+    var tenantEditModalHidden = Model.OpenTenantPriceEditModal ? string.Empty : " hidden";
+    var totalPages = Model.TotalPages;
+    var startItem = Model.TotalPlans == 0 ? 0 : ((Model.CurrentPage - 1) * Model.PageSize) + 1;
+    var endItem = Model.TotalPlans == 0 ? 0 : Math.Min(Model.CurrentPage * Model.PageSize, Model.TotalPlans);
+    var pageWindowStart = Math.Max(1, Model.CurrentPage - 2);
+    var pageWindowEnd = Math.Min(totalPages, Model.CurrentPage + 2);
+    var showLeadingEllipsis = pageWindowStart > 2;
+    var showTrailingEllipsis = pageWindowEnd < totalPages - 1;
+    var tenantTotalPages = Model.TenantPricingTotalPages;
+    var tenantStartItem = Model.TotalTenantPrices == 0 ? 0 : ((Model.TenantPricingCurrentPage - 1) * Model.TenantPricingPageSize) + 1;
+    var tenantEndItem = Model.TotalTenantPrices == 0 ? 0 : Math.Min(Model.TenantPricingCurrentPage * Model.TenantPricingPageSize, Model.TotalTenantPrices);
+    var isTenantTab = string.Equals(Model.ActiveTab, "tenant", StringComparison.OrdinalIgnoreCase);
+    var selectedTenantPricingTenantId = Model.TenantPricingTenantId?.ToString() ?? string.Empty;
+    var hasTenantPricingFilter = Model.TenantPricingTenantId.HasValue || !string.IsNullOrWhiteSpace(Model.TenantPricingSearch);
+}
+
+<div class="device-page">
+  <div class="device-shell">
+        <partial name="_PortalNav" />
+
+    <div class="device-topbar">
+      <div>
+        <div class="device-brand">Shipnet portal</div>
+        <h1>Quản lý gói cước / Pricing Management</h1>
+        <p>Danh sách gói cước hệ thống, đơn giá đại lý, đơn giá bán ra và giá mua thêm / Manage system pricing plans, reseller price, sale price, and overcharge price.</p>
+      </div>
+      <div class="device-actions @(isTenantTab ? "is-hidden" : string.Empty)">
+        <details class="pricing-import-menu" id="pricingImportMenu">
+          <summary class="btn-secondary pricing-import-menu-trigger">
+            <span>Import</span>
+            <span class="pricing-import-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="pricing-import-panel">
+            <a asp-controller="Pricing"
+               asp-action="DownloadTemplate"
+               class="pricing-import-option">
+              Tải dữ liệu Excel
+            </a>
+            <form asp-controller="Pricing"
+                  asp-action="Import"
+                  asp-route-page="@Model.CurrentPage"
+                  asp-route-pageSize="@Model.PageSize"
+                  method="post"
+                  enctype="multipart/form-data"
+                  class="pricing-import-form">
+              @Html.AntiForgeryToken()
+              <label class="pricing-import-picker">
+                <input type="file" name="importFile" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" id="pricingImportFile" />
+                <span class="pricing-import-picker-label">Chọn file import</span>
+                <span class="pricing-import-file-name" id="pricingImportFileName">Chưa chọn file</span>
+              </label>
+              <button type="submit" class="btn-primary pricing-import-submit" id="pricingImportSubmit" disabled>Import giá / Import Prices</button>
+            </form>
+          </div>
+        </details>
+        <button type="button" class="btn-primary add-device-btn" id="openPricingCreateModal">
+          <span class="add-device-icon">+</span>
+          <span>Thêm gói / Add Plan</span>
+        </button>
+      </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+      <div class="tenant-feedback is-success">@successMessage</div>
+    }
+    else if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+      <div class="tenant-feedback is-error" role="alert">@errorMessage</div>
+    }
+
+    <div class="pricing-tabs" role="tablist" aria-label="Pricing tabs">
+      <a asp-controller="Pricing" asp-action="Index" asp-route-tab="product" class="pricing-tab @(isTenantTab ? string.Empty : "is-active")">Giá sản phẩm / Product Pricing</a>
+      <a asp-controller="Pricing" asp-action="Index" asp-route-tab="tenant" class="pricing-tab @(isTenantTab ? "is-active" : string.Empty)">Giá tenant / Tenant Pricing</a>
+    </div>
+
+    <section class="device-card pricing-tab-panel @(isTenantTab ? "is-hidden" : string.Empty)">
+      <div class="device-card-head">
+        <div>
+          <h2>Danh sách gói cước / Pricing Plan List</h2>
+          <p>Tổng số gói cước / Total plans: <strong>@Model.TotalPlans</strong></p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="device-table pricing-table">
+          <thead>
+            <tr>
+              <th>Tên gói / Plan Name</th>
+              <th>Mã gói / Plan Code</th>
+              <th>Dung lượng / Data Limit</th>
+              <th>Đơn giá đại lý ($) / Reseller Price ($)</th>
+              <th>Đơn giá bán ra ($) / Sale Price ($)</th>
+              <th>Mua thêm đại lý ($) / Reseller Overcharge ($)</th>
+              <th>Mua thêm bán ra ($) / Sale Overcharge ($)</th>
+              <th>Trạng thái / Status</th>
+              <th>Cập nhật lúc / Updated At</th>
+              <th>Tác vụ / Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            @if (Model.Plans.Count == 0)
+            {
+              <tr>
+                <td colspan="10" class="tenant-empty">Chưa có gói cước nào.</td>
+              </tr>
+            }
+            else
+            {
+              @foreach (var plan in Model.Plans)
+              {
+                <tr>
+                  <td>@plan.PlanName</td>
+                  <td><strong>@plan.PlanCode</strong></td>
+                  <td>@Data(plan.BaseData)</td>
+                  <td>@Money(plan.ResellerPrice)</td>
+                  <td>@Money(plan.FinalPrice)</td>
+                  <td>@Money(plan.ResellerOverChargePrice)</td>
+                  <td>@Money(plan.FinalOverChargePrice)</td>
+                  <td>
+                    <span class="user-status-chip @(string.Equals(plan.Status, "active", StringComparison.OrdinalIgnoreCase) ? "is-active" : "is-inactive")">
+                      @plan.StatusDisplay
+                    </span>
+                  </td>
+                  <td>
+                    <div>@plan.UpdatedDateDisplay</div>
+                    <div class="tenant-meta">@(string.IsNullOrWhiteSpace(plan.UpdatedBy) ? "-" : plan.UpdatedBy)</div>
+                  </td>
+                  <td>
+                    <div class="table-actions">
+                      <a asp-controller="Pricing"
+                         asp-action="Edit"
+                         asp-route-id="@plan.Id"
+                         asp-route-page="@Model.CurrentPage"
+                         asp-route-pageSize="@Model.PageSize"
+                         class="table-action-btn">
+                        <span>Sửa / Edit</span>
+                      </a>
+                      <form asp-controller="Pricing"
+                            asp-action="Delete"
+                            asp-route-id="@plan.Id"
+                            asp-route-page="@Model.CurrentPage"
+                            asp-route-pageSize="@Model.PageSize"
+                            method="post"
+                            class="tenant-delete-form"
+                            onsubmit="return confirm('Xóa gói cước này? / Delete this pricing plan?');">
+                        @Html.AntiForgeryToken()
+                        <button type="submit" class="table-action-btn is-danger">
+                          <span>Xóa / Delete</span>
+                        </button>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              }
+            }
+          </tbody>
+        </table>
+      </div>
+      <div class="device-pagination">
+        <div class="device-pagination-meta">
+          <span>Hiển thị / Showing <strong>@startItem-@endItem</strong> / <strong>@Model.TotalPlans</strong> gói / plans</span>
+          <form asp-controller="Pricing" asp-action="Index" method="get" class="page-size-wrap">
+            <input type="hidden" name="page" value="1" />
+            <label for="pricingPageSizeSelect">Số dòng</label>
+            <select id="pricingPageSizeSelect" name="pageSize" class="page-size-select">
+              <option value="10" selected="@(Model.PageSize == 10)">10</option>
+              <option value="20" selected="@(Model.PageSize == 20)">20</option>
+              <option value="50" selected="@(Model.PageSize == 50)">50</option>
+            </select>
+          </form>
+          <span>Trang / Page <strong>@Model.CurrentPage</strong> / <strong>@totalPages</strong></span>
+        </div>
+        <div class="device-pagination-actions">
+          @if (Model.HasPreviousPage)
+          {
+            <a asp-controller="Pricing" asp-action="Index" asp-route-page="@(Model.CurrentPage - 1)" asp-route-pageSize="@Model.PageSize" class="pagination-btn" aria-label="Trang trước">&lt;</a>
+          }
+          else
+          {
+            <span class="pagination-btn is-disabled" aria-disabled="true">&lt;</span>
+          }
+
+          @if (pageWindowStart > 1)
+          {
+            <a asp-controller="Pricing" asp-action="Index" asp-route-page="1" asp-route-pageSize="@Model.PageSize" class="pagination-btn">1</a>
+          }
+          @if (showLeadingEllipsis)
+          {
+            <span class="pagination-btn is-disabled" aria-hidden="true">...</span>
+          }
+
+          @for (var pageNumber = pageWindowStart; pageNumber <= pageWindowEnd; pageNumber++)
+          {
+            if (pageNumber == Model.CurrentPage)
+            {
+              <span class="pagination-btn is-active">@pageNumber</span>
+            }
+            else
+            {
+              <a asp-controller="Pricing" asp-action="Index" asp-route-page="@pageNumber" asp-route-pageSize="@Model.PageSize" class="pagination-btn">@pageNumber</a>
+            }
+          }
+
+          @if (showTrailingEllipsis)
+          {
+            <span class="pagination-btn is-disabled" aria-hidden="true">...</span>
+          }
+          @if (pageWindowEnd < totalPages)
+          {
+            <a asp-controller="Pricing" asp-action="Index" asp-route-page="@totalPages" asp-route-pageSize="@Model.PageSize" class="pagination-btn">@totalPages</a>
+          }
+
+          @if (Model.HasNextPage)
+          {
+            <a asp-controller="Pricing" asp-action="Index" asp-route-page="@(Model.CurrentPage + 1)" asp-route-pageSize="@Model.PageSize" class="pagination-btn" aria-label="Trang sau">&gt;</a>
+          }
+          else
+          {
+            <span class="pagination-btn is-disabled" aria-disabled="true">&gt;</span>
+          }
+        </div>
+      </div>
+    </section>
+
+    <section class="device-card pricing-tab-panel @(isTenantTab ? string.Empty : "is-hidden")">
+      <div class="device-card-head">
+        <div>
+          <h2>Giá tenant / Tenant Pricing</h2>
+          <p>Tổng số giá tenant / Total tenant prices: <strong>@Model.TotalTenantPrices</strong></p>
+        </div>
+        <div class="device-actions">
+          <details class="pricing-import-menu" id="tenantPricingImportMenu">
+            <summary class="btn-secondary pricing-import-menu-trigger">
+              <span>Export / Import</span>
+              <span class="pricing-import-chevron" aria-hidden="true"></span>
+            </summary>
+            <div class="pricing-import-panel">
+              <a asp-controller="Pricing"
+                 asp-action="DownloadTenantPricing"
+                 asp-route-tenantId="@Model.TenantPricingTenantId"
+                 asp-route-tenantSearch="@Model.TenantPricingSearch"
+                 class="pricing-import-option">Export dữ liệu Excel</a>
+              <form asp-controller="Pricing"
+                    asp-action="ImportTenantPricing"
+                    asp-route-tenantPage="@Model.TenantPricingCurrentPage"
+                    asp-route-tenantPageSize="@Model.TenantPricingPageSize"
+                    asp-route-tenantId="@Model.TenantPricingTenantId"
+                    asp-route-tenantSearch="@Model.TenantPricingSearch"
+                    method="post"
+                    enctype="multipart/form-data"
+                    class="pricing-import-form">
+                @Html.AntiForgeryToken()
+                <label class="pricing-import-picker">
+                  <input type="file" name="importFile" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" id="tenantPricingImportFile" />
+                  <span class="pricing-import-picker-label">Chọn file import</span>
+                  <span class="pricing-import-file-name" id="tenantPricingImportFileName">Chưa chọn file</span>
+                </label>
+                <button type="submit" class="btn-primary pricing-import-submit" id="tenantPricingImportSubmit" disabled>Import giá / Import Prices</button>
+              </form>
+            </div>
+          </details>
+          <button type="button" class="btn-primary add-device-btn" id="openTenantPricingCreateModal">
+            <span class="add-device-icon">+</span>
+            <span>Thêm giá / Add Price</span>
+          </button>
+        </div>
+      </div>
+      <form asp-controller="Pricing" asp-action="Index" method="get" class="pricing-filter-bar">
+        <input type="hidden" name="tab" value="tenant" />
+        <input type="hidden" name="tenantPage" value="1" />
+        <input type="hidden" name="tenantPageSize" value="@Model.TenantPricingPageSize" />
+        <label class="pricing-filter-field" for="tenantPricingTenantFilter">
+          <span>Tenant / Tenant</span>
+          <select id="tenantPricingTenantFilter" name="tenantId" class="input">
+            <option value="">Tất cả tenant</option>
+            @foreach (var tenant in Model.TenantOptions)
+            {
+              <option value="@tenant.Id" selected="@(selectedTenantPricingTenantId == tenant.Id.ToString())">@tenant.TenantName</option>
+            }
+          </select>
+        </label>
+        <label class="pricing-filter-field" for="tenantPricingSearchInput">
+          <span>Gói giá / Pricing Plan</span>
+          <input id="tenantPricingSearchInput" name="tenantSearch" class="input" value="@Model.TenantPricingSearch" placeholder="Tìm theo tên gói hoặc mã gói / Search by plan name or code" />
+        </label>
+        <div class="pricing-filter-actions">
+          <button type="submit" class="btn-primary">Lọc / Filter</button>
+          @if (hasTenantPricingFilter)
+          {
+            <a asp-controller="Pricing" asp-action="Index" asp-route-tab="tenant" asp-route-tenantPageSize="@Model.TenantPricingPageSize" class="btn-secondary">Xóa lọc / Clear Filter</a>
+          }
+        </div>
+      </form>
+      <div class="table-wrap">
+        <table class="device-table pricing-table">
+          <thead>
+            <tr>
+              <th>Tenant / Tenant</th>
+              <th>Gói giá / Pricing Plan</th>
+              <th>Dung lượng / Data Limit</th>
+              <th>Đơn giá đại lý ($) / Reseller Price ($)</th>
+              <th>Đơn giá bán ra ($) / Sale Price ($)</th>
+              <th>Mua thêm đại lý ($) / Reseller Overcharge ($)</th>
+              <th>Mua thêm bán ra ($) / Sale Overcharge ($)</th>
+              <th>Cập nhật lúc / Updated At</th>
+              <th>Tác vụ / Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            @if (Model.TenantPrices.Count == 0)
+            {
+              <tr>
+                <td colspan="9" class="tenant-empty">Chưa có giá tenant nào.</td>
+              </tr>
+            }
+            else
+            {
+              @foreach (var price in Model.TenantPrices)
+              {
+                <tr>
+                  <td>@price.TenantName</td>
+                  <td><strong>@price.PlanCode</strong><div class="tenant-meta">@price.PlanName</div></td>
+                  <td>@Data(price.BaseData)</td>
+                  <td>@Money(price.ResellerPrice)</td>
+                  <td>@Money(price.FinalPrice)</td>
+                  <td>@Money(price.ResellerOverChargePrice)</td>
+                  <td>@Money(price.FinalOverChargePrice)</td>
+                  <td>
+                    <div>@price.UpdatedDateDisplay</div>
+                    <div class="tenant-meta">@(string.IsNullOrWhiteSpace(price.UpdatedBy) ? "-" : price.UpdatedBy)</div>
+                  </td>
+                  <td>
+                    <div class="table-actions">
+                      <a asp-controller="Pricing"
+                         asp-action="EditTenantPricing"
+                         asp-route-id="@price.Id"
+                         asp-route-tenantPage="@Model.TenantPricingCurrentPage"
+                         asp-route-tenantPageSize="@Model.TenantPricingPageSize"
+                         asp-route-tenantId="@Model.TenantPricingTenantId"
+                         asp-route-tenantSearch="@Model.TenantPricingSearch"
+                         class="table-action-btn">
+                        <span>Sửa / Edit</span>
+                      </a>
+                      <form asp-controller="Pricing"
+                            asp-action="DeleteTenantPricing"
+                            asp-route-id="@price.Id"
+                            asp-route-tenantPage="@Model.TenantPricingCurrentPage"
+                            asp-route-tenantPageSize="@Model.TenantPricingPageSize"
+                            asp-route-tenantId="@Model.TenantPricingTenantId"
+                            asp-route-tenantSearch="@Model.TenantPricingSearch"
+                            method="post"
+                            class="tenant-delete-form"
+                            onsubmit="return confirm('Xóa giá tenant này? / Delete this tenant price?');">
+                        @Html.AntiForgeryToken()
+                        <button type="submit" class="table-action-btn is-danger">
+                          <span>Xóa / Delete</span>
+                        </button>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              }
+            }
+          </tbody>
+        </table>
+      </div>
+      <div class="device-pagination">
+        <div class="device-pagination-meta">
+          <span>Hiển thị / Showing <strong>@tenantStartItem-@tenantEndItem</strong> / <strong>@Model.TotalTenantPrices</strong> giá / prices</span>
+          <form asp-controller="Pricing" asp-action="Index" method="get" class="page-size-wrap">
+            <input type="hidden" name="tab" value="tenant" />
+            <input type="hidden" name="tenantPage" value="1" />
+            <input type="hidden" name="tenantId" value="@Model.TenantPricingTenantId" />
+            <input type="hidden" name="tenantSearch" value="@Model.TenantPricingSearch" />
+            <label for="tenantPricingPageSizeSelect">Số dòng</label>
+            <select id="tenantPricingPageSizeSelect" name="tenantPageSize" class="page-size-select">
+              <option value="10" selected="@(Model.TenantPricingPageSize == 10)">10</option>
+              <option value="20" selected="@(Model.TenantPricingPageSize == 20)">20</option>
+              <option value="50" selected="@(Model.TenantPricingPageSize == 50)">50</option>
+            </select>
+          </form>
+          <span>Trang / Page <strong>@Model.TenantPricingCurrentPage</strong> / <strong>@tenantTotalPages</strong></span>
+        </div>
+        <div class="device-pagination-actions">
+          @if (Model.TenantPricingHasPreviousPage)
+          {
+            <a asp-controller="Pricing" asp-action="Index" asp-route-tab="tenant" asp-route-tenantPage="@(Model.TenantPricingCurrentPage - 1)" asp-route-tenantPageSize="@Model.TenantPricingPageSize" asp-route-tenantId="@Model.TenantPricingTenantId" asp-route-tenantSearch="@Model.TenantPricingSearch" class="pagination-btn">&lt;</a>
+          }
+          else
+          {
+            <span class="pagination-btn is-disabled" aria-disabled="true">&lt;</span>
+          }
+          @if (Model.TenantPricingHasNextPage)
+          {
+            <a asp-controller="Pricing" asp-action="Index" asp-route-tab="tenant" asp-route-tenantPage="@(Model.TenantPricingCurrentPage + 1)" asp-route-tenantPageSize="@Model.TenantPricingPageSize" asp-route-tenantId="@Model.TenantPricingTenantId" asp-route-tenantSearch="@Model.TenantPricingSearch" class="pagination-btn">&gt;</a>
+          }
+          else
+          {
+            <span class="pagination-btn is-disabled" aria-disabled="true">&gt;</span>
+          }
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="pricingCreateModal"@createModalHidden>
+  <div class="device-modal tenant-modal" role="dialog" aria-modal="true" aria-labelledby="pricingCreateModalTitle">
+    <div class="device-modal-head">
+      <div>
+        <h2 id="pricingCreateModalTitle">Thêm gói cước / Add Pricing Plan</h2>
+        <p>Nhập thông tin giá và dung lượng cho gói cước hệ thống / Enter price and data limit for a system pricing plan.</p>
+      </div>
+      <button type="button" class="modal-close" id="closePricingCreateModal" aria-label="Đóng / Close">×</button>
+    </div>
+    <form asp-controller="Pricing" asp-action="Create" method="post" class="device-modal-form tenant-modal-form">
+      @Html.AntiForgeryToken()
+      <input asp-for="CreateForm.CurrentPage" type="hidden" />
+      <input asp-for="CreateForm.PageSize" type="hidden" />
+
+      <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
+      @await Html.PartialAsync("~/Views/Pricing/_PricingFormFields.cshtml", ("CreateForm", Model.CreateForm))
+
+      <div class="device-modal-actions">
+        <button type="button" class="btn-secondary" id="cancelPricingCreateModal">Hủy / Cancel</button>
+        <button type="submit" class="btn-primary">Tạo gói / Create Plan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="pricingEditModal"@editModalHidden>
+  <div class="device-modal tenant-modal" role="dialog" aria-modal="true" aria-labelledby="pricingEditModalTitle">
+    <div class="device-modal-head">
+      <div>
+        <h2 id="pricingEditModalTitle">Cập nhật gói cước / Update Pricing Plan</h2>
+        <p>Chỉnh sửa thông tin giá, dung lượng và trạng thái gói cước / Edit price, data limit, and status.</p>
+      </div>
+      <button type="button" class="modal-close" id="closePricingEditModal" aria-label="Đóng / Close">×</button>
+    </div>
+    <form asp-controller="Pricing" asp-action="Edit" method="post" class="device-modal-form tenant-modal-form">
+      @Html.AntiForgeryToken()
+      <input asp-for="EditForm.Id" type="hidden" />
+      <input asp-for="EditForm.CurrentPage" type="hidden" />
+      <input asp-for="EditForm.PageSize" type="hidden" />
+
+      <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
+      @await Html.PartialAsync("~/Views/Pricing/_PricingFormFields.cshtml", ("EditForm", Model.EditForm))
+
+      <div class="device-modal-actions">
+        <button type="button" class="btn-secondary" id="cancelPricingEditModal">Hủy / Cancel</button>
+        <button type="submit" class="btn-primary">Lưu thay đổi / Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="tenantPricingCreateModal"@tenantCreateModalHidden>
+  <div class="device-modal tenant-modal" role="dialog" aria-modal="true" aria-labelledby="tenantPricingCreateModalTitle">
+    <div class="device-modal-head">
+      <div>
+        <h2 id="tenantPricingCreateModalTitle">Thêm giá tenant / Add Tenant Price</h2>
+        <p>Chọn tenant và gói giá, sau đó điều chỉnh mức giá riêng cho tenant / Select tenant and pricing plan, then set tenant-specific pricing.</p>
+      </div>
+      <button type="button" class="modal-close" id="closeTenantPricingCreateModal" aria-label="Đóng / Close">×</button>
+    </div>
+    <form asp-controller="Pricing" asp-action="CreateTenantPricing" method="post" class="device-modal-form tenant-modal-form">
+      @Html.AntiForgeryToken()
+      <input asp-for="TenantPriceCreateForm.CurrentPage" type="hidden" />
+      <input asp-for="TenantPriceCreateForm.PageSize" type="hidden" />
+      <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
+      <div class="tenant-form-grid tenant-pricing-form-grid">
+        <div class="form-group">
+          <label for="TenantPriceCreateForm_TenantId">Tenant / Tenant</label>
+          <select asp-for="TenantPriceCreateForm.TenantId" class="input">
+            <option value="">Chọn tenant</option>
+            @foreach (var tenant in Model.TenantOptions)
+            {
+              <option value="@tenant.Id">@tenant.TenantName</option>
+            }
+          </select>
+          <span asp-validation-for="TenantPriceCreateForm.TenantId" class="field-error"></span>
+        </div>
+        <div class="form-group">
+          <label for="TenantPriceCreateForm_PricingPlanId">Gói giá / Pricing Plan</label>
+          <select asp-for="TenantPriceCreateForm.PricingPlanId" class="input tenant-pricing-plan-select" data-form-prefix="TenantPriceCreateForm">
+            <option value="">Chọn gói giá</option>
+            @foreach (var plan in Model.PricingPlanOptions)
+            {
+              <option value="@plan.Id"
+                      data-reseller-price="@plan.ResellerPrice"
+                      data-final-price="@plan.FinalPrice"
+                      data-reseller-overcharge-price="@plan.ResellerOverChargePrice"
+                      data-final-overcharge-price="@plan.FinalOverChargePrice">@plan.DisplayName</option>
+            }
+          </select>
+          <span asp-validation-for="TenantPriceCreateForm.PricingPlanId" class="field-error"></span>
+        </div>
+        <div class="form-group">
+          <label asp-for="TenantPriceCreateForm.ResellerPrice">Đơn giá đại lý ($) / Reseller Price ($)</label>
+          <input asp-for="TenantPriceCreateForm.ResellerPrice" class="input" type="number" min="0" step="0.01" />
+          <span asp-validation-for="TenantPriceCreateForm.ResellerPrice" class="field-error"></span>
+        </div>
+        <div class="form-group">
+          <label asp-for="TenantPriceCreateForm.FinalPrice">Đơn giá bán ra ($) / Sale Price ($)</label>
+          <input asp-for="TenantPriceCreateForm.FinalPrice" class="input" type="number" min="0" step="0.01" />
+          <span asp-validation-for="TenantPriceCreateForm.FinalPrice" class="field-error"></span>
+        </div>
+        <div class="form-group">
+          <label asp-for="TenantPriceCreateForm.ResellerOverChargePrice">Giá mua thêm đại lý ($) / Reseller Overcharge Price ($)</label>
+          <input asp-for="TenantPriceCreateForm.ResellerOverChargePrice" class="input" type="number" min="0" step="0.01" />
+          <span asp-validation-for="TenantPriceCreateForm.ResellerOverChargePrice" class="field-error"></span>
+        </div>
+        <div class="form-group">
+          <label asp-for="TenantPriceCreateForm.FinalOverChargePrice">Giá mua thêm bán ra ($) / Sale Overcharge Price ($)</label>
+          <input asp-for="TenantPriceCreateForm.FinalOverChargePrice" class="input" type="number" min="0" step="0.01" />
+          <span asp-validation-for="TenantPriceCreateForm.FinalOverChargePrice" class="field-error"></span>
+        </div>
+      </div>
+      <div class="device-modal-actions">
+        <button type="button" class="btn-secondary" id="cancelTenantPricingCreateModal">Hủy / Cancel</button>
+        <button type="submit" class="btn-primary">Lưu giá / Save Price</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="tenantPricingEditModal"@tenantEditModalHidden>
+  <div class="device-modal tenant-modal" role="dialog" aria-modal="true" aria-labelledby="tenantPricingEditModalTitle">
+    <div class="device-modal-head">
+      <div>
+        <h2 id="tenantPricingEditModalTitle">Cập nhật giá tenant / Update Tenant Price</h2>
+        <p>Giá tenant là dữ liệu riêng và không tự thay đổi theo giá gốc / Tenant price is separate data and does not automatically follow base price changes.</p>
+      </div>
+      <button type="button" class="modal-close" id="closeTenantPricingEditModal" aria-label="Đóng / Close">×</button>
+    </div>
+    <form asp-controller="Pricing" asp-action="EditTenantPricing" method="post" class="device-modal-form tenant-modal-form">
+      @Html.AntiForgeryToken()
+      <input asp-for="TenantPriceEditForm.Id" type="hidden" />
+      <input asp-for="TenantPriceEditForm.CurrentPage" type="hidden" />
+      <input asp-for="TenantPriceEditForm.PageSize" type="hidden" />
+      <div asp-validation-summary="ModelOnly" class="validation-summary-errors" role="alert"></div>
+      <div class="tenant-form-grid tenant-pricing-form-grid">
+        <div class="form-group">
+          <label for="TenantPriceEditForm_TenantId">Tenant / Tenant</label>
+          <select asp-for="TenantPriceEditForm.TenantId" class="input">
+            <option value="">Chọn tenant</option>
+            @foreach (var tenant in Model.TenantOptions)
+            {
+              <option value="@tenant.Id">@tenant.TenantName</option>
+            }
+          </select>
+          <span asp-validation-for="TenantPriceEditForm.TenantId" class="field-error"></span>
+        </div>
+        <div class="form-group">
+          <label for="TenantPriceEditForm_PricingPlanId">Gói giá / Pricing Plan</label>
+          <select asp-for="TenantPriceEditForm.PricingPlanId" class="input tenant-pricing-plan-select" data-form-prefix="TenantPriceEditForm">
+            <option value="">Chọn gói giá</option>
+            @foreach (var plan in Model.PricingPlanOptions)
+            {
+              <option value="@plan.Id"
+                      data-reseller-price="@plan.ResellerPrice"
+                      data-final-price="@plan.FinalPrice"
+                      data-reseller-overcharge-price="@plan.ResellerOverChargePrice"
+                      data-final-overcharge-price="@plan.FinalOverChargePrice">@plan.DisplayName</option>
+            }
+          </select>
+          <span asp-validation-for="TenantPriceEditForm.PricingPlanId" class="field-error"></span>
+        </div>
+        <div class="form-group">
+          <label asp-for="TenantPriceEditForm.ResellerPrice">Đơn giá đại lý ($) / Reseller Price ($)</label>
+          <input asp-for="TenantPriceEditForm.ResellerPrice" class="input" type="number" min="0" step="0.01" />
+          <span asp-validation-for="TenantPriceEditForm.ResellerPrice" class="field-error"></span>
+        </div>
+        <div class="form-group">
+          <label asp-for="TenantPriceEditForm.FinalPrice">Đơn giá bán ra ($) / Sale Price ($)</label>
+          <input asp-for="TenantPriceEditForm.FinalPrice" class="input" type="number" min="0" step="0.01" />
+          <span asp-validation-for="TenantPriceEditForm.FinalPrice" class="field-error"></span>
+        </div>
+        <div class="form-group">
+          <label asp-for="TenantPriceEditForm.ResellerOverChargePrice">Giá mua thêm đại lý ($) / Reseller Overcharge Price ($)</label>
+          <input asp-for="TenantPriceEditForm.ResellerOverChargePrice" class="input" type="number" min="0" step="0.01" />
+          <span asp-validation-for="TenantPriceEditForm.ResellerOverChargePrice" class="field-error"></span>
+        </div>
+        <div class="form-group">
+          <label asp-for="TenantPriceEditForm.FinalOverChargePrice">Giá mua thêm bán ra ($) / Sale Overcharge Price ($)</label>
+          <input asp-for="TenantPriceEditForm.FinalOverChargePrice" class="input" type="number" min="0" step="0.01" />
+          <span asp-validation-for="TenantPriceEditForm.FinalOverChargePrice" class="field-error"></span>
+        </div>
+      </div>
+      <div class="device-modal-actions">
+        <button type="button" class="btn-secondary" id="cancelTenantPricingEditModal">Hủy / Cancel</button>
+        <button type="submit" class="btn-primary">Lưu thay đổi / Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+@section Scripts {
+  <partial name="_ValidationScriptsPartial" />
+  <script>
+    (() => {
+      const navToggle = document.getElementById("portalNavToggle");
+      const navPanel = document.getElementById("portalNavPanel");
+      const accountButton = document.getElementById("portalAccountButton");
+      const accountDropdown = document.getElementById("portalAccountDropdown");
+      const createModal = document.getElementById("pricingCreateModal");
+      const editModal = document.getElementById("pricingEditModal");
+      const tenantPricingCreateModal = document.getElementById("tenantPricingCreateModal");
+      const tenantPricingEditModal = document.getElementById("tenantPricingEditModal");
+      const openCreateModalButton = document.getElementById("openPricingCreateModal");
+      const openTenantPricingCreateModalButton = document.getElementById("openTenantPricingCreateModal");
+      const closeCreateModalButton = document.getElementById("closePricingCreateModal");
+      const cancelCreateModalButton = document.getElementById("cancelPricingCreateModal");
+      const closeEditModalButton = document.getElementById("closePricingEditModal");
+      const cancelEditModalButton = document.getElementById("cancelPricingEditModal");
+      const closeTenantPricingCreateModalButton = document.getElementById("closeTenantPricingCreateModal");
+      const cancelTenantPricingCreateModalButton = document.getElementById("cancelTenantPricingCreateModal");
+      const closeTenantPricingEditModalButton = document.getElementById("closeTenantPricingEditModal");
+      const cancelTenantPricingEditModalButton = document.getElementById("cancelTenantPricingEditModal");
+      const pageSizeSelect = document.getElementById("pricingPageSizeSelect");
+      const tenantPricingPageSizeSelect = document.getElementById("tenantPricingPageSizeSelect");
+      const importMenu = document.getElementById("pricingImportMenu");
+      const importFile = document.getElementById("pricingImportFile");
+      const importFileName = document.getElementById("pricingImportFileName");
+      const importSubmit = document.getElementById("pricingImportSubmit");
+      const tenantPricingImportMenu = document.getElementById("tenantPricingImportMenu");
+      const tenantPricingImportFile = document.getElementById("tenantPricingImportFile");
+      const tenantPricingImportFileName = document.getElementById("tenantPricingImportFileName");
+      const tenantPricingImportSubmit = document.getElementById("tenantPricingImportSubmit");
+
+      function syncBodyOverflow() {
+        const hasOpenModal =
+          (createModal && !createModal.hidden) ||
+          (editModal && !editModal.hidden) ||
+          (tenantPricingCreateModal && !tenantPricingCreateModal.hidden) ||
+          (tenantPricingEditModal && !tenantPricingEditModal.hidden);
+
+        document.body.style.overflow = hasOpenModal ? "hidden" : "";
+      }
+
+      function openCreateModal() {
+        if (!createModal) return;
+        createModal.hidden = false;
+        syncBodyOverflow();
+      }
+
+      function closeCreateModal() {
+        if (!createModal) return;
+        createModal.hidden = true;
+        syncBodyOverflow();
+      }
+
+      function closeEditModal() {
+        if (!editModal) return;
+        editModal.hidden = true;
+        syncBodyOverflow();
+      }
+
+      function openTenantPricingCreateModal() {
+        if (!tenantPricingCreateModal) return;
+        tenantPricingCreateModal.hidden = false;
+        syncBodyOverflow();
+      }
+
+      function closeTenantPricingCreateModal() {
+        if (!tenantPricingCreateModal) return;
+        tenantPricingCreateModal.hidden = true;
+        syncBodyOverflow();
+      }
+
+      function closeTenantPricingEditModal() {
+        if (!tenantPricingEditModal) return;
+        tenantPricingEditModal.hidden = true;
+        syncBodyOverflow();
+      }
+
+      navToggle?.addEventListener("click", () => {
+        const expanded = navToggle.getAttribute("aria-expanded") === "true";
+        navToggle.setAttribute("aria-expanded", expanded ? "false" : "true");
+        navPanel?.classList.toggle("is-open", !expanded);
+      });
+
+      accountButton?.addEventListener("click", () => {
+        const expanded = accountButton.getAttribute("aria-expanded") === "true";
+        accountButton.setAttribute("aria-expanded", expanded ? "false" : "true");
+        if (accountDropdown) accountDropdown.hidden = expanded;
+      });
+
+      document.addEventListener("click", (event) => {
+        if (!accountButton || !accountDropdown) return;
+
+        const target = event.target;
+        if (!(target instanceof Node)) return;
+        if (accountButton.contains(target) || accountDropdown.contains(target)) return;
+
+        accountButton.setAttribute("aria-expanded", "false");
+        accountDropdown.hidden = true;
+      });
+
+      document.addEventListener("click", (event) => {
+        if (!importMenu || !importMenu.open) return;
+
+        const target = event.target;
+        if (!(target instanceof Node)) return;
+        if (importMenu.contains(target)) return;
+
+        importMenu.open = false;
+      });
+
+      document.addEventListener("click", (event) => {
+        if (!tenantPricingImportMenu || !tenantPricingImportMenu.open) return;
+
+        const target = event.target;
+        if (!(target instanceof Node)) return;
+        if (tenantPricingImportMenu.contains(target)) return;
+
+        tenantPricingImportMenu.open = false;
+      });
+
+      openCreateModalButton?.addEventListener("click", openCreateModal);
+      openTenantPricingCreateModalButton?.addEventListener("click", openTenantPricingCreateModal);
+      closeCreateModalButton?.addEventListener("click", closeCreateModal);
+      cancelCreateModalButton?.addEventListener("click", closeCreateModal);
+      closeEditModalButton?.addEventListener("click", closeEditModal);
+      cancelEditModalButton?.addEventListener("click", closeEditModal);
+      closeTenantPricingCreateModalButton?.addEventListener("click", closeTenantPricingCreateModal);
+      cancelTenantPricingCreateModalButton?.addEventListener("click", closeTenantPricingCreateModal);
+      closeTenantPricingEditModalButton?.addEventListener("click", closeTenantPricingEditModal);
+      cancelTenantPricingEditModalButton?.addEventListener("click", closeTenantPricingEditModal);
+      pageSizeSelect?.addEventListener("change", (event) => {
+        if (!event.isTrusted && !event.detail?.liveSelectUserSelection) return;
+        pageSizeSelect.form?.submit();
+      });
+      tenantPricingPageSizeSelect?.addEventListener("change", (event) => {
+        if (!event.isTrusted && !event.detail?.liveSelectUserSelection) return;
+        tenantPricingPageSizeSelect.form?.submit();
+      });
+      importFile?.addEventListener("change", () => {
+        const file = importFile.files && importFile.files[0];
+        if (importFileName) {
+          importFileName.textContent = file ? file.name : "Chưa chọn file";
+        }
+        if (importSubmit) {
+          importSubmit.disabled = !file;
+        }
+      });
+      tenantPricingImportFile?.addEventListener("change", () => {
+        const file = tenantPricingImportFile.files && tenantPricingImportFile.files[0];
+        if (tenantPricingImportFileName) {
+          tenantPricingImportFileName.textContent = file ? file.name : "Chưa chọn file";
+        }
+        if (tenantPricingImportSubmit) {
+          tenantPricingImportSubmit.disabled = !file;
+        }
+      });
+
+      document.querySelectorAll(".tenant-pricing-plan-select").forEach((select) => {
+        select.addEventListener("change", () => {
+          const option = select.selectedOptions && select.selectedOptions[0];
+          const prefix = select.getAttribute("data-form-prefix");
+          if (!option || !prefix) return;
+
+          const map = {
+            ResellerPrice: option.dataset.resellerPrice,
+            FinalPrice: option.dataset.finalPrice,
+            ResellerOverChargePrice: option.dataset.resellerOverchargePrice,
+            FinalOverChargePrice: option.dataset.finalOverchargePrice
+          };
+
+          Object.entries(map).forEach(([name, value]) => {
+            const input = document.getElementById(`${prefix}_${name}`);
+            if (input && value !== undefined) input.value = value;
+          });
+        });
+      });
+
+      syncBodyOverflow();
+    })();
+  </script>
+}

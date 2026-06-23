@@ -47,6 +47,26 @@ public class DeleteDeviceResult
     public string MessageEn { get; set; } = string.Empty;
 }
 
+public class UpdateDeviceWifiRequest
+{
+    public int Id { get; set; }
+    public string Ssid { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+    public bool Enabled { get; set; }
+}
+
+public class DeviceCommandResult
+{
+    public bool Success { get; set; }
+    public string ErrorCode { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    public string MessageEn { get; set; } = string.Empty;
+    public string RawResponse { get; set; } = string.Empty;
+    public string TerminalId { get; set; } = string.Empty;
+    public string DeviceId { get; set; } = string.Empty;
+    public string JobId { get; set; } = string.Empty;
+}
+
 public class RefreshDeviceResult
 {
     public bool Success { get; set; }

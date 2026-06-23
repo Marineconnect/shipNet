@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\StarlinkDeviceManager.csproj": {}
+    "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\shipNet\\StarlinkDeviceManager.csproj": {}
   },
   "projects": {
-    "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\StarlinkDeviceManager.csproj": {
+    "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\shipNet\\StarlinkDeviceManager.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\StarlinkDeviceManager.csproj",
+        "projectUniqueName": "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\shipNet\\StarlinkDeviceManager.csproj",
         "projectName": "StarlinkDeviceManager",
-        "projectPath": "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\StarlinkDeviceManager.csproj",
+        "projectPath": "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\shipNet\\StarlinkDeviceManager.csproj",
         "packagesPath": "C:\\Users\\PH Laptop\\.nuget\\packages\\",
-        "outputPath": "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\obj\\",
+        "outputPath": "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\shipNet\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft\\Xamarin\\NuGet\\"
@@ -73,7 +73,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.420/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.422/PortableRuntimeIdentifierGraph.json"
         }
       }
     }

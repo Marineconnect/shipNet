@@ -16,6 +16,9 @@ public class DeviceDashboardViewModel
     public bool IsTenantScoped { get; set; }
     public int? CurrentTenantId { get; set; }
     public string? CurrentTenantName { get; set; }
+    public bool CanManageDevices { get; set; } = true;
+    public bool CanViewMap { get; set; } = true;
+    public int? SelectedDeviceId { get; set; }
 }
 
 public class DevicePageResult
@@ -78,6 +81,12 @@ public class DeviceListItemViewModel
 
     public string UsageDataDisplay => UsageData.HasValue ? $"{UsageData.Value:0.##} GB" : "-";
     public string PriorityDataDisplay => PriorityData.HasValue ? $"{PriorityData.Value:0.##} GB" : "-";
+    public bool IsSyncFresh =>
+        LastSysnTime.HasValue
+        && DateTime.SpecifyKind(LastSysnTime.Value, DateTimeKind.Utc) >= DateTime.UtcNow.AddHours(-1)
+        && !string.IsNullOrWhiteSpace(Availability)
+        && UsageData.HasValue
+        && PriorityData.HasValue;
     public string PlanNameDisplay => string.IsNullOrWhiteSpace(PlanName) ? "-" : PlanName;
     public string VesselNameDisplay => string.IsNullOrWhiteSpace(VesselName) ? "-" : VesselName;
     public string TenantNameDisplay => string.IsNullOrWhiteSpace(TenantName) ? "-" : TenantName;
@@ -202,4 +211,86 @@ public class DeviceWifiResult
     public string DeviceId { get; set; } = string.Empty;
     public string Ssid { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
+    public bool? Enabled { get; set; }
+}
+
+public class DevicePlanManagementResult
+{
+    public bool Success { get; set; }
+    public string ErrorCode { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    public string MessageEn { get; set; } = string.Empty;
+    public int DeviceId { get; set; }
+    public int? TenantId { get; set; }
+    public string TenantName { get; set; } = string.Empty;
+    public List<DevicePlanOptionViewModel> PlanOptions { get; set; } = [];
+    public List<DevicePlanPriceViewModel> DevicePrices { get; set; } = [];
+}
+
+public class DevicePlanOptionViewModel
+{
+    public int TenantPricingId { get; set; }
+    public int PricingPlanId { get; set; }
+    public string PlanName { get; set; } = string.Empty;
+    public string PlanCode { get; set; } = string.Empty;
+    public decimal BaseData { get; set; }
+    public decimal ResellerPrice { get; set; }
+    public decimal FinalPrice { get; set; }
+    public decimal ResellerOverChargePrice { get; set; }
+    public decimal FinalOverChargePrice { get; set; }
+    public string DisplayName => $"{PlanName} ({PlanCode})";
+}
+
+public class DevicePlanPriceViewModel
+{
+    public int Id { get; set; }
+    public int DeviceId { get; set; }
+    public int PricingPlanId { get; set; }
+    public string PlanName { get; set; } = string.Empty;
+    public string PlanCode { get; set; } = string.Empty;
+    public decimal BaseData { get; set; }
+    public decimal ResellerPrice { get; set; }
+    public decimal FinalPrice { get; set; }
+    public decimal ResellerOverChargePrice { get; set; }
+    public decimal FinalOverChargePrice { get; set; }
+    public DateTime? UpdatedDate { get; set; }
+    public string? UpdatedBy { get; set; }
+
+    public string UpdatedDateDisplay => UpdatedDate.HasValue
+        ? UpdatedDate.Value.ToString("yyyy-MM-dd HH:mm:ss")
+        : "-";
+}
+
+public class SaveDevicePlanRequest
+{
+    public int DeviceId { get; set; }
+    public int PricingPlanId { get; set; }
+    public decimal ResellerPrice { get; set; }
+    public decimal FinalPrice { get; set; }
+    public decimal ResellerOverChargePrice { get; set; }
+    public decimal FinalOverChargePrice { get; set; }
+}
+
+public class DeleteDevicePlanRequest
+{
+    public int DeviceId { get; set; }
+    public int PricingPlanId { get; set; }
+}
+
+public class SaveDevicePlanResult
+{
+    public bool Success { get; set; }
+    public string ErrorCode { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    public string MessageEn { get; set; } = string.Empty;
+    public bool Created { get; set; }
+    public DevicePlanPriceViewModel? Price { get; set; }
+}
+
+public class DeleteDevicePlanResult
+{
+    public bool Success { get; set; }
+    public string ErrorCode { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    public string MessageEn { get; set; } = string.Empty;
 }

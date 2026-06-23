@@ -29,10 +29,15 @@ public class UserController(
     };
 
     [HttpGet]
-    public async Task<IActionResult> Index(int page = 1, int pageSize = 10)
+    public async Task<IActionResult> Index(string group = ManagedUserType.Admin, int page = 1, int pageSize = 10)
     {
         var currentUser = await GetCurrentUserAsync();
-        return View(UserIndexViewPath, await BuildIndexViewModelAsync(currentUser, page: page, pageSize: pageSize));
+        if (currentUser?.IsCrew == true)
+        {
+            return Forbid();
+        }
+
+        return View(UserIndexViewPath, await BuildIndexViewModelAsync(currentUser, page: page, pageSize: pageSize, activeGroup: group));
     }
 
     [HttpGet]
@@ -46,9 +51,14 @@ public class UserController(
     public async Task<IActionResult> Create(UserManagementIndexViewModel requestModel)
     {
         var currentUser = await GetCurrentUserAsync();
+        if (currentUser?.IsCrew == true)
+        {
+            return Forbid();
+        }
+
+        ApplyCreationScope(requestModel.CreateForm, currentUser);
         if (currentUser?.IsTenantUser == true)
         {
-            requestModel.CreateForm.UserGroup = ManagedUserType.Tenant;
             requestModel.CreateForm.TenantId = currentUser.TenantId;
         }
 
@@ -56,6 +66,7 @@ public class UserController(
         NormalizeUserModel(model);
         RemoveModelStateForPrefix(nameof(UserManagementIndexViewModel.EditForm));
         ValidateUserForm(model, nameof(UserManagementIndexViewModel.CreateForm), requirePassword: true);
+        await ValidateUserScopeAsync(model, currentUser, nameof(UserManagementIndexViewModel.CreateForm));
 
         if (await ValidateDuplicateFieldsAsync(model, nameof(UserManagementIndexViewModel.CreateForm), excludeUserId: null))
         {
@@ -73,7 +84,8 @@ public class UserController(
                     createForm: model,
                     openCreateModal: true,
                     page: model.CurrentPage,
-                    pageSize: model.PageSize));
+                    pageSize: model.PageSize,
+                    activeGroup: model.UserGroup));
         }
 
         var (userId, username) = GetCurrentAuditContext();
@@ -88,7 +100,7 @@ public class UserController(
             var encodedPassword = authService.EncodePassword(model.Password!);
             await authService.CreateManagedUserAsync(model, encodedPassword, userId, username, HttpContext.RequestAborted);
             TempData["UserManagementSuccess"] = "Thêm người dùng thành công.";
-            return RedirectToAction(nameof(Index), new { page = 1, pageSize = model.PageSize });
+            return RedirectToAction(nameof(Index), new { group = ManagedUserType.NormalizeGroup(model.UserGroup), page = 1, pageSize = model.PageSize });
         }
         catch (Exception exception)
         {
@@ -101,18 +113,29 @@ public class UserController(
                     createForm: model,
                     openCreateModal: true,
                     page: model.CurrentPage,
-                    pageSize: model.PageSize));
+                    pageSize: model.PageSize,
+                    activeGroup: model.UserGroup));
         }
     }
 
     [HttpGet]
-    public async Task<IActionResult> Edit(int id, int page = 1, int pageSize = 10)
+    public async Task<IActionResult> Edit(int id, string group = ManagedUserType.Admin, int page = 1, int pageSize = 10)
     {
         var currentUser = await GetCurrentUserAsync();
-        var user = await authService.GetManagedUserByIdAsync(id, GetAllowedTenantId(currentUser), HttpContext.RequestAborted);
+        if (currentUser?.IsCrew == true)
+        {
+            return Forbid();
+        }
+
+        var user = await authService.GetManagedUserByIdAsync(id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
         if (user is null)
         {
             return NotFound();
+        }
+
+        if (!CanManageTargetGroup(currentUser, user.UserGroup))
+        {
+            return Forbid();
         }
 
         user.CurrentPage = page;
@@ -124,7 +147,8 @@ public class UserController(
                 editForm: user,
                 openEditModal: true,
                 page: page,
-                pageSize: pageSize));
+                pageSize: pageSize,
+                activeGroup: group));
     }
 
     [HttpPost]
@@ -132,16 +156,18 @@ public class UserController(
     public async Task<IActionResult> Edit(UserManagementIndexViewModel requestModel)
     {
         var currentUser = await GetCurrentUserAsync();
-        if (currentUser?.IsTenantUser == true)
+        if (currentUser?.IsCrew == true)
         {
-            requestModel.EditForm.UserGroup = ManagedUserType.Tenant;
-            requestModel.EditForm.TenantId = currentUser.TenantId;
+            return Forbid();
         }
+
+        ApplyCreationScope(requestModel.EditForm, currentUser);
 
         var model = requestModel.EditForm;
         NormalizeUserModel(model);
         RemoveModelStateForPrefix(nameof(UserManagementIndexViewModel.CreateForm));
         ValidateUserForm(model, nameof(UserManagementIndexViewModel.EditForm), requirePassword: false);
+        await ValidateUserScopeAsync(model, currentUser, nameof(UserManagementIndexViewModel.EditForm));
         await ValidateDuplicateFieldsAsync(model, nameof(UserManagementIndexViewModel.EditForm), model.Id);
 
         if (!ModelState.IsValid)
@@ -153,17 +179,23 @@ public class UserController(
                     editForm: model,
                     openEditModal: true,
                     page: model.CurrentPage,
-                    pageSize: model.PageSize));
+                    pageSize: model.PageSize,
+                    activeGroup: model.UserGroup));
         }
 
         var (userId, username) = GetCurrentAuditContext();
 
         try
         {
-            var existingUser = await authService.GetManagedUserByIdAsync(model.Id, GetAllowedTenantId(currentUser), HttpContext.RequestAborted);
+            var existingUser = await authService.GetManagedUserByIdAsync(model.Id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
             if (existingUser is null)
             {
                 return NotFound();
+            }
+
+            if (!CanManageTargetGroup(currentUser, existingUser.UserGroup) || !CanManageTargetGroup(currentUser, model.UserGroup))
+            {
+                return Forbid();
             }
 
             model.ExistingLogoPath = existingUser.ExistingLogoPath;
@@ -176,7 +208,7 @@ public class UserController(
 
             await authService.UpdateManagedUserAsync(model, userId, username, HttpContext.RequestAborted);
             TempData["UserManagementSuccess"] = "Cập nhật người dùng thành công.";
-            return RedirectToAction(nameof(Index), new { page = model.CurrentPage, pageSize = model.PageSize });
+            return RedirectToAction(nameof(Index), new { group = ManagedUserType.NormalizeGroup(model.UserGroup), page = model.CurrentPage, pageSize = model.PageSize });
         }
         catch (KeyNotFoundException)
         {
@@ -193,7 +225,8 @@ public class UserController(
                     editForm: model,
                     openEditModal: true,
                     page: model.CurrentPage,
-                    pageSize: model.PageSize));
+                    pageSize: model.PageSize,
+                    activeGroup: model.UserGroup));
         }
     }
 
@@ -204,31 +237,34 @@ public class UserController(
         UserManagementFormViewModel? editForm = null,
         bool openEditModal = false,
         int page = 1,
-        int pageSize = 10)
+        int pageSize = 10,
+        string activeGroup = ManagedUserType.Admin)
     {
         var allowedTenantId = GetAllowedTenantId(currentUser);
-        var userPage = await authService.GetManagedUsersAsync(page, pageSize, allowedTenantId, HttpContext.RequestAborted);
+        var allowedDeviceId = GetAllowedDeviceId(currentUser);
+        var visibleGroups = GetVisibleUserGroups(currentUser);
+        var normalizedActiveGroup = ManagedUserType.NormalizeGroup(activeGroup);
+        if (!visibleGroups.Contains(normalizedActiveGroup))
+        {
+            normalizedActiveGroup = visibleGroups.FirstOrDefault() ?? ManagedUserType.Crew;
+        }
+
+        var userPage = await authService.GetManagedUsersAsync(page, pageSize, allowedTenantId, allowedDeviceId, normalizedActiveGroup, HttpContext.RequestAborted);
         var tenants = await tenantService.GetTenantOptionsAsync(allowedTenantId, HttpContext.RequestAborted);
+        var vessels = await authService.GetVesselOptionsAsync(allowedTenantId, allowedDeviceId, HttpContext.RequestAborted);
         var resolvedPage = userPage.CurrentPage;
         var resolvedPageSize = userPage.PageSize;
+        var creatableGroups = GetCreatableUserGroups(currentUser);
 
         createForm ??= new UserManagementFormViewModel();
         createForm.CurrentPage = resolvedPage;
         createForm.PageSize = resolvedPageSize;
-        if (currentUser?.IsTenantUser == true)
-        {
-            createForm.UserGroup = ManagedUserType.Tenant;
-            createForm.TenantId = currentUser.TenantId;
-        }
+        ApplyCreationScope(createForm, currentUser);
 
         editForm ??= new UserManagementFormViewModel();
         editForm.CurrentPage = resolvedPage;
         editForm.PageSize = resolvedPageSize;
-        if (currentUser?.IsTenantUser == true)
-        {
-            editForm.UserGroup = ManagedUserType.Tenant;
-            editForm.TenantId = currentUser.TenantId;
-        }
+        ApplyCreationScope(editForm, currentUser);
 
         return new UserManagementIndexViewModel
         {
@@ -236,14 +272,18 @@ public class UserController(
             CreateForm = createForm,
             EditForm = editForm,
             Tenants = tenants,
+            Vessels = vessels,
+            CreatableUserGroups = creatableGroups,
             OpenCreateModal = openCreateModal,
             OpenEditModal = openEditModal,
             CurrentPage = resolvedPage,
             PageSize = resolvedPageSize,
+            ActiveUserGroup = normalizedActiveGroup,
             TotalUsers = userPage.TotalUsers,
             IsTenantScoped = currentUser?.IsTenantUser == true,
             CurrentTenantId = currentUser?.TenantId,
-            CurrentTenantName = tenants.FirstOrDefault(tenant => tenant.Id == currentUser?.TenantId)?.TenantName
+            CurrentTenantName = tenants.FirstOrDefault(tenant => tenant.Id == currentUser?.TenantId)?.TenantName,
+            CanManageUsers = currentUser?.IsCrew != true
         };
     }
 
@@ -292,7 +332,65 @@ public class UserController(
 
     private static int? GetAllowedTenantId(AuthUserRecord? user)
     {
-        return user?.IsTenantUser == true ? user.TenantId ?? -1 : null;
+        return user?.IsTenantUser == true || user?.IsShipAdmin == true
+            ? user.TenantId ?? -1
+            : null;
+    }
+
+    private static int? GetAllowedDeviceId(AuthUserRecord? user)
+    {
+        return user?.IsShipAdmin == true ? user.DeviceId ?? -1 : null;
+    }
+
+    private static List<string> GetVisibleUserGroups(AuthUserRecord? user)
+    {
+        if (user?.IsCrew == true)
+        {
+            return [];
+        }
+
+        if (user?.IsShipAdmin == true)
+        {
+            return [ManagedUserType.Crew];
+        }
+
+        if (user?.IsTenantUser == true)
+        {
+            return [ManagedUserType.ShipAdmin, ManagedUserType.Crew];
+        }
+
+        return [ManagedUserType.Admin, ManagedUserType.Tenant, ManagedUserType.ShipAdmin, ManagedUserType.Crew];
+    }
+
+    private static List<string> GetCreatableUserGroups(AuthUserRecord? user)
+    {
+        return GetVisibleUserGroups(user);
+    }
+
+    private static bool CanManageTargetGroup(AuthUserRecord? user, string? targetGroup)
+    {
+        return GetVisibleUserGroups(user).Contains(ManagedUserType.NormalizeGroup(targetGroup));
+    }
+
+    private static void ApplyCreationScope(UserManagementFormViewModel model, AuthUserRecord? currentUser)
+    {
+        var creatableGroups = GetCreatableUserGroups(currentUser);
+        var normalizedGroup = ManagedUserType.NormalizeGroup(model.UserGroup);
+        model.UserGroup = creatableGroups.Contains(normalizedGroup)
+            ? normalizedGroup
+            : creatableGroups.FirstOrDefault() ?? ManagedUserType.Crew;
+
+        if (currentUser?.IsTenantUser == true)
+        {
+            model.TenantId = currentUser.TenantId;
+        }
+
+        if (currentUser?.IsShipAdmin == true)
+        {
+            model.UserGroup = ManagedUserType.Crew;
+            model.TenantId = currentUser.TenantId;
+            model.DeviceId = currentUser.DeviceId;
+        }
     }
 
     private void ValidateUserForm(UserManagementFormViewModel model, string prefix, bool requirePassword)
@@ -304,7 +402,7 @@ public class UserController(
             ModelState.AddModelError($"{prefix}.{nameof(UserManagementFormViewModel.Password)}", "Vui lòng nhập mật khẩu.");
         }
 
-        if (string.Equals(model.UserGroup, ManagedUserType.Tenant, StringComparison.OrdinalIgnoreCase))
+        if (ManagedUserType.RequiresTenant(model.UserGroup))
         {
             if (!model.TenantId.HasValue || model.TenantId.Value <= 0)
             {
@@ -314,6 +412,52 @@ public class UserController(
         else
         {
             model.TenantId = null;
+        }
+
+        if (ManagedUserType.RequiresVessel(model.UserGroup))
+        {
+            if (!model.DeviceId.HasValue || model.DeviceId.Value <= 0)
+            {
+                ModelState.AddModelError($"{prefix}.{nameof(UserManagementFormViewModel.DeviceId)}", "Vui lòng chọn tàu.");
+            }
+        }
+        else
+        {
+            model.DeviceId = null;
+        }
+    }
+
+    private async Task ValidateUserScopeAsync(UserManagementFormViewModel model, AuthUserRecord? currentUser, string prefix)
+    {
+        if (!CanManageTargetGroup(currentUser, model.UserGroup))
+        {
+            ModelState.AddModelError($"{prefix}.{nameof(UserManagementFormViewModel.UserGroup)}", "Bạn không có quyền tạo nhóm tài khoản này.");
+            return;
+        }
+
+        if (currentUser?.IsTenantUser == true && model.TenantId != currentUser.TenantId)
+        {
+            ModelState.AddModelError($"{prefix}.{nameof(UserManagementFormViewModel.TenantId)}", "Bạn chỉ được tạo tài khoản tàu trong tenant mình quản lý.");
+        }
+
+        if (currentUser?.IsShipAdmin == true && model.DeviceId != currentUser.DeviceId)
+        {
+            ModelState.AddModelError($"{prefix}.{nameof(UserManagementFormViewModel.DeviceId)}", "Admin tàu chỉ được tạo tài khoản cho thuyền viên của tàu mình.");
+        }
+
+        if (!ManagedUserType.RequiresVessel(model.UserGroup) || !model.DeviceId.HasValue)
+        {
+            return;
+        }
+
+        var matchingVessel = (await authService.GetVesselOptionsAsync(model.TenantId, model.DeviceId, HttpContext.RequestAborted)).FirstOrDefault();
+        if (matchingVessel is null)
+        {
+            ModelState.AddModelError($"{prefix}.{nameof(UserManagementFormViewModel.DeviceId)}", "Tàu không tồn tại hoặc không thuộc phạm vi quản lý.");
+        }
+        else if (model.TenantId != matchingVessel.TenantId)
+        {
+            ModelState.AddModelError($"{prefix}.{nameof(UserManagementFormViewModel.DeviceId)}", "Tàu không thuộc tenant đã chọn.");
         }
     }
 

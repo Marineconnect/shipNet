@@ -1,0 +1,1050 @@
+@model MonthlySubscriptionDetailViewModel
+@{
+    ViewData["ActiveNav"] = "subscription";
+    ViewData["Title"] = "Subscription Detail";
+    string Money(decimal value) => $"$ {value:#,##0.##}";
+    string Data(decimal value) => $"{value:#,##0.##} GB";
+    string Vnd(decimal value) => $"{value:#,##0} VND";
+    string NumberInput(decimal value) => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+    string DateTimeInput(DateTime? value) => value.HasValue ? value.Value.ToString("yyyy-MM-ddTHH:mm") : string.Empty;
+    string DateInput(DateTime value) => value.ToString("yyyy-MM-dd");
+    string MonthInput(DateTime value) => value.ToString("yyyy-MM");
+    string StatusLabel(string status) => status switch
+    {
+        "active" => "Kích hoạt / Active",
+        "debit" => "Ghi nợ / Debit",
+        "paid" => "Đã thanh toán / Paid",
+        "terminated" => "Hủy / Terminated",
+        "pending_payment" => "Ghi nợ / Pending Payment",
+        _ => status
+    };
+    var successMessage = TempData["SubscriptionSuccess"]?.ToString();
+    var errorMessage = TempData["SubscriptionError"]?.ToString();
+    var defaultInvoice = Model.Invoices.FirstOrDefault();
+}
+
+<div class="device-page">
+  <div class="device-shell">
+        <partial name="_PortalNav" />
+
+    <div class="device-topbar">
+      <div>
+        <div class="device-brand">Tóm tắt subscription / Subscription Summary</div>
+        <h1>@Model.Subscription.VesselName</h1>
+        <p>@Model.Subscription.PlanName • @Model.Subscription.SubscriptionPeriodDisplay</p>
+      </div>
+      <div class="device-actions">
+        <a asp-controller="MonthlySubscription" asp-action="Index" class="btn-secondary">Quay lại / Back</a>
+      </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+      <div class="tenant-feedback is-success">@successMessage</div>
+    }
+    else if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+      <div class="tenant-feedback is-error" role="alert">@errorMessage</div>
+    }
+
+    <div class="subscription-detail-grid">
+      <section class="device-card subscription-summary-card">
+        <div class="device-card-head">
+          <div>
+            <h2>Tóm tắt / Summary</h2>
+            <p>Thông tin subscription và giá prorated / Subscription information and prorated pricing.</p>
+          </div>
+        </div>
+        <table class="subscription-kv-table">
+          <tbody>
+            <tr><th>Tàu / Vessel</th><td>@Model.Subscription.VesselName</td><th>Tenant / Tenant</th><td>@Model.Subscription.TenantName</td></tr>
+            <tr><th>Mã KIT / Kit ID</th><td>@Model.Subscription.KitId</td><th>Gói / Plan</th><td>@Model.Subscription.PlanName</td></tr>
+            <tr><th>Loại / Type</th><td>@Model.Subscription.SubscriptionType</td><th>Kỳ billing / Billing Period</th><td>@Model.Subscription.SubscriptionPeriodDisplay</td></tr>
+            <tr><th>Giới hạn data / Data Limit</th><td>@Data(Model.Subscription.DataLimitGb)</td><th>Ngày billing tiếp theo / Next Billing Date</th><td>@Model.Subscription.NextBillingDateDisplay</td></tr>
+            <tr><th>Đơn giá / Unit Price</th><td>@Money(Model.Subscription.BasePlanPrice)</td><th>Giá overcharge / Overcharge Price</th><td>@Money(Model.Subscription.OverChargePrice) / GB</td></tr>
+            <tr><th>Số ngày / Days</th><td>@Model.Subscription.SubscriptionDays</td><th>Tiền subscription / Subscription Price</th><td>@Money(Model.Subscription.SubscriptionPrice)</td></tr>
+            <tr><th>Tổng invoice / Total Invoice</th><td>@Money(Model.Subscription.TotalInvoiceAmount)</td><th>Đã thanh toán / Total Paid</th><td>@Money(Model.Subscription.TotalPaid)</td></tr>
+            <tr><th>Trạng thái / Status</th><td colspan="3"><span class="subscription-status @Model.Subscription.Status">@StatusLabel(Model.Subscription.Status)</span></td></tr>
+          </tbody>
+        </table>
+        @if (Model.CanManageSubscriptions)
+        {
+          <form asp-controller="MonthlySubscription" asp-action="UpdateStatus" method="post" class="subscription-status-form">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="SubscriptionId" value="@Model.Subscription.Id" />
+            <label class="detail-field">
+              <span>Cập nhật trạng thái subscription / Update subscription status</span>
+              <select name="Status">
+                <option value="active" selected="@(Model.Subscription.Status == "active")">Kích hoạt / Active</option>
+                <option value="debit" selected="@(Model.Subscription.Status == "debit" || Model.Subscription.Status == "pending_payment")">Ghi nợ / Debit</option>
+                <option value="paid" selected="@(Model.Subscription.Status == "paid")">Đã thanh toán / Paid</option>
+                <option value="terminated" selected="@(Model.Subscription.Status == "terminated")">Hủy / Terminated</option>
+              </select>
+            </label>
+            <button type="submit" class="btn-primary">Cập nhật subscription / Update subscription</button>
+          </form>
+          <form asp-controller="MonthlySubscription" asp-action="UpdateBilling" method="post" class="invoice-edit-form subscription-billing-edit-form">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="SubscriptionId" value="@Model.Subscription.Id" />
+            <div class="invoice-edit-grid">
+              <label class="detail-field">
+                <span>Tháng sử dụng / Usage Month</span>
+                <input type="month" name="UsageMonth" id="Billing_UsageMonth" value="@MonthInput(Model.UpdateBillingForm.UsageMonth)" disabled="@(!Model.CanEditBilling)" />
+              </label>
+              <label class="detail-field">
+                <span>Ngày bắt đầu / Start Date</span>
+                <input type="date" name="StartDate" id="Billing_StartDate" value="@DateInput(Model.UpdateBillingForm.StartDate)" disabled="@(!Model.CanEditBilling)" />
+              </label>
+              <label class="detail-field">
+                <span>Ngày kết thúc / End Date</span>
+                <input type="date" name="EndDate" id="Billing_EndDate" value="@DateInput(Model.UpdateBillingForm.EndDate)" disabled="@(!Model.CanEditBilling)" />
+              </label>
+              <label class="detail-field">
+                <span>Ngày billing tiếp theo / Next Billing Date</span>
+                <input type="date" name="NextBillingDate" value="@DateInput(Model.UpdateBillingForm.NextBillingDate)" disabled="@(!Model.CanEditBilling)" />
+              </label>
+              <label class="detail-field">
+                <span>Giá bán cuối ($) / Final Sale Price ($)</span>
+                <input type="number" step="0.01" min="0" name="BasePlanPrice" id="Billing_BasePlanPrice" value="@NumberInput(Model.UpdateBillingForm.BasePlanPrice)" disabled="@(!Model.CanEditBilling)" />
+              </label>
+              <label class="detail-field">
+                <span>Giá overcharge ($/GB) / Overcharge Price ($/GB)</span>
+                <input type="number" step="0.01" min="0" name="OverChargePrice" value="@NumberInput(Model.UpdateBillingForm.OverChargePrice)" disabled="@(!Model.CanEditBilling)" />
+              </label>
+            </div>
+            <div class="subscription-calculation" id="billingCalculation">-</div>
+            @if (!Model.CanEditBilling && !string.IsNullOrWhiteSpace(Model.BillingEditBlockedReason))
+            {
+              <div class="tenant-feedback">@Model.BillingEditBlockedReason</div>
+            }
+            @if (Model.CanEditBilling)
+            {
+              <button type="submit" class="btn-primary">Cập nhật kỳ billing / Update billing</button>
+            }
+          </form>
+        }
+      </section>
+
+      <section class="device-card subscription-summary-card">
+        <div class="device-card-head">
+          <div>
+            <h2>Invoice / Invoice</h2>
+            <p>Thông tin invoice đang chọn / Information for the selected invoice.</p>
+          </div>
+        </div>
+        <table class="subscription-kv-table">
+          <tbody>
+            <tr><th>Loại / Type</th><td id="selectedInvoiceType">@(defaultInvoice?.InvoiceType ?? "-")</td><th>Ngày tạo / Created</th><td id="selectedInvoiceCreated">@(defaultInvoice?.CreatedAt.ToString("dd/MM/yyyy HH:mm") ?? "-")</td></tr>
+            <tr><th>Tổng tiền / Total Amount</th><td id="selectedInvoiceAmount">@Money(defaultInvoice?.Amount ?? 0)</td><th>Đã thanh toán / Total Paid</th><td id="selectedInvoicePaid">@Money(defaultInvoice?.PaidAmount ?? 0)</td></tr>
+            <tr><th>Hoàn tiền / Total Refund</th><td id="selectedInvoiceRefund">@Money(defaultInvoice?.RefundAmount ?? 0)</td><th>Trạng thái / Status</th><td id="selectedInvoiceStatus">@(defaultInvoice?.Status ?? "-")</td></tr>
+            <tr><th>Số invoice / Invoice Number</th><td id="selectedInvoiceNumber">@(defaultInvoice?.InvoiceNumber ?? "-")</td><th>Số biên nhận / Receipt Number</th><td id="selectedInvoiceReceipt">@(defaultInvoice?.ReceiptNumber ?? "-")</td></tr>
+            <tr><th>Số PO / PO Number</th><td id="selectedInvoicePo">@(defaultInvoice?.PoNumber ?? "-")</td><th>Hoàn tất lúc / Completed At</th><td id="selectedInvoiceCompleted">@(defaultInvoice?.CompletedAt?.ToString("dd/MM/yyyy HH:mm") ?? "-")</td></tr>
+          </tbody>
+        </table>
+        @if (Model.CanManageSubscriptions && defaultInvoice != null)
+        {
+          <form asp-controller="MonthlySubscription" asp-action="UpdateInvoice" method="post" class="invoice-edit-form">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="SubscriptionId" value="@Model.Subscription.Id" />
+            <input type="hidden" name="InvoiceId" id="UpdateInvoice_InvoiceId" value="@defaultInvoice.Id" />
+            <div class="invoice-edit-grid">
+              <label class="detail-field">
+                <span>Số invoice / Invoice Number</span>
+                <input name="InvoiceNumber" id="UpdateInvoice_InvoiceNumber" maxlength="100" value="@defaultInvoice.InvoiceNumber" disabled="@(defaultInvoice.IsPaidByBankTransfer)" />
+              </label>
+              <label class="detail-field">
+                <span>Tổng tiền ($) / Total Amount ($)</span>
+                <input type="number" step="0.01" min="0" name="Amount" id="UpdateInvoice_Amount" value="@NumberInput(defaultInvoice.Amount)" disabled="@(defaultInvoice.IsPaidByBankTransfer)" />
+              </label>
+              <label class="detail-field">
+                <span>Hoàn tiền ($) / Refund Amount ($)</span>
+                <input type="number" step="0.01" min="0" name="RefundAmount" id="UpdateInvoice_RefundAmount" value="@NumberInput(defaultInvoice.RefundAmount)" disabled="@(defaultInvoice.IsPaidByBankTransfer)" />
+              </label>
+              <label class="detail-field">
+                <span>Hoàn tất lúc / Completed At</span>
+                <input type="datetime-local" name="CompletedAt" id="UpdateInvoice_CompletedAt" value="@DateTimeInput(defaultInvoice.CompletedAt)" disabled="@(defaultInvoice.IsPaidByBankTransfer)" />
+              </label>
+              <label class="detail-field">
+                <span>Trạng thái / Status</span>
+                <select name="Status" id="UpdateInvoice_Status" disabled="@(defaultInvoice.IsPaidByBankTransfer)">
+                  <option value="pending" selected="@(defaultInvoice.Status == "pending")">Chờ xử lý / Pending</option>
+                  <option value="paid" selected="@(defaultInvoice.Status == "paid")">Đã thanh toán / Paid</option>
+                  <option value="refunded" selected="@(defaultInvoice.Status == "refunded")">Đã hoàn tiền / Refunded</option>
+                  <option value="void" selected="@(defaultInvoice.Status == "void")">Đã hủy / Void</option>
+                </select>
+              </label>
+            </div>
+            <div class="tenant-feedback" id="bankTransferPaidNotice" hidden="@(!defaultInvoice.IsPaidByBankTransfer)">Invoice đã thanh toán bằng chuyển khoản, không thể cập nhật lại trạng thái / This invoice was paid by bank transfer and cannot be updated again.</div>
+            <div class="invoice-edit-actions">
+              <button type="submit" class="btn-primary" id="updateInvoiceButton" disabled="@(defaultInvoice.IsPaidByBankTransfer)" @((defaultInvoice.IsPaidByBankTransfer) ? "hidden" : string.Empty)>Cập nhật invoice / Update invoice</button>
+              <button type="button"
+                      class="btn-secondary"
+                      id="makeQrButton"
+                      data-invoice-id="@defaultInvoice.Id"
+                      @(!string.Equals(defaultInvoice.Status, "pending", StringComparison.OrdinalIgnoreCase) ? "hidden" : string.Empty)>
+                Tạo QR / Make QR
+              </button>
+            </div>
+          </form>
+        }
+      </section>
+    </div>
+
+    <section class="device-card">
+      <div class="device-card-head">
+        <div>
+          <h2>Invoices / Invoices</h2>
+          <p>Invoice chính, overcharge và các loại phí khác / Primary invoices, overcharge, and other fees.</p>
+        </div>
+        @if (Model.CanManageSubscriptions)
+        {
+          <button type="button" class="btn-primary invoice-create-button" id="openInvoiceModal" hidden>Tạo invoice / Create invoice</button>
+        }
+      </div>
+      <div class="table-wrap">
+        <table class="device-table subscription-table">
+          <thead>
+            <tr>
+              <th class="invoice-select-col"></th>
+              <th>ID invoice / Invoice ID</th>
+              <th>Loại / Type</th>
+              <th>Data (GB) / Data in GB</th>
+              <th>Ngày tạo / Created</th>
+              <th>Số tiền / Amount</th>
+              <th>Đã trả / Paid</th>
+              <th>Giá mua / Buy Price</th>
+              <th>Giá bán / Sale Price</th>
+              <th>Lợi nhuận / Margin</th>
+              <th>Trạng thái / Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            @foreach (var invoice in Model.Invoices)
+            {
+              <tr class="invoice-row @(defaultInvoice?.Id == invoice.Id ? "is-selected" : string.Empty)"
+                  data-invoice-id="@invoice.Id"
+                  data-invoice-number="@invoice.InvoiceNumber"
+                  data-receipt-number="@invoice.ReceiptNumber"
+                  data-po-number="@invoice.PoNumber"
+                  data-type="@invoice.InvoiceType"
+                  data-created="@invoice.CreatedAt.ToString("dd/MM/yyyy HH:mm")"
+                  data-completed="@(invoice.CompletedAt?.ToString("dd/MM/yyyy HH:mm") ?? "-")"
+                  data-completed-input="@DateTimeInput(invoice.CompletedAt)"
+                  data-amount="@Money(invoice.Amount)"
+                  data-amount-raw="@NumberInput(invoice.Amount)"
+                  data-paid="@Money(invoice.PaidAmount)"
+                  data-refund="@Money(invoice.RefundAmount)"
+                  data-refund-raw="@NumberInput(invoice.RefundAmount)"
+                  data-status="@invoice.Status"
+                  data-paid-by-bank-transfer="@invoice.IsPaidByBankTransfer.ToString().ToLowerInvariant()">
+                <td class="invoice-select-col">
+                  <input type="radio"
+                         name="selectedInvoice"
+                         value="@invoice.Id"
+                         aria-label="Chọn invoice @invoice.InvoiceNumber / Select invoice @invoice.InvoiceNumber"
+                         checked="@(defaultInvoice?.Id == invoice.Id)" />
+                </td>
+                <td>#@invoice.Id<br /><span class="tenant-meta">@invoice.InvoiceNumber</span></td>
+                <td>@invoice.InvoiceType</td>
+                <td>@Data(invoice.DataGb)</td>
+                <td>@invoice.CreatedAt.ToString("dd/MM/yyyy HH:mm")</td>
+                <td>@Money(invoice.Amount)</td>
+                <td>@Money(invoice.PaidAmount)</td>
+                <td>@Money(invoice.BuyPrice)</td>
+                <td>@Money(invoice.SalePrice)</td>
+                <td>@Money(invoice.MarginAmount)</td>
+                <td><span class="subscription-status @invoice.Status">@invoice.Status</span></td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      @if (Model.CanViewQrSessions)
+      {
+      <div class="invoice-qr-history" id="invoiceQrHistory">
+        <div class="invoice-qr-history-head">
+          <div>
+            <h3>Phiên QR / QR sessions</h3>
+            <p id="invoiceQrHistoryMeta">Danh sách QR đã tạo cho invoice đang chọn / QR list created for the selected invoice.</p>
+          </div>
+          <button type="button"
+                  class="invoice-qr-history-toggle"
+                  id="toggleInvoiceQrHistory"
+                  aria-controls="invoiceQrHistoryBody"
+                  aria-expanded="true">[-]</button>
+        </div>
+        <div class="invoice-qr-history-scroll" id="invoiceQrHistoryBody">
+          <table class="device-table invoice-qr-history-table">
+            <thead>
+              <tr>
+                <th>Ngày tạo / Created</th>
+                <th>Người tạo / Created By</th>
+                <th>Kênh / Channel</th>
+                <th>Hết hạn / Expires</th>
+                <th>Giờ còn lại / Hours Left</th>
+                <th>Tiền invoice / Invoice Amount</th>
+                <th>Tài khoản NH / Bank Account</th>
+                <th>Nội dung CK / Transfer Content</th>
+                <th>Phí CK / Transfer Fee</th>
+                <th>Mã đối tác / Provider Ref</th>
+                <th>Trạng thái / Status</th>
+                <th>Mã thanh toán IPN / IPN Payment No</th>
+                <th>Trạng thái IPN / IPN Status</th>
+                <th>Nhận IPN / IPN Received</th>
+                <th>Tổng phiên / Session Total</th>
+                <th>IPN / IPN</th>
+              </tr>
+            </thead>
+            <tbody>
+              @foreach (var qr in Model.QrSessions)
+              {
+                <tr class="invoice-qr-session-row"
+                    data-invoice-id="@qr.InvoiceId"
+                    data-qr-session-id="@qr.Id">
+                  <td>@(qr.CreatedAt == DateTime.MinValue ? "-" : qr.CreatedAt.ToString("dd/MM/yyyy HH:mm"))</td>
+                  <td>@(string.IsNullOrWhiteSpace(qr.CreatedBy) ? "-" : qr.CreatedBy)</td>
+                  <td>@(string.IsNullOrWhiteSpace(qr.Channel) ? "9pay" : qr.Channel)</td>
+                  <td>@(qr.ExpiresAt == DateTime.MinValue ? "-" : qr.ExpiresAt.ToString("dd/MM/yyyy HH:mm"))</td>
+                  <td>@qr.HoursRemaining.ToString("#,##0.##")</td>
+                  <td>@Vnd(qr.InvoiceAmountVnd)</td>
+                  <td>@(string.IsNullOrWhiteSpace(qr.BankAccountNo) ? "-" : qr.BankAccountNo)</td>
+                  <td>@(string.IsNullOrWhiteSpace(qr.TransferContent) ? "-" : qr.TransferContent)</td>
+                  <td>@Vnd(qr.TransferFeeVnd)</td>
+                  <td>@(string.IsNullOrWhiteSpace(qr.ProviderRef) ? "-" : qr.ProviderRef)</td>
+                  <td><span class="subscription-status @qr.Status.ToLowerInvariant()">@(string.IsNullOrWhiteSpace(qr.Status) ? "-" : qr.Status)</span></td>
+                  <td>@(string.IsNullOrWhiteSpace(qr.IpnPaymentNo) ? "-" : qr.IpnPaymentNo)</td>
+                  <td>@(string.IsNullOrWhiteSpace(qr.IpnProcessStatus) ? "-" : qr.IpnProcessStatus)</td>
+                  <td>@(qr.IpnReceivedAt.HasValue ? qr.IpnReceivedAt.Value.ToString("dd/MM/yyyy HH:mm:ss") : "-")</td>
+                  <td>
+                    @Vnd(qr.SessionTotalVnd)
+                    @if (qr.IsGrouped)
+                    {
+                      <br /><span class="tenant-meta">QR nhóm / Grouped QR</span>
+                    }
+                  </td>
+                  <td>
+                    <button type="button" class="btn-secondary view-qr-ipn" data-qr-session-id="@qr.Id">Xem / View</button>
+                  </td>
+                </tr>
+              }
+              <tr class="invoice-qr-empty-row">
+                <td colspan="16" class="tenant-empty">Chưa có QR session cho invoice này / No QR session for this invoice.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      }
+    </section>
+  </div>
+</div>
+
+@if (Model.CanManageSubscriptions)
+{
+  <div class="modal-backdrop" id="invoiceModal" hidden>
+    <div class="device-modal subscription-modal" role="dialog" aria-modal="true" aria-labelledby="invoiceModalTitle">
+      <div class="device-modal-head">
+        <div>
+          <h2 id="invoiceModalTitle">Tạo invoice / Create invoice</h2>
+          <p>Tạo invoice overcharge hoặc phí khác / Create an overcharge invoice or another fee.</p>
+        </div>
+        <button type="button" class="modal-close" id="closeInvoiceModal" aria-label="Đóng / Close">×</button>
+      </div>
+      <form asp-controller="MonthlySubscription" asp-action="CreateInvoice" method="post" class="subscription-create-form">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="SubscriptionId" value="@Model.Subscription.Id" />
+        <label class="detail-field">
+          <span>Loại invoice / Invoice Type</span>
+          <select name="InvoiceType" id="invoiceType">
+            <option value="OVERCHARGE">OVERCHARGE</option>
+            <option value="OTHER">OTHER</option>
+          </select>
+        </label>
+        <label class="detail-field">
+          <span>Dữ liệu GB / Data GB</span>
+          <input type="number" step="0.01" min="0" name="DataGb" value="0" />
+        </label>
+        <label class="detail-field">
+          <span>Số tiền cho OTHER ($) / Amount for OTHER ($)</span>
+          <input type="number" step="0.01" min="0" name="Amount" value="0" />
+        </label>
+        <label class="detail-field">
+          <span>Mô tả / Description</span>
+          <input name="Description" maxlength="500" />
+        </label>
+        <div class="device-modal-actions">
+          <button type="button" class="btn-secondary" id="cancelInvoiceModal">Hủy / Cancel</button>
+          <button type="submit" class="btn-primary">Lưu / Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+}
+
+<div class="modal-backdrop" id="ninePayQrModal" hidden>
+  <div class="device-modal subscription-modal ninepay-qr-modal" role="dialog" aria-modal="true" aria-labelledby="ninePayQrTitle">
+    <div class="device-modal-head">
+      <div>
+        <h2 id="ninePayQrTitle">Chuyển khoản 9Pay / 9Pay bank transfer</h2>
+        <p id="ninePayQrInvoice">-</p>
+      </div>
+      <button type="button" class="modal-close" id="closeNinePayQrModal" aria-label="Đóng / Close">×</button>
+    </div>
+    <div class="ninepay-qr-body">
+      <div class="ninepay-bank-name" id="ninePayBankName"></div>
+      <table class="subscription-kv-table ninepay-qr-table">
+        <tbody>
+          <tr><th>Phương thức thanh toán / Payment method</th><td id="ninePayMethod">bank_transfer</td></tr>
+          <tr><th>Tổng đơn hàng / Order total</th><td id="ninePayOrderTotal">-</td></tr>
+          <tr><th>Tỷ giá VND/USD / VND/USD Exchange Rate</th><td id="ninePayExchangeRate">-</td></tr>
+          <tr><th>Số tiền (VND) / Amount (VND)</th><td id="ninePayAmountVnd">-</td></tr>
+          <tr><th>Phí giao dịch / Transaction Fee</th><td id="ninePayFeeVnd">-</td></tr>
+          <tr><th>Tổng cần thanh toán / Total to Pay</th><td id="ninePayTotalVnd">-</td></tr>
+        </tbody>
+      </table>
+      <div class="ninepay-loading" id="ninePayLoading" hidden>
+        <span class="ninepay-loading-spinner"></span>
+        <span>Đang tạo QR thanh toán / Creating QR payment...</span>
+      </div>
+      <div class="tenant-meta" id="ninePayExpires" hidden></div>
+      <label class="detail-field ninepay-bank-select-field" id="ninePayBankSelectField" hidden>
+        <span>Ngân hàng / Bank</span>
+        <select id="ninePayBankSelect"></select>
+      </label>
+      <div class="ninepay-qr-frame" id="ninePayQrFrame" hidden>
+        <img id="ninePayQrImage" alt="QR chuyển khoản 9Pay / 9Pay bank transfer QR" />
+      </div>
+      <table class="subscription-kv-table ninepay-qr-table" id="ninePayBankTable" hidden>
+        <tbody>
+          <tr><th>Ngân hàng / Bank</th><td id="ninePayBankDetail">-</td></tr>
+          <tr><th>Số tài khoản / Account No</th><td id="ninePayAccountNo">-</td></tr>
+          <tr><th>Tên tài khoản / Account Name</th><td id="ninePayAccountName">-</td></tr>
+          <tr><th>Số tiền / Amount</th><td id="ninePayBankAmount">-</td></tr>
+          <tr><th>Nội dung / Remark</th><td id="ninePayRemark">-</td></tr>
+        </tbody>
+      </table>
+      <div class="device-modal-actions" id="ninePayBankActions" hidden>
+        <button type="button" class="btn-secondary" id="copyNinePayRemark">Sao chép nội dung / Copy Remark</button>
+        <button type="button" class="btn-secondary" id="copyNinePayAccountNo">Sao chép STK / Copy Account No</button>
+        <a class="btn-secondary" id="downloadNinePayQr" href="#" target="_blank" rel="noopener" download>Tải QR / Download QR</a>
+      </div>
+      <div class="tenant-meta" id="ninePayProviderInfo" hidden></div>
+      <div class="tenant-feedback is-error" id="ninePayQrError" hidden></div>
+      <div class="device-modal-actions">
+        <a class="btn-secondary" id="openNinePayPayment" href="#" target="_blank" rel="noopener">Chọn ngân hàng trên 9Pay / Choose bank on 9Pay</a>
+        <button type="button" class="btn-primary" id="closeNinePayQrAction">Hoàn tất / Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="ninePaySampleModal" hidden>
+  <div class="device-modal subscription-modal ninepay-qr-modal" role="dialog" aria-modal="true" aria-labelledby="ninePaySampleTitle">
+    <div class="device-modal-head">
+      <div>
+        <h2 id="ninePaySampleTitle">Kiểm thử mẫu 9Pay / 9Pay sample test</h2>
+        <p>API tạo chuyển khoản ngân hàng / Create bank transfer API</p>
+      </div>
+      <button type="button" class="modal-close" id="closeNinePaySampleModal" aria-label="Đóng / Close">×</button>
+    </div>
+    <div class="ninepay-qr-body">
+      <h3>Nội dung gửi / Request content</h3>
+      <details class="ninepay-debug" open>
+        <summary>Request</summary>
+        <pre id="ninePaySampleRequest">-</pre>
+      </details>
+      <h3>Phản hồi trả về / Response</h3>
+      <details class="ninepay-debug" open>
+        <summary>Response</summary>
+        <pre id="ninePaySampleResponse">-</pre>
+      </details>
+      <div class="device-modal-actions">
+        <button type="button" class="btn-secondary" id="copyNinePaySampleRequest">Sao chép request / Copy Request</button>
+        <button type="button" class="btn-secondary" id="copyNinePaySampleResponse">Sao chép response / Copy Response</button>
+        <button type="button" class="btn-primary" id="closeNinePaySampleAction">Hoàn tất / Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+@if (Model.CanViewQrSessions)
+{
+<div class="modal-backdrop" id="ninePayIpnModal" hidden>
+  <div class="device-modal subscription-modal ninepay-qr-modal" role="dialog" aria-modal="true" aria-labelledby="ninePayIpnTitle">
+    <div class="device-modal-head">
+      <div>
+        <h2 id="ninePayIpnTitle">Chi tiết IPN 9Pay / 9Pay IPN details</h2>
+        <p id="ninePayIpnSubtitle">Phiên QR / QR session</p>
+      </div>
+      <button type="button" class="modal-close" id="closeNinePayIpnModal" aria-label="Đóng / Close">×</button>
+    </div>
+    <div class="ninepay-qr-body">
+      <div class="tenant-feedback is-error" id="ninePayIpnError" hidden></div>
+      <table class="subscription-kv-table ninepay-qr-table">
+        <tbody>
+          <tr><th>Invoice đối tác / Provider Invoice</th><td id="ninePayIpnProviderInvoice">-</td></tr>
+          <tr><th>Trạng thái QR / QR Status</th><td id="ninePayIpnQrStatus">-</td></tr>
+          <tr><th>Thời điểm nhận IPN / IPN Received</th><td id="ninePayIpnReceived">-</td></tr>
+          <tr><th>Trạng thái xử lý / Process Status</th><td id="ninePayIpnProcessStatus">-</td></tr>
+          <tr><th>Thông báo xử lý / Process Message</th><td id="ninePayIpnProcessMessage">-</td></tr>
+          <tr><th>Mã thanh toán / Payment No</th><td id="ninePayIpnPaymentNo">-</td></tr>
+          <tr><th>Trạng thái đối tác / Provider Status</th><td id="ninePayIpnProviderStatus">-</td></tr>
+          <tr><th>Giao dịch mới nhất / Latest Transaction</th><td id="ninePayIpnLatestTransaction">-</td></tr>
+        </tbody>
+      </table>
+      <details class="ninepay-debug" open>
+        <summary>Payload IPN đã decode/raw / Decoded/raw IPN payload</summary>
+        <pre id="ninePayIpnRawJson">-</pre>
+      </details>
+      <details class="ninepay-debug">
+        <summary>Result Base64</summary>
+        <pre id="ninePayIpnResultBase64">-</pre>
+      </details>
+      <details class="ninepay-debug">
+        <summary>Checksum</summary>
+        <pre id="ninePayIpnChecksum">-</pre>
+      </details>
+      <div class="device-modal-actions">
+        <button type="button" class="btn-secondary" id="copyNinePayIpnPayload">Sao chép payload / Copy payload</button>
+        <button type="button" class="btn-primary" id="closeNinePayIpnAction">Hoàn tất / Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+}
+
+@section Scripts {
+<script>
+(() => {
+  const modal = document.querySelector("#invoiceModal");
+  document.querySelector("#openInvoiceModal")?.addEventListener("click", () => { modal.hidden = false; });
+  document.querySelector("#closeInvoiceModal")?.addEventListener("click", () => { modal.hidden = true; });
+  document.querySelector("#cancelInvoiceModal")?.addEventListener("click", () => { modal.hidden = true; });
+  const fields = {
+    type: document.querySelector("#selectedInvoiceType"),
+    created: document.querySelector("#selectedInvoiceCreated"),
+    amount: document.querySelector("#selectedInvoiceAmount"),
+    paid: document.querySelector("#selectedInvoicePaid"),
+    refund: document.querySelector("#selectedInvoiceRefund"),
+    status: document.querySelector("#selectedInvoiceStatus"),
+    number: document.querySelector("#selectedInvoiceNumber"),
+    receipt: document.querySelector("#selectedInvoiceReceipt"),
+    po: document.querySelector("#selectedInvoicePo"),
+    completed: document.querySelector("#selectedInvoiceCompleted")
+  };
+  const formFields = {
+    id: document.querySelector("#UpdateInvoice_InvoiceId"),
+    number: document.querySelector("#UpdateInvoice_InvoiceNumber"),
+    amount: document.querySelector("#UpdateInvoice_Amount"),
+    refund: document.querySelector("#UpdateInvoice_RefundAmount"),
+    completed: document.querySelector("#UpdateInvoice_CompletedAt"),
+    status: document.querySelector("#UpdateInvoice_Status")
+  };
+  const updateInvoiceButton = document.querySelector("#updateInvoiceButton");
+  const bankTransferPaidNotice = document.querySelector("#bankTransferPaidNotice");
+  const makeQrButton = document.querySelector("#makeQrButton");
+  const qrHistoryRows = Array.from(document.querySelectorAll(".invoice-qr-session-row"));
+  const qrHistoryEmptyRow = document.querySelector(".invoice-qr-empty-row");
+  const qrHistoryMeta = document.querySelector("#invoiceQrHistoryMeta");
+  const qrHistoryToggle = document.querySelector("#toggleInvoiceQrHistory");
+  const qrHistoryBody = document.querySelector("#invoiceQrHistoryBody");
+  const qrModal = document.querySelector("#ninePayQrModal");
+  const ipnModal = document.querySelector("#ninePayIpnModal");
+  const sampleModal = document.querySelector("#ninePaySampleModal");
+  const qrError = document.querySelector("#ninePayQrError");
+  const ipnFields = {
+    subtitle: document.querySelector("#ninePayIpnSubtitle"),
+    providerInvoice: document.querySelector("#ninePayIpnProviderInvoice"),
+    qrStatus: document.querySelector("#ninePayIpnQrStatus"),
+    received: document.querySelector("#ninePayIpnReceived"),
+    processStatus: document.querySelector("#ninePayIpnProcessStatus"),
+    processMessage: document.querySelector("#ninePayIpnProcessMessage"),
+    paymentNo: document.querySelector("#ninePayIpnPaymentNo"),
+    providerStatus: document.querySelector("#ninePayIpnProviderStatus"),
+    latestTransaction: document.querySelector("#ninePayIpnLatestTransaction"),
+    rawJson: document.querySelector("#ninePayIpnRawJson"),
+    resultBase64: document.querySelector("#ninePayIpnResultBase64"),
+    checksum: document.querySelector("#ninePayIpnChecksum"),
+    error: document.querySelector("#ninePayIpnError"),
+    copyPayload: document.querySelector("#copyNinePayIpnPayload")
+  };
+  const sampleFields = {
+    request: document.querySelector("#ninePaySampleRequest"),
+    response: document.querySelector("#ninePaySampleResponse"),
+    close: document.querySelector("#closeNinePaySampleModal"),
+    closeAction: document.querySelector("#closeNinePaySampleAction"),
+    copyRequest: document.querySelector("#copyNinePaySampleRequest"),
+    copyResponse: document.querySelector("#copyNinePaySampleResponse")
+  };
+  const qrFields = {
+    invoice: document.querySelector("#ninePayQrInvoice"),
+    bank: document.querySelector("#ninePayBankName"),
+    method: document.querySelector("#ninePayMethod"),
+    bankSelect: document.querySelector("#ninePayBankSelect"),
+    bankSelectField: document.querySelector("#ninePayBankSelectField"),
+    loading: document.querySelector("#ninePayLoading"),
+    qrFrame: document.querySelector("#ninePayQrFrame"),
+    qrImage: document.querySelector("#ninePayQrImage"),
+    bankTable: document.querySelector("#ninePayBankTable"),
+    bankActions: document.querySelector("#ninePayBankActions"),
+    bankDetail: document.querySelector("#ninePayBankDetail"),
+    accountNo: document.querySelector("#ninePayAccountNo"),
+    accountName: document.querySelector("#ninePayAccountName"),
+    bankAmount: document.querySelector("#ninePayBankAmount"),
+    remark: document.querySelector("#ninePayRemark"),
+    expires: document.querySelector("#ninePayExpires"),
+    providerInfo: document.querySelector("#ninePayProviderInfo"),
+    copyRemark: document.querySelector("#copyNinePayRemark"),
+    copyAccountNo: document.querySelector("#copyNinePayAccountNo"),
+    downloadQr: document.querySelector("#downloadNinePayQr"),
+    orderTotal: document.querySelector("#ninePayOrderTotal"),
+    exchangeRate: document.querySelector("#ninePayExchangeRate"),
+    amountVnd: document.querySelector("#ninePayAmountVnd"),
+    feeVnd: document.querySelector("#ninePayFeeVnd"),
+    totalVnd: document.querySelector("#ninePayTotalVnd"),
+    paymentLink: document.querySelector("#openNinePayPayment")
+  };
+  let activePaymentInvoiceId = "";
+  let activeNinePayBanks = [];
+  let activeNinePaySelectedBank = null;
+  let ninePayExpireTimer = null;
+  let ninePayExpiresAt = null;
+  let paymentPollTimer = null;
+  let paymentPollCount = 0;
+  function formatUsd(value) {
+    return `$ ${Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  }
+  function updateBillingCalculation() {
+    const start = document.querySelector("#Billing_StartDate")?.value;
+    const end = document.querySelector("#Billing_EndDate")?.value;
+    const price = Number(document.querySelector("#Billing_BasePlanPrice")?.value || 0);
+    const target = document.querySelector("#billingCalculation");
+    if (!target) return;
+    if (!start || !end) {
+      target.textContent = "Chọn ngày billing để tính lại tiền subscription / Select billing dates to recalculate subscription amount.";
+      return;
+    }
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate < startDate) {
+      target.textContent = "Kỳ billing không hợp lệ / Invalid billing period.";
+      return;
+    }
+    const days = Math.round((endDate - startDate) / 86400000) + 1;
+    const amount = price * days / 30;
+    target.textContent = `${formatUsd(amount)} = (${formatUsd(price)} / 30 days) x ${days} days`;
+  }
+  ["#Billing_StartDate", "#Billing_EndDate", "#Billing_BasePlanPrice"].forEach((selector) => {
+    document.querySelector(selector)?.addEventListener("input", updateBillingCalculation);
+    document.querySelector(selector)?.addEventListener("change", updateBillingCalculation);
+  });
+  updateBillingCalculation();
+  function formatVnd(value) {
+    return `${Number(value || 0).toLocaleString("vi-VN")} VND`;
+  }
+  function closeQrModal() {
+    if (qrModal) qrModal.hidden = true;
+  }
+  function closeIpnModal() {
+    if (ipnModal) ipnModal.hidden = true;
+  }
+  function closeSampleModal() {
+    if (sampleModal) sampleModal.hidden = true;
+  }
+  function setIpnText(field, value) {
+    if (field) field.textContent = value || "-";
+  }
+  function resetIpnModal() {
+    Object.values(ipnFields).forEach((field) => {
+      if (field && field !== ipnFields.error && field !== ipnFields.copyPayload) field.textContent = "-";
+    });
+    if (ipnFields.error) ipnFields.error.hidden = true;
+  }
+  function showIpnDetail(detail) {
+    const latestParts = [];
+    if (detail.latestTransactionStatus) latestParts.push(detail.latestTransactionStatus);
+    if (detail.latestTransactionProviderStatus) latestParts.push(`provider: ${detail.latestTransactionProviderStatus}`);
+    if (detail.latestTransactionAtDisplay && detail.latestTransactionAtDisplay !== "-") latestParts.push(detail.latestTransactionAtDisplay);
+    if (detail.latestTransactionFailureReason) latestParts.push(detail.latestTransactionFailureReason);
+    setIpnText(ipnFields.subtitle, `QR #${detail.qrSessionId || "-"} - ${detail.invoiceNumber || "-"}`);
+    setIpnText(ipnFields.providerInvoice, detail.providerInvoiceNo);
+    setIpnText(ipnFields.qrStatus, detail.qrStatus);
+    setIpnText(ipnFields.received, detail.ipnReceivedAtDisplay);
+    setIpnText(ipnFields.processStatus, detail.ipnProcessStatus);
+    setIpnText(ipnFields.processMessage, detail.ipnProcessMessage);
+    setIpnText(ipnFields.paymentNo, detail.providerPaymentNo);
+    setIpnText(ipnFields.providerStatus, detail.providerStatus);
+    setIpnText(ipnFields.latestTransaction, latestParts.join(" | "));
+    setIpnText(ipnFields.rawJson, detail.ipnRawJson);
+    setIpnText(ipnFields.resultBase64, detail.ipnResultBase64);
+    setIpnText(ipnFields.checksum, detail.ipnChecksum);
+  }
+  async function openIpnModal(qrSessionId) {
+    if (!qrSessionId) return;
+    resetIpnModal();
+    if (ipnModal) ipnModal.hidden = false;
+    try {
+      const response = await fetch(`/Payments/NinePayQrSessionIpn?qrSessionId=${encodeURIComponent(qrSessionId)}`, {
+        headers: { "Accept": "application/json" }
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.message || "Không thể tải chi tiết IPN / Cannot load IPN details.");
+      }
+      showIpnDetail(payload.data || {});
+    } catch (error) {
+      if (ipnFields.error) {
+        ipnFields.error.textContent = error.message || "Không thể tải chi tiết IPN / Cannot load IPN details.";
+        ipnFields.error.hidden = false;
+      }
+    }
+  }
+  function showNinePaySampleModal(requestText, responseText) {
+    if (sampleFields.request) sampleFields.request.textContent = requestText || "-";
+    if (sampleFields.response) sampleFields.response.textContent = responseText || "-";
+    if (sampleModal) sampleModal.hidden = false;
+  }
+  function setHostedFallbackVisible(visible) {
+    if (qrFields.paymentLink) qrFields.paymentLink.hidden = !visible;
+  }
+  function setQrLoading(visible) {
+    if (qrFields.loading) qrFields.loading.hidden = !visible;
+  }
+  function resetNinePayPaymentUi() {
+    renderBanks([]);
+    setExpires(0);
+    setQrLoading(true);
+    if (qrFields.invoice) qrFields.invoice.textContent = "-";
+    if (qrFields.bank) qrFields.bank.textContent = "Đang chuẩn bị QR chuyển khoản / Preparing bank transfer QR...";
+    if (qrFields.method) qrFields.method.textContent = "COLLECTION";
+    if (qrFields.orderTotal) qrFields.orderTotal.textContent = "-";
+    if (qrFields.exchangeRate) qrFields.exchangeRate.textContent = "-";
+    if (qrFields.amountVnd) qrFields.amountVnd.textContent = "-";
+    if (qrFields.feeVnd) qrFields.feeVnd.textContent = "-";
+    if (qrFields.totalVnd) qrFields.totalVnd.textContent = "-";
+    if (qrFields.providerInfo) qrFields.providerInfo.hidden = true;
+    if (qrError) qrError.hidden = true;
+  }
+  function renderExpires() {
+    if (!qrFields.expires || !ninePayExpiresAt) return;
+    const remaining = Math.max(0, Math.floor((ninePayExpiresAt.getTime() - Date.now()) / 1000));
+    const hours = Math.floor(remaining / 3600);
+    const minutes = Math.floor((remaining % 3600) / 60);
+    const seconds = remaining % 60;
+    qrFields.expires.textContent = `QR còn hiệu lực / QR valid for ${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    qrFields.expires.hidden = false;
+  }
+  function setExpires(expiresInSeconds) {
+    if (ninePayExpireTimer) window.clearInterval(ninePayExpireTimer);
+    ninePayExpiresAt = expiresInSeconds > 0 ? new Date(Date.now() + (expiresInSeconds * 1000)) : null;
+    if (!ninePayExpiresAt) {
+      if (qrFields.expires) qrFields.expires.hidden = true;
+      return;
+    }
+    renderExpires();
+    ninePayExpireTimer = window.setInterval(renderExpires, 1000);
+  }
+  function renderSelectedBank(bank) {
+    activeNinePaySelectedBank = bank || null;
+    const hasBank = !!bank;
+    if (qrFields.qrFrame) qrFields.qrFrame.hidden = !hasBank || !bank.qrCodeUrl;
+    if (qrFields.qrImage) qrFields.qrImage.src = bank?.qrCodeUrl || "";
+    if (qrFields.bankTable) qrFields.bankTable.hidden = !hasBank;
+    if (qrFields.bankActions) qrFields.bankActions.hidden = !hasBank;
+    if (qrFields.bankDetail) qrFields.bankDetail.textContent = bank?.bankName || "-";
+    if (qrFields.accountNo) qrFields.accountNo.textContent = bank?.bankAccountNo || "-";
+    if (qrFields.accountName) qrFields.accountName.textContent = bank?.bankAccountName || "-";
+    if (qrFields.bankAmount) qrFields.bankAmount.textContent = qrFields.totalVnd?.textContent || "-";
+    if (qrFields.remark) qrFields.remark.textContent = bank?.remark || bank?.content || bank?.plaintext || "-";
+    if (qrFields.downloadQr) qrFields.downloadQr.href = bank?.qrCodeUrl || "#";
+  }
+  function renderBanks(banks) {
+    activeNinePayBanks = Array.isArray(banks) ? banks : [];
+    const hasBanks = activeNinePayBanks.length > 0;
+    if (qrFields.bankSelect) {
+      qrFields.bankSelect.innerHTML = "";
+      activeNinePayBanks.forEach((bank, index) => {
+        const option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = bank.displayName || `${bank.bankCode || ""} - ${bank.bankName || ""}`.trim();
+        qrFields.bankSelect.appendChild(option);
+      });
+      if (qrFields.bankSelectField) qrFields.bankSelectField.hidden = !hasBanks;
+    }
+    renderSelectedBank(hasBanks ? activeNinePayBanks[0] : null);
+    setHostedFallbackVisible(!hasBanks);
+  }
+  function updateInvoiceRowStatus(invoiceId, status) {
+    const row = document.querySelector(`.invoice-row[data-invoice-id="${CSS.escape(String(invoiceId))}"]`);
+    if (!row) return;
+    row.dataset.status = status;
+    const statusBadge = row.querySelector(".subscription-status");
+    if (statusBadge) {
+      statusBadge.className = `subscription-status ${status}`;
+      statusBadge.textContent = status;
+    }
+    syncMakeQrButton(row);
+  }
+  function applyPaymentStatus(status) {
+    if (!status) return;
+    const invoiceId = status.invoiceId || activePaymentInvoiceId;
+    if (!invoiceId) return;
+    updateInvoiceRowStatus(invoiceId, status.invoiceStatus || "-");
+    const row = document.querySelector(`.invoice-row[data-invoice-id="${CSS.escape(String(invoiceId))}"]`);
+    if (row) {
+      row.dataset.paid = formatUsd(status.paidAmount);
+      row.dataset.receiptNumber = status.receiptNumber || status.providerPaymentNo || "-";
+      row.dataset.completed = status.completedAtDisplay || "-";
+      if (row.classList.contains("is-selected")) {
+        if (fields.paid) fields.paid.textContent = row.dataset.paid;
+        if (fields.status) fields.status.textContent = status.invoiceStatus || "-";
+        if (fields.receipt) fields.receipt.textContent = row.dataset.receiptNumber;
+        if (fields.completed) fields.completed.textContent = row.dataset.completed;
+        if (formFields.status) formFields.status.value = status.invoiceStatus || "pending";
+      }
+    }
+    if (status.isPaid) {
+      stopPaymentStatusPolling();
+      if (qrError) {
+        qrError.textContent = `Đã xác nhận thanh toán / Payment confirmed: ${status.providerPaymentNo || status.receiptNumber || status.invoiceNumber || ""}`;
+        qrError.hidden = false;
+        qrError.classList.remove("is-error");
+        qrError.classList.add("is-success");
+      }
+    }
+  }
+  async function refreshPaymentStatus(invoiceId) {
+    const response = await fetch(`/Payments/NinePayInvoiceStatus?invoiceId=${encodeURIComponent(invoiceId)}`, {
+      headers: { "Accept": "application/json" }
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.success) {
+      throw new Error(payload.message || "Không thể cập nhật trạng thái invoice / Cannot refresh invoice status.");
+    }
+    applyPaymentStatus(payload.data);
+    return payload.data;
+  }
+  function stopPaymentStatusPolling() {
+    if (paymentPollTimer) {
+      window.clearInterval(paymentPollTimer);
+      paymentPollTimer = null;
+    }
+  }
+  function startPaymentStatusPolling(invoiceId) {
+    if (!invoiceId) return;
+    activePaymentInvoiceId = invoiceId;
+    paymentPollCount = 0;
+    stopPaymentStatusPolling();
+    refreshPaymentStatus(invoiceId).catch(() => {});
+    paymentPollTimer = window.setInterval(async () => {
+      paymentPollCount += 1;
+      if (paymentPollCount > 100) {
+        stopPaymentStatusPolling();
+        return;
+      }
+      try {
+        const status = await refreshPaymentStatus(invoiceId);
+        if (status?.isPaid) stopPaymentStatusPolling();
+      } catch {
+        if (paymentPollCount > 10) stopPaymentStatusPolling();
+      }
+    }, 3000);
+  }
+  function syncMakeQrButton(row) {
+    if (!makeQrButton || !row) return;
+    makeQrButton.dataset.invoiceId = row.dataset.invoiceId || "";
+    const status = (row.dataset.status || "").toLowerCase();
+    makeQrButton.hidden = status !== "pending";
+  }
+  function syncInvoiceEditLock(row) {
+    const isLocked = row?.dataset.paidByBankTransfer === "true";
+    Object.values(formFields).forEach((field) => {
+      if (field) field.disabled = isLocked;
+    });
+    if (updateInvoiceButton) {
+      updateInvoiceButton.disabled = isLocked;
+      updateInvoiceButton.hidden = isLocked;
+    }
+    if (bankTransferPaidNotice) bankTransferPaidNotice.hidden = !isLocked;
+  }
+  function syncQrHistory(row) {
+    const invoiceId = row?.dataset.invoiceId || "";
+    let visibleCount = 0;
+    qrHistoryRows.forEach((item) => {
+      const isVisible = item.dataset.invoiceId === invoiceId;
+      item.hidden = !isVisible;
+      if (isVisible) visibleCount += 1;
+    });
+    if (qrHistoryEmptyRow) qrHistoryEmptyRow.hidden = visibleCount > 0;
+    if (qrHistoryMeta) {
+      const invoiceNumber = row?.dataset.invoiceNumber || "-";
+      qrHistoryMeta.textContent = `Danh sách QR đã tạo cho invoice ${invoiceNumber} / QR list created for invoice ${invoiceNumber}.`;
+    }
+  }
+  qrHistoryToggle?.addEventListener("click", () => {
+    const willExpand = qrHistoryBody?.hidden === true;
+    if (qrHistoryBody) qrHistoryBody.hidden = !willExpand;
+    qrHistoryToggle.textContent = willExpand ? "[-]" : "[+]";
+    qrHistoryToggle.setAttribute("aria-expanded", String(willExpand));
+  });
+  function selectInvoice(row) {
+    document.querySelectorAll(".invoice-row").forEach((item) => item.classList.toggle("is-selected", item === row));
+    const radio = row.querySelector("input[name='selectedInvoice']");
+    if (radio) radio.checked = true;
+    if (fields.type) fields.type.textContent = row.dataset.type || "-";
+    if (fields.created) fields.created.textContent = row.dataset.created || "-";
+    if (fields.amount) fields.amount.textContent = row.dataset.amount || "$ 0";
+    if (fields.paid) fields.paid.textContent = row.dataset.paid || "$ 0";
+    if (fields.refund) fields.refund.textContent = row.dataset.refund || "$ 0";
+    if (fields.status) fields.status.textContent = row.dataset.status || "-";
+    if (fields.number) fields.number.textContent = row.dataset.invoiceNumber || "-";
+    if (fields.receipt) fields.receipt.textContent = row.dataset.receiptNumber || "-";
+    if (fields.po) fields.po.textContent = row.dataset.poNumber || "-";
+    if (fields.completed) fields.completed.textContent = row.dataset.completed || "-";
+    if (formFields.id) formFields.id.value = row.dataset.invoiceId || "";
+    if (formFields.number) formFields.number.value = row.dataset.invoiceNumber || "";
+    if (formFields.amount) formFields.amount.value = row.dataset.amountRaw || "0";
+    if (formFields.refund) formFields.refund.value = row.dataset.refundRaw || "0";
+    if (formFields.completed) formFields.completed.value = row.dataset.completedInput || "";
+    if (formFields.status) formFields.status.value = row.dataset.status || "pending";
+    syncInvoiceEditLock(row);
+    syncMakeQrButton(row);
+    syncQrHistory(row);
+  }
+  document.querySelectorAll(".invoice-row").forEach((row) => {
+    row.addEventListener("click", (event) => {
+      if (event.target.closest("form, select, button, input")) return;
+      selectInvoice(row);
+    });
+    row.querySelector("input[name='selectedInvoice']")?.addEventListener("change", () => {
+      selectInvoice(row);
+    });
+  });
+  makeQrButton?.addEventListener("click", async () => {
+    const invoiceId = makeQrButton.dataset.invoiceId || "";
+    if (!invoiceId) return;
+    makeQrButton.disabled = true;
+    makeQrButton.textContent = "Đang tạo... / Creating...";
+    resetNinePayPaymentUi();
+    if (qrModal) qrModal.hidden = false;
+    try {
+      const requestUrl = `/Payments/NinePayBankTransferInfo?invoiceId=${encodeURIComponent(invoiceId)}`;
+      const response = await fetch(requestUrl, {
+        headers: { "Accept": "application/json" }
+      });
+      const responseText = await response.text();
+      let payload;
+      try {
+        payload = JSON.parse(responseText);
+      } catch {
+        const error = new Error("Phản hồi máy chủ không phải JSON hợp lệ / Server response is not valid JSON.");
+        throw error;
+      }
+      if (!response.ok || !payload.success) {
+        const error = new Error(payload.message || "Không thể tạo thanh toán chuyển khoản / Cannot create bank transfer payment.");
+        error.debug = payload.debug || "";
+        throw error;
+      }
+      const data = payload.data;
+      setQrLoading(false);
+      activePaymentInvoiceId = data.invoiceId || invoiceId;
+      if (qrFields.invoice) qrFields.invoice.textContent = data.invoiceNumber || "-";
+      if (qrFields.bank) {
+        qrFields.bank.textContent = data.instructions || "Mở 9Pay để chọn ngân hàng và hoàn tất thanh toán trên ứng dụng ngân hàng / Open 9Pay to choose a bank and complete payment in your banking app.";
+      }
+      if (qrFields.method) qrFields.method.textContent = data.paymentMethod || "bank_transfer";
+      if (qrFields.orderTotal) qrFields.orderTotal.textContent = formatUsd(data.orderTotalUsd);
+      if (qrFields.exchangeRate) qrFields.exchangeRate.textContent = `${Number(data.exchangeRateVndPerUsd || 0).toLocaleString("vi-VN")} VND/USD`;
+      if (qrFields.amountVnd) qrFields.amountVnd.textContent = formatVnd(data.amountVnd);
+      if (qrFields.feeVnd) qrFields.feeVnd.textContent = formatVnd(data.transactionFeeVnd);
+      if (qrFields.totalVnd) qrFields.totalVnd.textContent = formatVnd(data.totalToPayVnd);
+      if (qrFields.paymentLink) qrFields.paymentLink.href = data.paymentUrl || "#";
+      renderBanks(data.banks || []);
+      if (!data.banks || data.banks.length === 0) {
+        if (qrError) {
+          qrError.textContent = "9Pay không trả về ngân hàng / No banks returned from 9Pay response.";
+          qrError.hidden = false;
+        }
+      }
+      setExpires(Number(data.expiresInSeconds || 0));
+      if (qrFields.providerInfo) {
+        const providerParts = [];
+        if (data.invoiceNumber) providerParts.push(`Invoice / Invoice: ${data.invoiceNumber}`);
+        if (data.providerPaymentId) providerParts.push(`Mã thanh toán / PaymentNo: ${data.providerPaymentId}`);
+        if (data.providerOrderRef) providerParts.push(`Mã đơn / OrderRef: ${data.providerOrderRef}`);
+        if (data.reusedQr) providerParts.push("Dùng lại QR còn hiệu lực / Reused active QR");
+        qrFields.providerInfo.textContent = providerParts.join(" • ");
+        qrFields.providerInfo.hidden = providerParts.length === 0;
+      }
+      if (qrModal) qrModal.hidden = false;
+      startPaymentStatusPolling(activePaymentInvoiceId);
+    } catch (error) {
+      setQrLoading(false);
+      if (qrError) {
+        qrError.classList.add("is-error");
+        qrError.classList.remove("is-success");
+        qrError.textContent = error.message || "Không thể tạo thanh toán chuyển khoản / Cannot create bank transfer payment.";
+        qrError.hidden = false;
+      }
+      if (qrModal) qrModal.hidden = false;
+    } finally {
+      setQrLoading(false);
+      makeQrButton.disabled = false;
+      makeQrButton.textContent = "Tạo QR / Make QR";
+    }
+  });
+  sampleFields.close?.addEventListener("click", closeSampleModal);
+  sampleFields.closeAction?.addEventListener("click", closeSampleModal);
+  sampleFields.copyRequest?.addEventListener("click", async () => {
+    const value = sampleFields.request?.textContent || "";
+    if (value) await navigator.clipboard.writeText(value);
+  });
+  sampleFields.copyResponse?.addEventListener("click", async () => {
+    const value = sampleFields.response?.textContent || "";
+    if (value) await navigator.clipboard.writeText(value);
+  });
+  qrFields.paymentLink?.addEventListener("click", (event) => {
+    const href = qrFields.paymentLink.getAttribute("href") || "";
+    if (!href || href === "#") return;
+    event.preventDefault();
+    window.open(href, "ninePayPayment", "width=520,height=720,menubar=no,toolbar=no,location=yes,status=no");
+    startPaymentStatusPolling(activePaymentInvoiceId || makeQrButton?.dataset.invoiceId || "");
+  });
+  qrFields.bankSelect?.addEventListener("change", () => {
+    const index = Number(qrFields.bankSelect.value || 0);
+    renderSelectedBank(activeNinePayBanks[index]);
+  });
+  qrFields.copyRemark?.addEventListener("click", async () => {
+    const value = activeNinePaySelectedBank?.remark || activeNinePaySelectedBank?.content || activeNinePaySelectedBank?.plaintext || "";
+    if (value) await navigator.clipboard.writeText(value);
+  });
+  qrFields.copyAccountNo?.addEventListener("click", async () => {
+    const value = activeNinePaySelectedBank?.bankAccountNo || "";
+    if (value) await navigator.clipboard.writeText(value);
+  });
+  document.querySelectorAll(".view-qr-ipn").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openIpnModal(button.dataset.qrSessionId || "");
+    });
+  });
+  ipnFields.copyPayload?.addEventListener("click", async () => {
+    const value = ipnFields.rawJson?.textContent || "";
+    if (value && value !== "-") await navigator.clipboard.writeText(value);
+  });
+  window.addEventListener("message", (event) => {
+    if (event.origin !== window.location.origin) return;
+    if (event.data?.source !== "ninepay") return;
+    startPaymentStatusPolling(activePaymentInvoiceId || makeQrButton?.dataset.invoiceId || "");
+  });
+  document.querySelector("#closeNinePayQrModal")?.addEventListener("click", closeQrModal);
+  document.querySelector("#closeNinePayQrAction")?.addEventListener("click", closeQrModal);
+  document.querySelector("#closeNinePayIpnModal")?.addEventListener("click", closeIpnModal);
+  document.querySelector("#closeNinePayIpnAction")?.addEventListener("click", closeIpnModal);
+  const selectedRow = document.querySelector(".invoice-row.is-selected");
+  syncInvoiceEditLock(selectedRow);
+  syncMakeQrButton(selectedRow);
+  syncQrHistory(selectedRow);
+})();
+</script>
+}

@@ -41,13 +41,13 @@
         <div class="portal-nav-mark">S</div>
         <div>
           <div class="portal-nav-title">Shipnet Portal</div>
-          <div class="portal-nav-subtitle">Fleet Operations Console</div>
+          <div class="portal-nav-subtitle">Bảng điều hành vận hành đội tàu / Fleet Operations Console</div>
         </div>
       </div>
       <div class="portal-nav-panel is-open user-detail-nav-panel">
         <nav class="portal-nav-links" aria-label="Primary">
-          <a asp-controller="Dashboard" asp-action="Index" class="portal-nav-link">Quản lý thiết bị</a>
-          <a asp-controller="Account" asp-action="UserDetail" class="portal-nav-link is-active">Thông tin tài khoản</a>
+          <a asp-controller="Dashboard" asp-action="Index" class="portal-nav-link">Quản lý thiết bị / Device Management</a>
+          <a asp-controller="Account" asp-action="UserDetail" class="portal-nav-link is-active">Thông tin tài khoản / Profile</a>
         </nav>
         <div class="portal-nav-tools">
           <div class="portal-account-menu">
@@ -65,12 +65,12 @@
 
     <div class="device-topbar user-detail-topbar">
       <div>
-        <div class="device-brand">Shipnet portal</div>
-        <h1>Quản lý thông tin người dùng</h1>
-        <p>Cập nhật tên, số điện thoại, email, giấy tờ định danh và logo tài khoản.</p>
+        <div class="device-brand">Shipnet Portal</div>
+        <h1>Quản lý thông tin người dùng / User Profile</h1>
+        <p>Cập nhật tên, số điện thoại, email, giấy tờ định danh và logo tài khoản / Update name, phone, email, identification number, and account logo.</p>
       </div>
       <div class="device-actions">
-        <a asp-controller="Dashboard" asp-action="Index" class="btn-secondary user-detail-back">Quay lại Dashboard</a>
+        <a asp-controller="Dashboard" asp-action="Index" class="btn-secondary user-detail-back">Quay lại Dashboard / Back to Dashboard</a>
       </div>
     </div>
 
@@ -98,11 +98,11 @@
         </div>
         @if (!string.IsNullOrWhiteSpace(logoUrl))
         {
-          <div class="user-profile-logo-note">Logo hiện tại</div>
+          <div class="user-profile-logo-note">Logo hiện tại / Current logo</div>
         }
         else
         {
-          <div class="user-profile-logo-note">Chưa có logo, hệ thống đang hiển thị ký tự đại diện.</div>
+          <div class="user-profile-logo-note">Chưa có logo, hệ thống đang hiển thị ký tự đại diện / No logo yet, the system is showing initials.</div>
         }
         <dl class="user-profile-meta">
           <div>
@@ -110,7 +110,7 @@
             <dd>@Model.Username</dd>
           </div>
           <div>
-            <dt>Tên hiển thị</dt>
+            <dt>Tên hiển thị / Display Name</dt>
             <dd>@displayName</dd>
           </div>
           <div>
@@ -124,8 +124,8 @@
         <section class="device-card user-detail-card">
           <div class="device-card-head user-detail-card-head">
             <div>
-              <h2>User Detail</h2>
-              <p>Những thay đổi sẽ được cập nhật trực tiếp vào hồ sơ đăng nhập hiện tại.</p>
+              <h2>Chi tiết người dùng / User Detail</h2>
+              <p>Những thay đổi sẽ được cập nhật trực tiếp vào hồ sơ đăng nhập hiện tại / Changes are applied directly to the current login profile.</p>
             </div>
           </div>
 
@@ -168,16 +168,16 @@
               <label class="user-logo-upload">
                 <input asp-for="LogoFile" accept=".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif" class="user-logo-input" />
                 <span class="user-logo-upload-copy">
-                  <strong>Tải logo mới</strong>
-                  <small>Hỗ trợ JPG, PNG, WEBP, GIF. Tối đa 3MB.</small>
+                  <strong>Tải logo mới / Upload new logo</strong>
+                  <small>Hỗ trợ JPG, PNG, WEBP, GIF. Tối đa 3MB / Supports JPG, PNG, WEBP, GIF. Max 3MB.</small>
                 </span>
               </label>
               <span asp-validation-for="LogoFile" class="field-error"></span>
             </div>
 
             <div class="device-modal-actions user-detail-actions">
-              <a asp-controller="Dashboard" asp-action="Index" class="btn-secondary">Hủy</a>
-              <button type="submit" class="btn-primary user-detail-submit">Lưu thông tin</button>
+              <a asp-controller="Dashboard" asp-action="Index" class="btn-secondary">Hủy / Cancel</a>
+              <button type="submit" class="btn-primary user-detail-submit">Lưu thông tin / Save Profile</button>
             </div>
           </form>
         </section>
@@ -185,8 +185,8 @@
         <section class="device-card user-detail-card" id="password-section">
           <div class="device-card-head user-detail-card-head">
             <div>
-              <h2>Đổi mật khẩu</h2>
-              <p>Mật khẩu mới sẽ được áp dụng cho phiên đăng nhập tiếp theo. Hãy nhập đúng mật khẩu hiện tại để xác nhận thay đổi.</p>
+              <h2>Đổi mật khẩu / Change Password</h2>
+              <p>Mật khẩu mới sẽ được áp dụng cho phiên đăng nhập tiếp theo. Hãy nhập đúng mật khẩu hiện tại để xác nhận thay đổi / The new password applies to the next login session. Enter the current password to confirm the change.</p>
             </div>
           </div>
 
@@ -212,7 +212,7 @@
             </div>
 
             <div class="device-modal-actions user-detail-actions">
-              <button type="submit" class="btn-primary user-detail-submit">Đổi mật khẩu</button>
+              <button type="submit" class="btn-primary user-detail-submit">Đổi mật khẩu / Change Password</button>
             </div>
           </form>
         </section>

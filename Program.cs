@@ -45,10 +45,17 @@ if (builder.Environment.IsDevelopment())
 }
 
 builder.Services.AddControllersWithViews();
+builder.Services.AddDataProtection();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<ISqlAuthService, SqlAuthService>();
 builder.Services.AddScoped<IDeviceService, DeviceService>();
 builder.Services.AddScoped<ITenantService, TenantService>();
+builder.Services.AddScoped<IPricingPlanService, PricingPlanService>();
+builder.Services.AddScoped<IMonthlySubscriptionService, MonthlySubscriptionService>();
+builder.Services.AddScoped<ICurrencyExchangeService, CurrencyExchangeService>();
+builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
+builder.Services.AddScoped<IPaymentTransactionService, PaymentTransactionService>();
+builder.Services.AddScoped<ITelegramNotificationService, TelegramNotificationService>();
 
 builder.Services
     .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)

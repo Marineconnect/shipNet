@@ -1,0 +1,192 @@
+@using StarlinkDeviceManager.Models
+@{
+    var activeNav = ViewData["ActiveNav"]?.ToString() ?? string.Empty;
+    var showLanguageSwitch = !string.Equals(ViewData["ShowLanguageSwitch"]?.ToString(), "false", StringComparison.OrdinalIgnoreCase);
+
+    string? ResolveLogoUrl(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        if (Uri.IsWellFormedUriString(path, UriKind.Absolute))
+        {
+            return path;
+        }
+
+        return path.StartsWith("/")
+            ? Url.Content($"~{path}")
+            : Url.Content($"~/{path.TrimStart('~', '/')}");
+    }
+
+    string ActiveClass(params string[] keys) => keys.Any(key => string.Equals(activeNav, key, StringComparison.OrdinalIgnoreCase))
+        ? " is-active"
+        : string.Empty;
+
+    var isTenant = User.HasClaim("UserType", ManagedUserType.Tenant);
+    var isShipAdmin = User.HasClaim("UserType", ManagedUserType.ShipAdmin);
+    var isCrew = User.HasClaim("UserType", ManagedUserType.Crew);
+    var canAccessTenant = !isShipAdmin && !isCrew;
+    var canAccessCommercial = !isTenant && !isShipAdmin && !isCrew;
+    var canAccessSubscription = !isShipAdmin && !isCrew;
+    var canAccessUsers = !isCrew;
+    var canAccessSettings = !isTenant && !isShipAdmin && !isCrew;
+
+    var accountDisplayName = User.FindFirst("DisplayName")?.Value;
+    if (string.IsNullOrWhiteSpace(accountDisplayName))
+    {
+        accountDisplayName = User.Identity?.Name;
+    }
+
+    var accountUsername = User.Identity?.Name ?? accountDisplayName ?? "User";
+    var accountAvatarUrl = ResolveLogoUrl(User.FindFirst("Avatar")?.Value);
+    var accountAvatarLabel = !string.IsNullOrWhiteSpace(accountDisplayName)
+        ? accountDisplayName.Trim()[0].ToString().ToUpperInvariant()
+        : "U";
+    var accountAvatarStyle = !string.IsNullOrWhiteSpace(accountAvatarUrl)
+        ? $"background-image:url('{accountAvatarUrl}')"
+        : null;
+}
+
+<header class="portal-nav">
+  <div class="portal-nav-brand">
+    <div class="portal-nav-mark">S</div>
+    <div>
+      <div class="portal-nav-title">Shipnet Portal</div>
+      <div class="portal-nav-subtitle" data-i18n="nav_subtitle">Bảng điều hành vận hành đội tàu / Fleet Operations Console</div>
+    </div>
+  </div>
+  <button type="button" class="portal-nav-toggle" id="portalNavToggle" aria-expanded="false" aria-label="Toggle navigation">
+    <span></span>
+    <span></span>
+    <span></span>
+  </button>
+  <div class="portal-nav-panel" id="portalNavPanel">
+    <nav class="portal-nav-links portal-nav-tree" aria-label="Primary">
+      <a asp-controller="Dashboard" asp-action="Index" class="portal-nav-link@(ActiveClass("dashboard"))">Tổng quan / Dashboard</a>
+      @if (canAccessTenant)
+      {
+        <details class="portal-nav-group">
+          <summary class="portal-nav-link portal-nav-summary@(ActiveClass("tenant", "user"))">Vận hành / Operations</summary>
+          <div class="portal-nav-submenu">
+            <a asp-controller="Tenant" asp-action="Index" class="portal-nav-subitem@(ActiveClass("tenant"))">Quản lý tenant / Tenant Management</a>
+            @if (canAccessUsers)
+            {
+              <a asp-controller="User" asp-action="Index" class="portal-nav-subitem@(ActiveClass("user"))">Quản lý người dùng / User Management</a>
+            }
+          </div>
+        </details>
+      }
+      @if (canAccessCommercial || canAccessSubscription)
+      {
+        <details class="portal-nav-group">
+          <summary class="portal-nav-link portal-nav-summary@(ActiveClass("pricing", "subscription"))">Thương mại / Commercial</summary>
+          <div class="portal-nav-submenu">
+            @if (canAccessCommercial)
+            {
+              <a asp-controller="Pricing" asp-action="Index" class="portal-nav-subitem@(ActiveClass("pricing"))">Quản lý gói cước / Pricing Management</a>
+            }
+            @if (canAccessSubscription)
+            {
+              <a asp-controller="MonthlySubscription" asp-action="Index" class="portal-nav-subitem@(ActiveClass("subscription"))">Gói cước hàng tháng / Monthly Subscription</a>
+            }
+          </div>
+        </details>
+      }
+      @if (canAccessSettings)
+      {
+        <details class="portal-nav-group">
+          <summary class="portal-nav-link portal-nav-summary@(ActiveClass("settings", "currency"))">Cài đặt / Settings</summary>
+          <div class="portal-nav-submenu">
+            <a asp-controller="SystemSettings" asp-action="Index" class="portal-nav-subitem@(ActiveClass("settings"))">Cài đặt chung / System Settings</a>
+            <a asp-controller="CurrencyExchange" asp-action="Index" class="portal-nav-subitem@(ActiveClass("currency"))">Quy đổi tiền tệ / Currency Exchange</a>
+          </div>
+        </details>
+      }
+    </nav>
+    <div class="portal-nav-tools">
+      @if (showLanguageSwitch)
+      {
+        <div class="language-switch portal-language-switch" aria-label="Language switch">
+          <button type="button" class="language-btn is-active" data-lang="vi">VI</button>
+          <button type="button" class="language-btn" data-lang="en">EN</button>
+        </div>
+      }
+      <div class="portal-account-menu">
+        <button type="button" class="portal-account" id="portalAccountButton" aria-haspopup="menu" aria-expanded="false">
+          <div class="portal-account-avatar @(string.IsNullOrWhiteSpace(accountAvatarUrl) ? string.Empty : "has-image")" style="@accountAvatarStyle">@accountAvatarLabel</div>
+          <div class="portal-account-copy">
+            <strong>@accountDisplayName</strong>
+            <span>@accountUsername</span>
+          </div>
+          <span class="portal-account-caret" aria-hidden="true"></span>
+        </button>
+        <div class="portal-account-dropdown" id="portalAccountDropdown" hidden>
+          <a asp-controller="Account" asp-action="UserDetail" class="portal-account-item" data-i18n="nav_profile">Thông tin tài khoản / Profile</a>
+          <a asp-controller="Account" asp-action="UserDetail" asp-fragment="password-section" class="portal-account-item" data-i18n="nav_password">Đổi mật khẩu / Change Password</a>
+          <form asp-controller="Account" asp-action="Logout" method="post" class="portal-account-form">
+            @Html.AntiForgeryToken()
+            <button type="submit" class="portal-account-item is-danger" data-i18n="logout">Đăng xuất / Logout</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<script>
+(() => {
+  const navToggle = document.getElementById("portalNavToggle");
+  const navPanel = document.getElementById("portalNavPanel");
+  const accountButton = document.getElementById("portalAccountButton");
+  const accountDropdown = document.getElementById("portalAccountDropdown");
+  const navGroups = Array.from(document.querySelectorAll(".portal-nav-group"));
+
+  navGroups.forEach((group) => {
+    group.open = false;
+  });
+
+  navGroups.forEach((group) => {
+    group.addEventListener("toggle", () => {
+      if (!group.open) return;
+      navGroups.forEach((item) => {
+        if (item !== group) item.open = false;
+      });
+    });
+  });
+
+  navToggle?.addEventListener("click", (event) => {
+    event.stopImmediatePropagation();
+    const willOpen = !navPanel?.classList.contains("is-open");
+    navPanel?.classList.toggle("is-open", willOpen);
+    navToggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
+  });
+
+  accountButton?.addEventListener("click", (event) => {
+    event.stopImmediatePropagation();
+    if (!accountDropdown) return;
+    const willOpen = accountDropdown.hidden;
+    accountDropdown.hidden = !willOpen;
+    accountButton.setAttribute("aria-expanded", willOpen ? "true" : "false");
+  });
+
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    if (accountButton && accountDropdown && !accountButton.contains(target) && !accountDropdown.contains(target)) {
+      accountButton.setAttribute("aria-expanded", "false");
+      accountDropdown.hidden = true;
+    }
+    if (!target.closest(".portal-nav-group")) {
+      navGroups.forEach((group) => {
+        group.open = false;
+      });
+    }
+    if (navPanel?.classList.contains("is-open") && navToggle && !navPanel.contains(target) && !navToggle.contains(target)) {
+      navPanel.classList.remove("is-open");
+      navToggle.setAttribute("aria-expanded", "false");
+    }
+  });
+})();
+</script>
