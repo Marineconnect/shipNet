@@ -281,7 +281,8 @@ public class TenantController(
             CurrentPage = resolvedPage,
             PageSize = resolvedPageSize,
             TotalTenants = tenantPage.TotalTenants,
-            IsTenantScoped = currentUser?.IsTenantUser == true
+            IsTenantScoped = currentUser?.IsTenantUser == true,
+            CanManageTenant = currentUser?.IsViewOnly != true
         };
     }
 

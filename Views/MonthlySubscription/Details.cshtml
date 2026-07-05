@@ -1,4 +1,5 @@
 @model MonthlySubscriptionDetailViewModel
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 @{
     ViewData["ActiveNav"] = "subscription";
     ViewData["Title"] = "Subscription Detail";
@@ -21,6 +22,7 @@
     var successMessage = TempData["SubscriptionSuccess"]?.ToString();
     var errorMessage = TempData["SubscriptionError"]?.ToString();
     var defaultInvoice = Model.Invoices.FirstOrDefault();
+    var showInvoiceRabbitMq = Configuration.GetValue("InvoiceRabbitMq:ShowInvoiceRabbitMQ", false);
 }
 
 <div class="device-page">
@@ -184,6 +186,15 @@
                       @(!string.Equals(defaultInvoice.Status, "pending", StringComparison.OrdinalIgnoreCase) ? "hidden" : string.Empty)>
                 Tạo QR / Make QR
               </button>
+              @if (showInvoiceRabbitMq)
+              {
+                <button type="button"
+                        class="btn-secondary"
+                        id="testInvoiceRabbitMqButton"
+                        data-invoice-id="@defaultInvoice.Id">
+                  Test invoice RabbitMQ
+                </button>
+              }
             </div>
           </form>
         }
@@ -430,6 +441,17 @@
       </div>
       <div class="tenant-meta" id="ninePayProviderInfo" hidden></div>
       <div class="tenant-feedback is-error" id="ninePayQrError" hidden></div>
+      <details class="ninepay-debug" id="invoiceRabbitMqLogWrap" hidden>
+        <summary>Invoice RabbitMQ log</summary>
+        <pre id="invoiceRabbitMqLog">-</pre>
+      </details>
+      <details class="ninepay-debug" id="invoiceRabbitMqPayloadWrap" hidden>
+        <summary>Invoice payload sent to RabbitMQ</summary>
+        <div class="device-modal-actions">
+          <button type="button" class="btn-secondary" id="copyInvoiceRabbitMqPayload">Copy payload</button>
+        </div>
+        <pre id="invoiceRabbitMqPayload">-</pre>
+      </details>
       <div class="device-modal-actions">
         <a class="btn-secondary" id="openNinePayPayment" href="#" target="_blank" rel="noopener">Chọn ngân hàng trên 9Pay / Choose bank on 9Pay</a>
         <button type="button" class="btn-primary" id="closeNinePayQrAction">Hoàn tất / Done</button>
@@ -543,6 +565,7 @@
   const updateInvoiceButton = document.querySelector("#updateInvoiceButton");
   const bankTransferPaidNotice = document.querySelector("#bankTransferPaidNotice");
   const makeQrButton = document.querySelector("#makeQrButton");
+  const testInvoiceRabbitMqButton = document.querySelector("#testInvoiceRabbitMqButton");
   const qrHistoryRows = Array.from(document.querySelectorAll(".invoice-qr-session-row"));
   const qrHistoryEmptyRow = document.querySelector(".invoice-qr-empty-row");
   const qrHistoryMeta = document.querySelector("#invoiceQrHistoryMeta");
@@ -604,6 +627,11 @@
     totalVnd: document.querySelector("#ninePayTotalVnd"),
     paymentLink: document.querySelector("#openNinePayPayment")
   };
+  const invoiceRabbitMqLogWrap = document.querySelector("#invoiceRabbitMqLogWrap");
+  const invoiceRabbitMqLog = document.querySelector("#invoiceRabbitMqLog");
+  const invoiceRabbitMqPayloadWrap = document.querySelector("#invoiceRabbitMqPayloadWrap");
+  const invoiceRabbitMqPayload = document.querySelector("#invoiceRabbitMqPayload");
+  const copyInvoiceRabbitMqPayload = document.querySelector("#copyInvoiceRabbitMqPayload");
   let activePaymentInvoiceId = "";
   let activeNinePayBanks = [];
   let activeNinePaySelectedBank = null;
@@ -632,7 +660,9 @@
     }
     const days = Math.round((endDate - startDate) / 86400000) + 1;
     const amount = price * days / 30;
-    target.textContent = `${formatUsd(amount)} = (${formatUsd(price)} / 30 days) x ${days} days`;
+    const formula = `${formatUsd(amount)} = (${formatUsd(price)} / 30 days) x ${days} days`;
+    target.textContent = formula;
+    target.title = formula;
   }
   ["#Billing_StartDate", "#Billing_EndDate", "#Billing_BasePlanPrice"].forEach((selector) => {
     document.querySelector(selector)?.addEventListener("input", updateBillingCalculation);
@@ -853,6 +883,7 @@
   function syncMakeQrButton(row) {
     if (!makeQrButton || !row) return;
     makeQrButton.dataset.invoiceId = row.dataset.invoiceId || "";
+    if (testInvoiceRabbitMqButton) testInvoiceRabbitMqButton.dataset.invoiceId = row.dataset.invoiceId || "";
     const status = (row.dataset.status || "").toLowerCase();
     makeQrButton.hidden = status !== "pending";
   }
@@ -992,6 +1023,62 @@
       makeQrButton.disabled = false;
       makeQrButton.textContent = "Tạo QR / Make QR";
     }
+  });
+  testInvoiceRabbitMqButton?.addEventListener("click", async () => {
+    const invoiceId = testInvoiceRabbitMqButton.dataset.invoiceId || "";
+    if (!invoiceId) return;
+    testInvoiceRabbitMqButton.disabled = true;
+    const oldText = testInvoiceRabbitMqButton.textContent;
+    testInvoiceRabbitMqButton.textContent = "Sending...";
+    if (qrModal) qrModal.hidden = false;
+    if (qrError) {
+      qrError.hidden = true;
+      qrError.classList.remove("is-error", "is-success");
+    }
+    if (invoiceRabbitMqLogWrap) invoiceRabbitMqLogWrap.hidden = false;
+    if (invoiceRabbitMqLog) invoiceRabbitMqLog.textContent = "Sending invoice message...";
+    if (invoiceRabbitMqPayloadWrap) invoiceRabbitMqPayloadWrap.hidden = true;
+    if (invoiceRabbitMqPayload) invoiceRabbitMqPayload.textContent = "-";
+    try {
+      const response = await fetch(`/Payments/TestInvoiceRabbitMq?invoiceId=${encodeURIComponent(invoiceId)}`, {
+        method: "POST",
+        headers: { "Accept": "application/json" }
+      });
+      const payload = await response.json();
+      const logs = Array.isArray(payload.logs) ? payload.logs.join("\n") : "";
+      if (invoiceRabbitMqLog) {
+        invoiceRabbitMqLog.textContent = `${payload.message || ""}\nMessageId: ${payload.messageId || "-"}\n\n${logs}`.trim();
+      }
+      if (invoiceRabbitMqPayloadWrap) invoiceRabbitMqPayloadWrap.hidden = false;
+      if (invoiceRabbitMqPayload) {
+        try {
+          invoiceRabbitMqPayload.textContent = JSON.stringify(JSON.parse(payload.payload || "{}"), null, 2);
+        } catch {
+          invoiceRabbitMqPayload.textContent = payload.payload || "-";
+        }
+      }
+      if (qrError) {
+        qrError.textContent = payload.message || (payload.success ? "Invoice RabbitMQ sent." : "Invoice RabbitMQ failed.");
+        qrError.classList.toggle("is-success", !!payload.success);
+        qrError.classList.toggle("is-error", !payload.success);
+        qrError.hidden = false;
+      }
+    } catch (error) {
+      if (invoiceRabbitMqLog) invoiceRabbitMqLog.textContent = error.message || "Invoice RabbitMQ failed.";
+      if (qrError) {
+        qrError.textContent = error.message || "Invoice RabbitMQ failed.";
+        qrError.classList.add("is-error");
+        qrError.classList.remove("is-success");
+        qrError.hidden = false;
+      }
+    } finally {
+      testInvoiceRabbitMqButton.disabled = false;
+      testInvoiceRabbitMqButton.textContent = oldText || "Test invoice RabbitMQ";
+    }
+  });
+  copyInvoiceRabbitMqPayload?.addEventListener("click", async () => {
+    const value = invoiceRabbitMqPayload?.textContent || "";
+    if (value && value !== "-") await navigator.clipboard.writeText(value);
   });
   sampleFields.close?.addEventListener("click", closeSampleModal);
   sampleFields.closeAction?.addEventListener("click", closeSampleModal);

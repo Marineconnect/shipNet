@@ -262,6 +262,7 @@ public class CurrencyExchangeController(
 
         var currentUser = await authService.GetUserByIdAsync(userId, HttpContext.RequestAborted);
         return currentUser is not null &&
+            !currentUser.IsViewOnly &&
             !currentUser.IsTenantUser &&
             !currentUser.IsShipAdmin &&
             !currentUser.IsCrew;

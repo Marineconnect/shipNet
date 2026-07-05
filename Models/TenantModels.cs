@@ -17,8 +17,9 @@ public class TenantIndexViewModel
     public bool HasPreviousPage => CurrentPage > 1;
     public bool HasNextPage => CurrentPage < TotalPages;
     public bool IsTenantScoped { get; set; }
-    public bool CanCreateTenant => !IsTenantScoped;
-    public bool CanDeleteTenant => !IsTenantScoped;
+    public bool CanManageTenant { get; set; } = true;
+    public bool CanCreateTenant => CanManageTenant && !IsTenantScoped;
+    public bool CanDeleteTenant => CanManageTenant && !IsTenantScoped;
 }
 
 public class TenantPageResult

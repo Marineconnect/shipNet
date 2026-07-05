@@ -1,0 +1,84 @@
+@model InvoiceRabbitMqTestViewModel
+@{
+    ViewData["Title"] = "Invoice RabbitMQ Test";
+    ViewData["ActiveNav"] = "invoice-rabbitmq";
+    var resultClass = Model.Published ? "is-success" : "is-error";
+}
+
+<div class="device-page">
+  <div class="device-shell">
+    <partial name="_PortalNav" />
+
+    <div class="device-topbar">
+      <div>
+        <div class="device-brand">Invoice PDF Queue</div>
+        <h1>Invoice RabbitMQ Test</h1>
+        <p>Nhap cau truc invoice JSON va day thu len RabbitMQ de service sinh file PDF xu ly.</p>
+      </div>
+    </div>
+
+    <section class="device-card system-settings-card">
+      <div class="device-card-head">
+        <div>
+          <h2>RabbitMQ configuration</h2>
+          <p>Nhap thong tin ket noi trong file <strong>appsettings.InvoiceRabbitMq.json</strong>, sau do restart app de nap config moi.</p>
+        </div>
+      </div>
+      <div class="tenant-feedback">
+        @Model.ConfigSummary
+      </div>
+    </section>
+
+    <section class="device-card system-settings-card">
+      <div class="device-card-head">
+        <div>
+          <h2>Publish invoice test</h2>
+          <p>Noi dung se duoc validate JSON truoc khi publish.</p>
+        </div>
+      </div>
+
+      @if (!string.IsNullOrWhiteSpace(Model.Message))
+      {
+        <div class="tenant-feedback @resultClass" role="alert">@Model.Message</div>
+      }
+
+      <form asp-controller="InvoiceRabbitMq" asp-action="Publish" method="post" class="tenant-form">
+        @Html.AntiForgeryToken()
+        <div asp-validation-summary="ModelOnly" class="field-error"></div>
+
+        <div class="form-group">
+          <label asp-for="RoutingKeyOverride">Routing key ghi de / Override routing key</label>
+          <input asp-for="RoutingKeyOverride" class="input" autocomplete="off" />
+          <span asp-validation-for="RoutingKeyOverride" class="field-error"></span>
+        </div>
+
+        <div class="form-group">
+          <label asp-for="InvoiceJson">Invoice JSON</label>
+          <textarea asp-for="InvoiceJson" class="input" rows="20" spellcheck="false" style="font-family:Consolas, monospace; min-height:420px;"></textarea>
+          <span asp-validation-for="InvoiceJson" class="field-error"></span>
+        </div>
+
+        <div class="device-modal-actions">
+          <button type="submit" class="btn-primary">Publish to RabbitMQ</button>
+        </div>
+      </form>
+    </section>
+
+    @if (Model.Logs.Count > 0)
+    {
+      <section class="device-card system-settings-card">
+        <div class="device-card-head">
+          <div>
+            <h2>Publish log</h2>
+            <p>Log chi tiet qua tung buoc ket noi va day invoice.</p>
+          </div>
+        </div>
+        <pre class="tenant-feedback" style="white-space:pre-wrap; overflow:auto;">@string.Join("\n", Model.Logs)</pre>
+      </section>
+    }
+  </div>
+</div>
+
+@section Scripts {
+  <partial name="_ValidationScriptsPartial" />
+}

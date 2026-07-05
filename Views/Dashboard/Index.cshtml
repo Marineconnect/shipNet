@@ -219,6 +219,18 @@
                 <div class="usage-row"><span data-i18n="detail_priority_overage">Priority Overage</span><div class="usage-values"><strong id="detailPriorityOverage">-</strong><span>/</span><strong id="detailPriorityOverageLimit">-</strong></div></div>
                 <div class="usage-row"><span data-i18n="detail_plan_name">Tên gói</span><div class="usage-values usage-values-single"><strong id="detailPlanName">-</strong></div></div>
               </div>
+              @if (Model.CanManageDataOptIn)
+              {
+                <section class="data-optin-panel" id="dataOptInPanel">
+                  <div class="data-optin-head">
+                    <div><div class="data-optin-title" data-i18n="detail_data_optin_title">Data opt-in / opt-out</div><div class="data-optin-current"><span data-i18n="detail_data_optin_current">Trạng thái hiện tại</span>: <strong id="dataOptInCurrent">-</strong></div></div>
+                    <button type="button" class="data-optin-action" id="dataOptInAction" disabled>—</button>
+                  </div>
+                  <div class="data-optin-message" id="dataOptInMessage"></div>
+                  <div class="data-optin-history-title" data-i18n="detail_data_optin_history">Lịch sử thay đổi</div>
+                  <div class="data-optin-history" id="dataOptInHistory"></div>
+                </section>
+              }
             </section>
             <section class="detail-panel">
               <div class="detail-panel-title" data-i18n="detail_system_info">Thông tin hệ thống</div>
@@ -677,6 +689,7 @@
       detail_total_usage: "Tổng dung lượng",
       detail_priority_overage: "Priority Overage",
       detail_plan_name: "Tên gói",
+      detail_data_optin_title: "Data opt-in / opt-out", detail_data_optin_current: "Trạng thái hiện tại", detail_data_optin_history: "Lịch sử thay đổi", detail_data_optin_loading: "Đang tải trạng thái...", detail_data_optin_empty: "Chưa có lịch sử thay đổi.", detail_data_optin_in: "Opt-in", detail_data_optin_out: "Opt-out", detail_data_optin_unknown: "Chưa xác định", detail_data_optin_confirm_in: "Bạn có chắc chắn muốn opt-in data cho thiết bị này không?", detail_data_optin_confirm_out: "Bạn có chắc chắn muốn opt-out data cho thiết bị này không?", detail_data_optin_submitted: "KVH đã tiếp nhận yêu cầu.",
 	      detail_range_15m: "15 phút",
 	      detail_range_1h: "1 giờ",
 	      detail_range_3h: "3 giờ",
@@ -843,6 +856,7 @@
       detail_total_usage: "Total Usage",
       detail_priority_overage: "Priority Overage",
       detail_plan_name: "Plan name",
+      detail_data_optin_title: "Data opt-in / opt-out", detail_data_optin_current: "Current status", detail_data_optin_history: "Change history", detail_data_optin_loading: "Loading status...", detail_data_optin_empty: "No change history yet.", detail_data_optin_in: "Opt-in", detail_data_optin_out: "Opt-out", detail_data_optin_unknown: "Unknown", detail_data_optin_confirm_in: "Are you sure you want to opt this terminal in for data?", detail_data_optin_confirm_out: "Are you sure you want to opt this terminal out of data?", detail_data_optin_submitted: "KVH accepted the request.",
 	      detail_range_15m: "15 mins",
 	      detail_range_1h: "1 hour",
 	      detail_range_3h: "3 hours",
@@ -922,6 +936,7 @@
   const initialPageData = JSON.parse(q("#initialDevicePageData").textContent);
   const canManageDevices = @Json.Serialize(Model.CanManageDevices);
   const canViewMap = @Json.Serialize(Model.CanViewMap);
+  const canManageDataOptIn = @Json.Serialize(Model.CanManageDataOptIn);
   const pageCache = new Map();
   const pageCacheScopeKey = initialPageData.scopeKey || "global";
   const pageCacheKey = `shipnet-device-pages:${pageCacheScopeKey}`;
@@ -935,6 +950,8 @@
   const devicePlanDataAction = "@Url.Action("DevicePlanData", "Dashboard")";
   const saveDevicePlanAction = "@Url.Action("SaveDevicePlan", "Dashboard")";
   const deleteDevicePlanAction = "@Url.Action("DeleteDevicePlan", "Dashboard")";
+  const deviceDataOptInDataAction = "@Url.Action("DeviceDataOptInData", "Dashboard")";
+  const updateDeviceDataOptInAction = "@Url.Action("UpdateDeviceDataOptIn", "Dashboard")";
   const telemetryTimelineAction = "@Url.Action("TelemetryTimeline", "Dashboard")";
   const devicePageDataAction = "@Url.Action("DevicePageData", "Dashboard")";
   const dashboardIndexAction = "@Url.Action("Index", "Dashboard")";
@@ -956,6 +973,10 @@
   const detailPlanFinalOverChargePrice = q("#detailPlanFinalOverChargePrice");
   const detailPlanSaveButton = q("#detailPlanSaveButton");
   const detailPlanList = q("#detailPlanList");
+  const dataOptInCurrent = q("#dataOptInCurrent");
+  const dataOptInAction = q("#dataOptInAction");
+  const dataOptInMessage = q("#dataOptInMessage");
+  const dataOptInHistory = q("#dataOptInHistory");
   const detailMapPanel = q(".detail-map-panel");
   const detailMapFullscreenButton = q("#detailMapFullscreenButton");
   const detailMapCanvas = q("#detailMapCanvas");
@@ -1607,6 +1628,14 @@
     q("#detailPriorityOverageLimit").textContent = "-";
     q("#detailPlanName").textContent = "-";
     q("#detailUsageProgress").style.width = "0%";
+    if (canManageDataOptIn) {
+      dataOptInCurrent.textContent = text("detail_data_optin_unknown");
+      dataOptInAction.disabled = true;
+      dataOptInAction.textContent = "—";
+      dataOptInAction.dataset.enabled = "";
+      dataOptInMessage.textContent = text("detail_data_optin_loading");
+      dataOptInHistory.innerHTML = "";
+    }
     updateDetailMap("", "");
     detailNetworkStatus.textContent = text("detail_network_loading");
     metricCards.forEach((metricCard) => {
@@ -1614,6 +1643,79 @@
       metricCard.unit.textContent = metricUnits[metricCard.metric] || "";
     });
     currentTelemetryByMetric = new Map();
+  }
+
+  function dataOptInStatusLabel(value) {
+    return value === true ? text("detail_data_optin_in") : value === false ? text("detail_data_optin_out") : text("detail_data_optin_unknown");
+  }
+
+  function renderDataOptInHistory(items) {
+    if (!items?.length) {
+      dataOptInHistory.innerHTML = `<div class="data-optin-empty">${text("detail_data_optin_empty")}</div>`;
+      return;
+    }
+    dataOptInHistory.innerHTML = items.map((item) => {
+      const oldStatus = item.oldStatus ?? item.OldStatus;
+      const newStatus = item.newStatus ?? item.NewStatus;
+      const success = item.apiSuccess ?? item.ApiSuccess;
+      const response = item.apiResponse ?? item.ApiResponse ?? "";
+      const jobId = item.jobId ?? item.JobId ?? "";
+      const httpStatus = item.httpStatusCode ?? item.HttpStatusCode ?? "-";
+      return `<article class="data-optin-history-item">
+        <div class="data-optin-history-meta"><strong>${escapeHtml(item.performedBy ?? item.PerformedBy ?? "-")}</strong><span>${escapeHtml(item.performedAtDisplay ?? item.PerformedAtDisplay ?? "-")}</span></div>
+        <div class="data-optin-transition"><span>${dataOptInStatusLabel(oldStatus)}</span><b>→</b><span>${dataOptInStatusLabel(newStatus)}</span><em class="${success ? "is-success" : "is-error"}">${success ? "API OK" : "API ERROR"} · HTTP ${httpStatus}</em></div>
+        <details><summary>API response${jobId ? ` · Job ${escapeHtml(jobId)}` : ""}</summary><pre>${escapeHtml(response || "-")}</pre></details>
+      </article>`;
+    }).join("");
+  }
+
+  function applyDataOptInState(currentEnabled, history, warning = "") {
+    dataOptInCurrent.textContent = dataOptInStatusLabel(currentEnabled);
+    const targetEnabled = currentEnabled !== true;
+    dataOptInAction.dataset.enabled = targetEnabled ? "true" : "false";
+    dataOptInAction.textContent = targetEnabled ? text("detail_data_optin_in") : text("detail_data_optin_out");
+    dataOptInAction.classList.toggle("is-danger", !targetEnabled);
+    dataOptInAction.disabled = false;
+    dataOptInMessage.textContent = warning || "";
+    renderDataOptInHistory(history || []);
+  }
+
+  async function loadDataOptInData(requestId = currentDetailRequestId) {
+    if (!canManageDataOptIn || !currentDetailDeviceId || requestId !== currentDetailRequestId) return;
+    dataOptInMessage.textContent = text("detail_data_optin_loading");
+    dataOptInAction.disabled = true;
+    try {
+      const response = await fetch(`${deviceDataOptInDataAction}?id=${encodeURIComponent(currentDetailDeviceId)}`, { headers: { "X-Requested-With": "XMLHttpRequest" } });
+      const { rawText, data, isJson } = await readApiResponse(response);
+      if (!isJson || !response.ok || !(data.success ?? data.Success)) throw new Error(resolveServerErrorMessage(response, data, rawText));
+      if (requestId !== currentDetailRequestId) return;
+      applyDataOptInState(data.currentEnabled ?? data.CurrentEnabled, data.history ?? data.History, data.apiWarning ?? data.ApiWarning ?? "");
+    } catch (error) {
+      if (requestId === currentDetailRequestId) dataOptInMessage.textContent = error.message || text("generic_error");
+    }
+  }
+
+  async function submitDataOptInChange() {
+    if (!canManageDataOptIn || !currentDetailDeviceId || dataOptInAction.disabled) return;
+    const enabled = dataOptInAction.dataset.enabled === "true";
+    if (!window.confirm(text(enabled ? "detail_data_optin_confirm_in" : "detail_data_optin_confirm_out"))) return;
+    dataOptInAction.disabled = true;
+    dataOptInMessage.textContent = text("processing");
+    const formData = new FormData();
+    formData.append("Id", `${currentDetailDeviceId}`);
+    formData.append("Enabled", enabled ? "true" : "false");
+    const csrfToken = antiForgeryToken(refreshForm);
+    if (csrfToken) formData.append("__RequestVerificationToken", csrfToken);
+    try {
+      const response = await fetch(updateDeviceDataOptInAction, { method: "POST", body: formData, headers: { "X-Requested-With": "XMLHttpRequest" } });
+      const { rawText, data, isJson } = await readApiResponse(response);
+      if (!isJson || !response.ok || !(data.success ?? data.Success)) throw new Error(resolveServerErrorMessage(response, data, rawText));
+      dataOptInMessage.textContent = text("detail_data_optin_submitted");
+      await loadDataOptInData();
+    } catch (error) {
+      dataOptInMessage.textContent = error.message || text("generic_error");
+      dataOptInAction.disabled = false;
+    }
   }
 
   async function loadNetworkingData(requestId = currentDetailRequestId) {
@@ -2367,7 +2469,8 @@
         await Promise.all([
           loadTelemetryTimeline(requestId),
           loadNetworkingData(requestId),
-          loadDevicePlanData(requestId)
+          loadDevicePlanData(requestId),
+          loadDataOptInData(requestId)
         ]);
       }, 0);
       return;
@@ -2742,6 +2845,7 @@
   cancelDevicePlanEditorModal.addEventListener("click", closeDevicePlanEditor);
   detailPlanSelect.addEventListener("change", syncSelectedDevicePlanPrices);
   detailPlanForm.addEventListener("submit", submitDevicePlan);
+  dataOptInAction?.addEventListener("click", submitDataOptInChange);
   q("#openDeviceModal")?.addEventListener("click", openCreateModal);
   q("#closeDeviceModal").addEventListener("click", closeCreateModal);
   q("#cancelDeviceModal").addEventListener("click", closeCreateModal);

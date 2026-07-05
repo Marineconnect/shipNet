@@ -27,6 +27,7 @@
     var isTenant = User.HasClaim("UserType", ManagedUserType.Tenant);
     var isShipAdmin = User.HasClaim("UserType", ManagedUserType.ShipAdmin);
     var isCrew = User.HasClaim("UserType", ManagedUserType.Crew);
+    var isViewOnly = User.HasClaim("IsViewOnly", "true");
     var canAccessTenant = !isShipAdmin && !isCrew;
     var canAccessCommercial = !isTenant && !isShipAdmin && !isCrew;
     var canAccessSubscription = !isShipAdmin && !isCrew;
@@ -119,6 +120,10 @@
           <div class="portal-account-copy">
             <strong>@accountDisplayName</strong>
             <span>@accountUsername</span>
+            @if (isViewOnly)
+            {
+              <span class="view-only-chip">Chỉ xem / View only</span>
+            }
           </div>
           <span class="portal-account-caret" aria-hidden="true"></span>
         </button>

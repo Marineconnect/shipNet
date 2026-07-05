@@ -5,7 +5,10 @@ using StarlinkDeviceManager.Models;
 
 namespace StarlinkDeviceManager.Services;
 
-public class MonthlySubscriptionService(IConfiguration configuration) : IMonthlySubscriptionService
+public class MonthlySubscriptionService(
+    IConfiguration configuration,
+    IInvoiceRabbitMqPublisher invoiceRabbitMqPublisher,
+    ILogger<MonthlySubscriptionService> logger) : IMonthlySubscriptionService
 {
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")
         ?? throw new InvalidOperationException("Missing connection string: DefaultConnection");
@@ -376,6 +379,17 @@ public class MonthlySubscriptionService(IConfiguration configuration) : IMonthly
         await RecalculateSubscriptionTotalsAsync(connection, transaction, model.SubscriptionId, cancellationToken);
         await InsertAuditAsync(connection, transaction, userId, model.SubscriptionId, $"Created invoice #{invoiceId} for subscription #{model.SubscriptionId} by '{username}'.", cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+
+        await PublishInvoiceGenerateEventAfterCommitAsync(
+            invoiceId,
+            invoiceNumber,
+            invoiceType,
+            model.Description,
+            dataGb,
+            amount,
+            subscription,
+            cancellationToken);
+
         return invoiceId;
     }
 
@@ -936,6 +950,10 @@ public class MonthlySubscriptionService(IConfiguration configuration) : IMonthly
         const string query = """
             SELECT TOP 1
                 s.[ID],
+                s.[TenantName],
+                s.[VesselName],
+                s.[KitId],
+                s.[PlanName],
                 dp.[ResellerOverChargePrice],
                 dp.[FinalOverChargePrice]
             FROM [dbo].[TblMonthlySubscription] s
@@ -950,8 +968,100 @@ public class MonthlySubscriptionService(IConfiguration configuration) : IMonthly
         command.Parameters.Add("@deviceId", SqlDbType.Int).Value = (object?)deviceId ?? DBNull.Value;
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken)
-            ? new SubscriptionPriceContext(ReadDecimal(reader, "ResellerOverChargePrice"), ReadDecimal(reader, "FinalOverChargePrice"))
+            ? new SubscriptionPriceContext(
+                ReadText(reader, "TenantName"),
+                ReadText(reader, "VesselName"),
+                ReadText(reader, "KitId"),
+                ReadText(reader, "PlanName"),
+                ReadDecimal(reader, "ResellerOverChargePrice"),
+                ReadDecimal(reader, "FinalOverChargePrice"))
             : null;
+    }
+
+    private async Task PublishInvoiceGenerateEventAfterCommitAsync(
+        int invoiceId,
+        string invoiceNumber,
+        string invoiceType,
+        string? description,
+        decimal dataGb,
+        decimal amount,
+        SubscriptionPriceContext subscription,
+        CancellationToken cancellationToken)
+    {
+        var issueDate = DateTimeOffset.Now;
+        var invoiceEvent = new InvoiceGenerateEvent
+        {
+            EventId = Guid.NewGuid().ToString(),
+            EventType = "invoice.generate",
+            RequestedAt = issueDate,
+            InvoiceId = invoiceId,
+            InvoiceCode = invoiceNumber,
+            TemplateCode = invoiceType,
+            OutputFileName = BuildInvoicePdfFileName(invoiceNumber),
+            Invoice = new InvoiceGeneratePayload
+            {
+                Seller = null,
+                Buyer = new
+                {
+                    tenantName = EmptyToNull(subscription.TenantName),
+                    vesselName = EmptyToNull(subscription.VesselName),
+                    kitId = EmptyToNull(subscription.KitId),
+                    planName = EmptyToNull(subscription.PlanName)
+                },
+                Items =
+                [
+                    new InvoiceGenerateItem
+                    {
+                        Description = string.IsNullOrWhiteSpace(description) ? invoiceType : description.Trim(),
+                        Quantity = string.Equals(invoiceType, "OVERCHARGE", StringComparison.OrdinalIgnoreCase) ? dataGb : 1,
+                        UnitPrice = string.Equals(invoiceType, "OVERCHARGE", StringComparison.OrdinalIgnoreCase)
+                            ? subscription.FinalOverChargePrice
+                            : amount,
+                        Amount = amount,
+                        DataGb = dataGb,
+                        InvoiceType = invoiceType
+                    }
+                ],
+                Subtotal = amount,
+                VatAmount = 0,
+                TotalAmount = amount,
+                Currency = "VND",
+                IssueDate = issueDate.ToString("yyyy-MM-dd")
+            }
+        };
+
+        try
+        {
+            var publishResult = await invoiceRabbitMqPublisher.PublishInvoiceGenerateEventAsync(invoiceEvent, cancellationToken);
+            if (!publishResult.Success)
+            {
+                logger.LogError(
+                    "Invoice was created but RabbitMQ publish failed. InvoiceId={InvoiceId}; EventId={EventId}; Reason={Reason}.",
+                    invoiceId,
+                    invoiceEvent.EventId,
+                    publishResult.Message);
+            }
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(
+                exception,
+                "Invoice was created but RabbitMQ publish threw an exception. InvoiceId={InvoiceId}; EventId={EventId}.",
+                invoiceId,
+                invoiceEvent.EventId);
+        }
+    }
+
+    private static string BuildInvoicePdfFileName(string invoiceNumber)
+    {
+        var invalidChars = Path.GetInvalidFileNameChars();
+        var safeName = new string(invoiceNumber.Select(character => invalidChars.Contains(character) ? '_' : character).ToArray());
+        return $"{safeName}.pdf";
+    }
+
+    private static string? EmptyToNull(string value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
     private async Task<int> InsertInvoiceAsync(SqlConnection connection, SqlTransaction transaction, int subscriptionId, string invoiceNumber, string invoiceType, string? description, decimal dataGb, decimal buyPrice, decimal salePrice, decimal amount, string username, CancellationToken cancellationToken)
@@ -1006,22 +1116,25 @@ public class MonthlySubscriptionService(IConfiguration configuration) : IMonthly
     private async Task<string> BuildInvoiceNumberAsync(SqlConnection connection, SqlTransaction transaction, CancellationToken cancellationToken)
     {
         var now = DateTime.Today;
-        var dayPart = now.ToString("yyMMdd", CultureInfo.InvariantCulture);
-        var monthPrefix = now.ToString("yyMM", CultureInfo.InvariantCulture);
+        var year = now.Year;
+        var yearStart = new DateTime(year, 1, 1);
+        var nextYearStart = yearStart.AddYears(1);
         const string query = """
-            SELECT ISNULL(MAX(TRY_CONVERT(int, RIGHT([InvoiceNumber], 4))), 0)
-            FROM [dbo].[TblSubscriptionInvoice]
-            WHERE [InvoiceNumber] LIKE @prefix ESCAPE '\'
+            SELECT COUNT(1)
+            FROM [dbo].[TblSubscriptionInvoice] WITH (UPDLOCK, HOLDLOCK)
+            WHERE [CreatedAt] >= @yearStart
+              AND [CreatedAt] < @nextYearStart
             """;
         await using var command = new SqlCommand(query, connection, transaction);
-        command.Parameters.Add("@prefix", SqlDbType.NVarChar, 100).Value = $@"SNINV\_{monthPrefix}__-____";
+        command.Parameters.Add("@yearStart", SqlDbType.DateTime2).Value = yearStart;
+        command.Parameters.Add("@nextYearStart", SqlDbType.DateTime2).Value = nextYearStart;
         var nextNumber = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken)) + 1;
-        if (nextNumber > 9999)
+        if (nextNumber > 99999)
         {
-            throw new InvalidOperationException("Monthly invoice sequence limit reached. Maximum is 9999 invoices per month.");
+            throw new InvalidOperationException("Yearly invoice sequence limit reached. Maximum is 99999 invoices per year.");
         }
 
-        return $"SNINV_{dayPart}-{nextNumber:0000}";
+        return $"SHIPNET-INV-{year}-{nextNumber:00000}";
     }
 
     private async Task InsertAuditAsync(SqlConnection connection, SqlTransaction transaction, int? userId, int subscriptionId, string detail, CancellationToken cancellationToken)
@@ -1166,6 +1279,11 @@ public class MonthlySubscriptionService(IConfiguration configuration) : IMonthly
         return reader[columnName] == DBNull.Value ? 0m : Convert.ToDecimal(reader[columnName], CultureInfo.InvariantCulture);
     }
 
+    private static string ReadText(SqlDataReader reader, string columnName)
+    {
+        return reader[columnName] == DBNull.Value ? string.Empty : reader[columnName]?.ToString() ?? string.Empty;
+    }
+
     private static DateTime? ReadDate(SqlDataReader reader, string columnName)
     {
         return reader[columnName] is DateTime value ? value : null;
@@ -1294,7 +1412,13 @@ public class MonthlySubscriptionService(IConfiguration configuration) : IMonthly
         decimal ResellerOverChargePrice,
         decimal FinalOverChargePrice);
 
-    private sealed record SubscriptionPriceContext(decimal ResellerOverChargePrice, decimal FinalOverChargePrice);
+    private sealed record SubscriptionPriceContext(
+        string TenantName,
+        string VesselName,
+        string KitId,
+        string PlanName,
+        decimal ResellerOverChargePrice,
+        decimal FinalOverChargePrice);
 
     private sealed record EditableSubscriptionInvoice(int Id, string Status, decimal PaidAmount);
 }

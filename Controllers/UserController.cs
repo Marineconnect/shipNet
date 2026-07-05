@@ -15,6 +15,7 @@ public class UserController(
     ILogger<UserController> logger) : Controller
 {
     private const string UserIndexViewPath = "~/Views/User/Index.cshtml";
+    private const string DefaultResetPassword = "123456";
     private const long MaxLogoSizeBytes = 3 * 1024 * 1024;
     private const string DuplicateUsernameErrorMessage = "Username đã tồn tại.";
     private const string DuplicateEmailErrorMessage = "Email đã được sử dụng bởi tài khoản khác.";
@@ -230,6 +231,40 @@ public class UserController(
         }
     }
 
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ResetPassword(int id, string group = ManagedUserType.Admin, int page = 1, int pageSize = 10)
+    {
+        var currentUser = await GetCurrentUserAsync();
+        if (currentUser?.IsCrew == true)
+        {
+            return Forbid();
+        }
+
+        var targetUser = await authService.GetManagedUserByIdAsync(id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+        if (targetUser is null)
+        {
+            TempData["UserManagementError"] = "Không tìm thấy tài khoản hoặc bạn không có quyền reset mật khẩu tài khoản này.";
+            return RedirectToAction(nameof(Index), new { group = ManagedUserType.NormalizeGroup(group), page, pageSize });
+        }
+
+        if (!CanManageTargetGroup(currentUser, targetUser.UserGroup))
+        {
+            return Forbid();
+        }
+
+        var (userId, username) = GetCurrentAuditContext();
+        var encodedPassword = authService.EncodePassword(DefaultResetPassword);
+        await authService.UpdateUserPasswordAsync(
+            targetUser.Id,
+            encodedPassword,
+            $"Reset password for user '{targetUser.Username}' (ID: {targetUser.Id}) to default password by '{username}' (ID: {userId?.ToString() ?? "-"}).",
+            HttpContext.RequestAborted);
+
+        TempData["UserManagementSuccess"] = $"Đã reset mật khẩu tài khoản '{targetUser.Username}' về mặc định.";
+        return RedirectToAction(nameof(Index), new { group = ManagedUserType.NormalizeGroup(group), page, pageSize });
+    }
+
     private async Task<UserManagementIndexViewModel> BuildIndexViewModelAsync(
         AuthUserRecord? currentUser,
         UserManagementFormViewModel? createForm = null,
@@ -283,7 +318,7 @@ public class UserController(
             IsTenantScoped = currentUser?.IsTenantUser == true,
             CurrentTenantId = currentUser?.TenantId,
             CurrentTenantName = tenants.FirstOrDefault(tenant => tenant.Id == currentUser?.TenantId)?.TenantName,
-            CanManageUsers = currentUser?.IsCrew != true
+            CanManageUsers = currentUser?.IsCrew != true && currentUser?.IsViewOnly != true
         };
     }
 

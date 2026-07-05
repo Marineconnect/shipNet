@@ -10,6 +10,8 @@ public interface IDeviceService
     Task<DeviceWifiResult> GetDeviceWifiAsync(int id, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default);
     Task<DeviceCommandResult> UpdateDeviceWifiAsync(UpdateDeviceWifiRequest request, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default);
     Task<DeviceCommandResult> RebootDeviceRouterAsync(int id, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default);
+    Task<DeviceDataOptInManagementResult> GetDeviceDataOptInAsync(int id, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default);
+    Task<DeviceDataOptInChangeResult> UpdateDeviceDataOptInAsync(UpdateDeviceDataOptInRequest request, int? userId, string performedBy, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default);
     Task<DevicePlanManagementResult> GetDevicePlanManagementAsync(int id, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default);
     Task<SaveDevicePlanResult> SaveDevicePlanAsync(SaveDevicePlanRequest request, int? userId, string username, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default);
     Task<DeleteDevicePlanResult> DeleteDevicePlanAsync(DeleteDevicePlanRequest request, int? userId, string username, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default);

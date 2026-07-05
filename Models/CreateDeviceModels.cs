@@ -65,6 +65,7 @@ public class DeviceCommandResult
     public string TerminalId { get; set; } = string.Empty;
     public string DeviceId { get; set; } = string.Empty;
     public string JobId { get; set; } = string.Empty;
+    public int? HttpStatusCode { get; set; }
 }
 
 public class RefreshDeviceResult

@@ -85,10 +85,13 @@
         </p>
       </div>
       <div class="device-actions">
+        @if (Model.CanCreateUsers)
+        {
         <button type="button" class="btn-primary add-device-btn" id="openUserCreateModal">
           <span class="add-device-icon">+</span>
           <span>Thêm người dùng / Add User</span>
         </button>
+        }
       </div>
     </div>
 
@@ -134,6 +137,7 @@
               <th>Email / Email</th>
               <th>Điện thoại / Phone</th>
               <th>Trạng thái / Status</th>
+              <th>Quyền truy cập / Access</th>
               <th>Online gần nhất / Last Online</th>
               <th>Tác vụ / Actions</th>
             </tr>
@@ -142,7 +146,7 @@
             @if (Model.Users.Count == 0)
             {
               <tr>
-                <td colspan="11" class="tenant-empty">Chưa có người dùng nào / No users found.</td>
+                <td colspan="12" class="tenant-empty">Chưa có người dùng nào / No users found.</td>
               </tr>
             }
             else
@@ -178,30 +182,55 @@
                   <td>
                     <span class="user-status-chip @statusClass">@user.Status</span>
                   </td>
+                  <td>
+                    <span class="view-only-chip @(user.IsViewOnly ? string.Empty : "is-off")">@user.ViewOnlyDisplay</span>
+                  </td>
                   <td>@user.LastOnlineTimeVietnam</td>
                   <td>
                     <div class="table-actions">
-                      <form asp-controller="Account"
-                            asp-action="LoginAsUser"
-                            method="post"
-                            class="user-login-as-form js-login-as-user-form">
-                        @Html.AntiForgeryToken()
-                        <input type="hidden" name="id" value="@user.Id" />
-                        <button type="submit"
-                                class="table-action-btn"
-                                data-login-as-username="@user.Username">
-                          <span>Đăng nhập / Login as</span>
-                        </button>
-                      </form>
-                      <a asp-controller="User"
-                         asp-action="Edit"
-                         asp-route-id="@user.Id"
-                         asp-route-group="@Model.ActiveUserGroup"
-                         asp-route-page="@Model.CurrentPage"
-                         asp-route-pageSize="@Model.PageSize"
-                         class="table-action-btn">
-                        <span>Sửa / Edit</span>
-                      </a>
+                      @if (Model.CanManageUsers)
+                      {
+                        <form asp-controller="Account"
+                              asp-action="LoginAsUser"
+                              method="post"
+                              class="user-login-as-form js-login-as-user-form">
+                          @Html.AntiForgeryToken()
+                          <input type="hidden" name="id" value="@user.Id" />
+                          <button type="submit"
+                                  class="table-action-btn"
+                                  data-login-as-username="@user.Username">
+                            <span>Đăng nhập / Login as</span>
+                          </button>
+                        </form>
+                        <a asp-controller="User"
+                           asp-action="Edit"
+                           asp-route-id="@user.Id"
+                           asp-route-group="@Model.ActiveUserGroup"
+                           asp-route-page="@Model.CurrentPage"
+                           asp-route-pageSize="@Model.PageSize"
+                           class="table-action-btn">
+                          <span>Sửa / Edit</span>
+                        </a>
+                        <form asp-controller="User"
+                              asp-action="ResetPassword"
+                              asp-route-id="@user.Id"
+                              asp-route-group="@Model.ActiveUserGroup"
+                              asp-route-page="@Model.CurrentPage"
+                              asp-route-pageSize="@Model.PageSize"
+                              method="post"
+                              class="user-login-as-form js-reset-password-form">
+                          @Html.AntiForgeryToken()
+                          <button type="submit"
+                                  class="table-action-btn is-danger"
+                                  data-reset-username="@user.Username">
+                            <span>Reset mật khẩu / Reset password</span>
+                          </button>
+                        </form>
+                      }
+                      else
+                      {
+                        <span class="view-only-chip">Chỉ xem / View only</span>
+                      }
                     </div>
                   </td>
                 </tr>
@@ -393,6 +422,14 @@
                 <span asp-validation-for="CreateForm.Password" class="field-error"></span>
               </div>
 
+              <div class="form-group">
+                <label class="remember-box">
+                  <input asp-for="CreateForm.IsViewOnly" />
+                  <span>Chỉ theo dõi / View only</span>
+                </label>
+                <span asp-validation-for="CreateForm.IsViewOnly" class="field-error"></span>
+              </div>
+
               @if (Model.CreatableUserGroups.Count == 1)
               {
                 <input asp-for="CreateForm.UserGroup" type="hidden" value="@Model.CreateForm.UserGroup" />
@@ -569,6 +606,14 @@
                 <span asp-validation-for="EditForm.IdentificationNumber" class="field-error"></span>
               </div>
 
+              <div class="form-group">
+                <label class="remember-box">
+                  <input asp-for="EditForm.IsViewOnly" />
+                  <span>Chỉ theo dõi / View only</span>
+                </label>
+                <span asp-validation-for="EditForm.IsViewOnly" class="field-error"></span>
+              </div>
+
               @if (Model.CreatableUserGroups.Count == 1)
               {
                 <input asp-for="EditForm.UserGroup" type="hidden" value="@Model.EditForm.UserGroup" />
@@ -664,6 +709,7 @@
       const cancelEditModalButton = document.getElementById("cancelUserEditModal");
       const pageSizeSelect = document.getElementById("userPageSizeSelect");
       const loginAsUserForms = document.querySelectorAll(".js-login-as-user-form");
+      const resetPasswordForms = document.querySelectorAll(".js-reset-password-form");
 
       function syncBodyOverflow() {
         const hasOpenModal =
@@ -794,6 +840,22 @@
           }
 
           const submitButton = form.querySelector("button[type='submit']");
+          if (submitButton instanceof HTMLButtonElement) {
+            submitButton.disabled = true;
+            submitButton.classList.add("is-processing");
+          }
+        });
+      });
+      resetPasswordForms.forEach((form) => {
+        form.addEventListener("submit", (event) => {
+          const submitButton = form.querySelector("button[type='submit']");
+          const username = submitButton?.getAttribute("data-reset-username") || "";
+          const message = `Xác nhận reset mật khẩu tài khoản ${username} về 123456? / Reset this account password to 123456?`;
+          if (!window.confirm(message)) {
+            event.preventDefault();
+            return;
+          }
+
           if (submitButton instanceof HTMLButtonElement) {
             submitButton.disabled = true;
             submitButton.classList.add("is-processing");

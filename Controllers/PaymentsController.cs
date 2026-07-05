@@ -98,6 +98,41 @@ public class PaymentsController(
     }
 
     [Authorize]
+    [HttpPost]
+    public async Task<IActionResult> TestInvoiceRabbitMq(int invoiceId)
+    {
+        if (invoiceId <= 0)
+        {
+            return BadRequest(new { success = false, message = "Missing invoice id." });
+        }
+
+        try
+        {
+            var username = User.Identity?.Name ?? User.FindFirst("Username")?.Value ?? User.FindFirst("name")?.Value ?? "system";
+            var result = await paymentTransactionService.SendInvoiceToRabbitMqAsync(
+                invoiceId,
+                $"TEST-INVOICE-{invoiceId}",
+                DateTime.UtcNow,
+                username,
+                HttpContext.RequestAborted);
+
+            return Ok(new
+            {
+                success = result.Success,
+                message = result.Message,
+                messageId = result.MessageId,
+                payload = result.Payload,
+                logs = result.Logs
+            });
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Failed to test invoice RabbitMQ publish for invoice {InvoiceId}.", invoiceId);
+            return BadRequest(new { success = false, message = exception.GetBaseException().Message });
+        }
+    }
+
+    [Authorize]
     [HttpGet]
     public async Task<IActionResult> NinePayInvoiceStatus(int invoiceId)
     {

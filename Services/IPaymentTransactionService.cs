@@ -17,6 +17,8 @@ public interface IPaymentTransactionService
 
     Task<NinePaySampleTestResult> RunNinePaySampleCreateBankTransferAsync(CancellationToken cancellationToken = default);
 
+    Task<InvoiceRabbitMqPublishResult> SendInvoiceToRabbitMqAsync(int invoiceId, string transactionCode = "", DateTime? paymentTime = null, string operatorName = "", CancellationToken cancellationToken = default);
+
     Task RecordNinePayIpnAttemptAsync(
         string resultBase64,
         string checksum,

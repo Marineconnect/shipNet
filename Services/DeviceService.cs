@@ -13,6 +13,10 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
     private const string CreateDeviceAuditAction = "created_Device";
     private const string UpdateDeviceAuditAction = "updated_Device";
     private const string SaveDevicePlanAuditAction = "saved_device_pricing";
+    private const string DeviceDataOptInHistorySchemaSql = "IF OBJECT_ID(N'[dbo].[TblDeviceDataOptInHistory]', N'U') IS NULL CREATE TABLE [dbo].[TblDeviceDataOptInHistory](" +
+        "[ID] int IDENTITY(1,1) NOT NULL PRIMARY KEY,[DeviceId] int NOT NULL,[UserId] int NULL,[PerformedBy] nvarchar(250) NOT NULL," +
+        "[PerformedAtUtc] datetime2 NOT NULL,[OldStatus] bit NULL,[NewStatus] bit NOT NULL,[ApiSuccess] bit NOT NULL," +
+        "[HttpStatusCode] int NULL,[ApiResponse] nvarchar(max) NULL,[JobId] nvarchar(200) NULL);";
 
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")
         ?? throw new InvalidOperationException("Missing connection string: DefaultConnection");
@@ -748,6 +752,49 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         return await RequestRebootDeviceAsync(context.TerminalId, context.DeviceId, context.AccessToken, cancellationToken);
     }
 
+    public async Task<DeviceDataOptInManagementResult> GetDeviceDataOptInAsync(int id, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
+    {
+        var context = await GetDeviceCommandContextAsync(id, tenantId, deviceId, useRouterDevice: false, cancellationToken);
+        if (!context.Success)
+        {
+            return new DeviceDataOptInManagementResult
+            {
+                Success = false,
+                ErrorCode = context.ErrorCode,
+                Message = context.Message,
+                MessageEn = context.MessageEn,
+                DeviceId = id,
+                TerminalId = context.TerminalId
+            };
+        }
+
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureDeviceDataOptInHistorySchemaAsync(connection, null, cancellationToken);
+        var history = await GetDeviceDataOptInHistoryAsync(connection, id, cancellationToken);
+        var usage = await RequestTerminalUsageAsync(context.TerminalId, context.AccessToken, cancellationToken);
+        var currentEnabled = usage.Success ? usage.DataOptInEnabled : null;
+        currentEnabled ??= history.FirstOrDefault(item => item.ApiSuccess)?.NewStatus;
+
+        return new DeviceDataOptInManagementResult
+        {
+            Success = true,
+            DeviceId = id,
+            TerminalId = context.TerminalId,
+            CurrentEnabled = currentEnabled,
+            ApiWarning = usage.Success ? string.Empty : usage.RawResponse,
+            History = history
+        };
+    }
+
+    public async Task<DeviceDataOptInChangeResult> UpdateDeviceDataOptInAsync(UpdateDeviceDataOptInRequest request, int? userId, string performedBy, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
+    {
+        var context = await GetDeviceCommandContextAsync(request.Id, tenantId, deviceId, false, cancellationToken);
+        return !context.Success
+            ? MapDataOptInContextError(request, context)
+            : await UpdateDeviceDataOptInCoreAsync(request, userId, performedBy, context, cancellationToken);
+    }
+
     public Task<RefreshDeviceResult> RefreshExpiredDeviceAsync(int id, CancellationToken cancellationToken = default)
     {
         return RefreshDeviceInternalAsync(id, onlyIfTokenExpired: false, cancellationToken: cancellationToken);
@@ -1032,6 +1079,23 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         return count > 0;
     }
 
+    private async Task<DeviceDataOptInChangeResult> UpdateDeviceDataOptInCoreAsync(UpdateDeviceDataOptInRequest request, int? userId, string performedBy, DeviceCommandContext context, CancellationToken cancellationToken)
+    {
+        var usage = await RequestTerminalUsageAsync(context.TerminalId, context.AccessToken, cancellationToken);
+        var oldStatus = usage.Success ? usage.DataOptInEnabled : null;
+        if (oldStatus == request.Enabled)
+        {
+            return UnchangedDataOptInResult(request, context.TerminalId, oldStatus);
+        }
+        var apiResult = await RequestTerminalDataOptInAsync(context.TerminalId, context.AccessToken, request.Enabled, cancellationToken);
+        return await SaveDeviceDataOptInResultAsync(request, userId, performedBy, context.TerminalId, oldStatus, apiResult, cancellationToken);
+    }
+
+    private static DeviceDataOptInChangeResult MapDataOptInContextError(UpdateDeviceDataOptInRequest request, DeviceCommandContext context)
+    {
+        return new DeviceDataOptInChangeResult { ErrorCode = request.Id <= 0 ? "validation_required" : context.ErrorCode, Message = context.Message, MessageEn = context.MessageEn, DeviceId = request.Id, TerminalId = context.TerminalId, NewStatus = request.Enabled, ApiResponse = context.RawResponse };
+    }
+
     private async Task<DeviceCommandContext> GetDeviceCommandContextAsync(
         int id,
         int? tenantId,
@@ -1151,6 +1215,19 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             DeviceId = routerDevice.DeviceId,
             AccessToken = accessToken
         };
+    }
+
+    private static DeviceDataOptInChangeResult UnchangedDataOptInResult(UpdateDeviceDataOptInRequest r, string terminalId, bool? oldStatus)
+    {
+        var result = new DeviceDataOptInChangeResult();
+        result.ErrorCode = "status_unchanged";
+        result.Message = "Thiết bị đã ở trạng thái được chọn.";
+        result.MessageEn = "The terminal is already in the selected state.";
+        result.DeviceId = r.Id;
+        result.TerminalId = terminalId;
+        result.OldStatus = oldStatus;
+        result.NewStatus = r.Enabled;
+        return result;
     }
 
     private sealed class DeviceCommandContext : DeviceCommandResult
@@ -1645,6 +1722,79 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         var result = await command.ExecuteScalarAsync(cancellationToken);
         _hasPlanNameColumn = Convert.ToInt32(result ?? 0) > 0;
         return _hasPlanNameColumn.Value;
+    }
+
+    private static async Task EnsureDeviceDataOptInHistorySchemaAsync(SqlConnection connection, SqlTransaction? transaction, CancellationToken cancellationToken)
+    {
+        var command = new SqlCommand(DeviceDataOptInHistorySchemaSql, connection, transaction);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        await command.DisposeAsync();
+    }
+
+    private static async Task<List<DeviceDataOptInHistoryItem>> GetDeviceDataOptInHistoryAsync(SqlConnection connection, int deviceId, CancellationToken cancellationToken)
+    {
+        const string query = """
+            SELECT TOP 100 [ID], [DeviceId], [UserId], [PerformedBy], [PerformedAtUtc], [OldStatus], [NewStatus], [ApiSuccess], [HttpStatusCode], [ApiResponse], [JobId]
+            FROM [dbo].[TblDeviceDataOptInHistory]
+            WHERE [DeviceId] = @deviceId
+            ORDER BY [PerformedAtUtc] DESC, [ID] DESC
+            """;
+        var items = new List<DeviceDataOptInHistoryItem>();
+        await using var command = new SqlCommand(query, connection);
+        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = deviceId;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            items.Add(MapDeviceDataOptInHistoryItem(reader));
+        }
+        return items;
+    }
+
+    private static DeviceDataOptInHistoryItem MapDeviceDataOptInHistoryItem(SqlDataReader reader)
+    {
+        return new DeviceDataOptInHistoryItem
+        {
+            Id = Convert.ToInt32(reader["ID"]),
+            DeviceId = Convert.ToInt32(reader["DeviceId"]),
+            UserId = reader["UserId"] == DBNull.Value ? null : Convert.ToInt32(reader["UserId"]),
+            PerformedBy = reader["PerformedBy"]?.ToString() ?? string.Empty,
+            PerformedAtUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["PerformedAtUtc"]), DateTimeKind.Utc),
+            OldStatus = reader["OldStatus"] == DBNull.Value ? null : Convert.ToBoolean(reader["OldStatus"]),
+            NewStatus = Convert.ToBoolean(reader["NewStatus"]),
+            ApiSuccess = Convert.ToBoolean(reader["ApiSuccess"]),
+            HttpStatusCode = reader["HttpStatusCode"] == DBNull.Value ? null : Convert.ToInt32(reader["HttpStatusCode"]),
+            ApiResponse = reader["ApiResponse"]?.ToString() ?? string.Empty,
+            JobId = reader["JobId"]?.ToString() ?? string.Empty
+        };
+    }
+
+    private async Task<DeviceDataOptInChangeResult> SaveDeviceDataOptInResultAsync(UpdateDeviceDataOptInRequest request, int? userId, string performedBy, string terminalId, bool? oldStatus, DeviceCommandResult apiResult, CancellationToken cancellationToken)
+    {
+        const string insertQuery = """
+            INSERT INTO [dbo].[TblDeviceDataOptInHistory]
+                ([DeviceId], [UserId], [PerformedBy], [PerformedAtUtc], [OldStatus], [NewStatus], [ApiSuccess], [HttpStatusCode], [ApiResponse], [JobId])
+            OUTPUT INSERTED.[ID]
+            VALUES
+                (@deviceId, @userId, @performedBy, @performedAtUtc, @oldStatus, @newStatus, @apiSuccess, @httpStatusCode, @apiResponse, @jobId)
+            """;
+        var performedAtUtc = DateTime.UtcNow;
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureDeviceDataOptInHistorySchemaAsync(connection, null, cancellationToken);
+        await using var command = new SqlCommand(insertQuery, connection);
+        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = request.Id;
+        command.Parameters.Add("@userId", SqlDbType.Int).Value = (object?)userId ?? DBNull.Value;
+        command.Parameters.Add("@performedBy", SqlDbType.NVarChar, 250).Value = string.IsNullOrWhiteSpace(performedBy) ? "system" : performedBy.Trim();
+        command.Parameters.Add("@performedAtUtc", SqlDbType.DateTime2).Value = performedAtUtc;
+        command.Parameters.Add("@oldStatus", SqlDbType.Bit).Value = (object?)oldStatus ?? DBNull.Value;
+        command.Parameters.Add("@newStatus", SqlDbType.Bit).Value = request.Enabled;
+        command.Parameters.Add("@apiSuccess", SqlDbType.Bit).Value = apiResult.Success;
+        command.Parameters.Add("@httpStatusCode", SqlDbType.Int).Value = (object?)apiResult.HttpStatusCode ?? DBNull.Value;
+        command.Parameters.Add("@apiResponse", SqlDbType.NVarChar, -1).Value = apiResult.RawResponse ?? string.Empty;
+        command.Parameters.Add("@jobId", SqlDbType.NVarChar, 200).Value = apiResult.JobId ?? string.Empty;
+        var historyId = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
+        var historyItem = new DeviceDataOptInHistoryItem { Id = historyId, DeviceId = request.Id, UserId = userId, PerformedBy = performedBy, PerformedAtUtc = performedAtUtc, OldStatus = oldStatus, NewStatus = request.Enabled, ApiSuccess = apiResult.Success, HttpStatusCode = apiResult.HttpStatusCode, ApiResponse = apiResult.RawResponse, JobId = apiResult.JobId };
+        return new DeviceDataOptInChangeResult { Success = apiResult.Success, ErrorCode = apiResult.ErrorCode, Message = apiResult.Message, MessageEn = apiResult.MessageEn, DeviceId = request.Id, TerminalId = terminalId, OldStatus = oldStatus, NewStatus = request.Enabled, HttpStatusCode = apiResult.HttpStatusCode, ApiResponse = apiResult.RawResponse, JobId = apiResult.JobId, HistoryItem = historyItem };
     }
 
     private static async Task EnsureDevicePricingSchemaAsync(SqlConnection connection, SqlTransaction? transaction, CancellationToken cancellationToken)
@@ -2231,7 +2381,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         }
     }
 
-    private async Task<(bool Success, string RawResponse, decimal? SubscriptionUsageGb, decimal? SubscriptionLimitGb, decimal? PriorityOverageGb, decimal? PriorityOverageLimitGb, string PlanName)> RequestTerminalUsageAsync(
+    private async Task<(bool Success, string RawResponse, decimal? SubscriptionUsageGb, decimal? SubscriptionLimitGb, decimal? PriorityOverageGb, decimal? PriorityOverageLimitGb, string PlanName, bool? DataOptInEnabled)> RequestTerminalUsageAsync(
         string terminalId,
         string accessToken,
         CancellationToken cancellationToken)
@@ -2246,7 +2396,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
 
         if (response.StatusCode != HttpStatusCode.OK)
         {
-            return (false, rawResponse, null, null, null, null, string.Empty);
+            return (false, rawResponse, null, null, null, null, string.Empty, null);
         }
 
         try
@@ -2259,6 +2409,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             decimal sloUsageBytes = 0m;
             decimal sloLimitBytes = 0m;
             string planName = string.Empty;
+            bool? dataOptInEnabled = null;
 
             if (root.TryGetProperty("subscriptions", out var subscriptionsElement) &&
                 subscriptionsElement.ValueKind == JsonValueKind.Array)
@@ -2304,7 +2455,19 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                         if (string.Equals(serviceCode, "SLK", StringComparison.OrdinalIgnoreCase))
                         {
                             slkAllowanceBytes += allowanceBytes;
+                            if (usage.TryGetProperty("optin", out var optInElement) &&
+                                (optInElement.ValueKind == JsonValueKind.True || optInElement.ValueKind == JsonValueKind.False))
+                            {
+                                dataOptInEnabled = optInElement.GetBoolean();
+                            }
                             continue;
+                        }
+
+                        if (string.Equals(serviceCode, "SLP", StringComparison.OrdinalIgnoreCase) &&
+                            usage.TryGetProperty("optin", out var localPriorityOptInElement) &&
+                            (localPriorityOptInElement.ValueKind == JsonValueKind.True || localPriorityOptInElement.ValueKind == JsonValueKind.False))
+                        {
+                            dataOptInEnabled = localPriorityOptInElement.GetBoolean();
                         }
 
                         if (string.Equals(serviceCode, "SLO", StringComparison.OrdinalIgnoreCase))
@@ -2321,11 +2484,11 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             var priorityOverageGb = BytesToDecimalGigabytes(sloUsageBytes);
             var priorityOverageLimitGb = BytesToDecimalGigabytes(sloLimitBytes);
 
-            return (true, rawResponse, totalUsageGb, totalLimitGb, priorityOverageGb, priorityOverageLimitGb, planName);
+            return (true, rawResponse, totalUsageGb, totalLimitGb, priorityOverageGb, priorityOverageLimitGb, planName, dataOptInEnabled);
         }
         catch (JsonException)
         {
-            return (false, rawResponse, null, null, null, null, string.Empty);
+            return (false, rawResponse, null, null, null, null, string.Empty, null);
         }
     }
 
@@ -2400,6 +2563,18 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                 DeviceId = deviceId
             };
         }
+    }
+
+    private async Task<DeviceCommandResult> RequestTerminalDataOptInAsync(string terminalId, string accessToken, bool enabled, CancellationToken cancellationToken)
+    {
+        var client = httpClientFactory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Put, $"https://api.mykvh.com/v3/terminals/{Uri.EscapeDataString(terminalId)}/optin");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        request.Content = new StringContent(JsonSerializer.Serialize(new { enabled }), Encoding.UTF8, "application/json");
+        using var response = await client.SendAsync(request, cancellationToken);
+        var rawResponse = await response.Content.ReadAsStringAsync(cancellationToken);
+        return BuildDataOptInApiResult(response, rawResponse, terminalId);
     }
 
     private async Task<DeviceCommandResult> RequestUpdateDeviceWifiAsync(
@@ -2889,6 +3064,20 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         }
 
         return null;
+    }
+
+    private static DeviceCommandResult BuildDataOptInApiResult(HttpResponseMessage response, string rawResponse, string terminalId)
+    {
+        var result = new DeviceCommandResult();
+        result.Success = response.IsSuccessStatusCode;
+        result.ErrorCode = result.Success ? string.Empty : "data_optin_api_error";
+        result.Message = result.Success ? "Data opt-in/out request accepted." : "Data opt-in/out API request failed.";
+        result.MessageEn = result.Message;
+        result.RawResponse = rawResponse;
+        result.TerminalId = terminalId;
+        result.JobId = ExtractJobId(rawResponse);
+        result.HttpStatusCode = (int)response.StatusCode;
+        return result;
     }
 
     private static string ExtractJobId(string rawResponse)

@@ -131,3 +131,7 @@ D:\Working\MLTech\Marineconnect\projects\StarlinkDeviceManager\shipNet\obj\Relea
 D:\Working\MLTech\Marineconnect\projects\StarlinkDeviceManager\shipNet\obj\Release\net8.0\StarlinkDeviceManager.genruntimeconfig.cache
 D:\Working\MLTech\Marineconnect\projects\StarlinkDeviceManager\shipNet\obj\Release\net8.0\ref\StarlinkDeviceManager.dll
 D:\Working\MLTech\Marineconnect\projects\StarlinkDeviceManager\shipNet\bin\Release\net8.0\appsettings.Development.json
+D:\Working\MLTech\Marineconnect\projects\StarlinkDeviceManager\shipNet\bin\Release\net8.0\StarlinkDeviceManager.exe
+D:\Working\MLTech\Marineconnect\projects\StarlinkDeviceManager\shipNet\bin\Release\net8.0\appsettings.InvoiceRabbitMq.json
+D:\Working\MLTech\Marineconnect\projects\StarlinkDeviceManager\shipNet\bin\Release\net8.0\RabbitMQ.Client.dll
+D:\Working\MLTech\Marineconnect\projects\StarlinkDeviceManager\shipNet\bin\Release\net8.0\sample\invoice-request.json

@@ -18,6 +18,7 @@ public class DeviceDashboardViewModel
     public string? CurrentTenantName { get; set; }
     public bool CanManageDevices { get; set; } = true;
     public bool CanViewMap { get; set; } = true;
+    public bool CanManageDataOptIn { get; set; }
     public int? SelectedDeviceId { get; set; }
 }
 
@@ -116,6 +117,7 @@ public class DeviceDetailViewModel
     public decimal? PriorityOverageGb { get; set; }
     public decimal? PriorityOverageLimitGb { get; set; }
     public string PlanName { get; set; } = string.Empty;
+    public bool? DataOptInEnabled { get; set; }
 
     public string LastUpdateTimeVietnam =>
         LastUpdateTime.HasValue
@@ -172,6 +174,57 @@ public class DeviceDetailViewModel
             return $"https://www.openstreetmap.org/export/embed.html?bbox={left.ToString(System.Globalization.CultureInfo.InvariantCulture)}%2C{bottom.ToString(System.Globalization.CultureInfo.InvariantCulture)}%2C{right.ToString(System.Globalization.CultureInfo.InvariantCulture)}%2C{top.ToString(System.Globalization.CultureInfo.InvariantCulture)}&layer=mapnik&marker={lat.ToString(System.Globalization.CultureInfo.InvariantCulture)}%2C{lng.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
         }
     }
+}
+
+public class DeviceDataOptInManagementResult
+{
+    public bool Success { get; set; }
+    public string ErrorCode { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    public string MessageEn { get; set; } = string.Empty;
+    public int DeviceId { get; set; }
+    public string TerminalId { get; set; } = string.Empty;
+    public bool? CurrentEnabled { get; set; }
+    public string ApiWarning { get; set; } = string.Empty;
+    public List<DeviceDataOptInHistoryItem> History { get; set; } = [];
+}
+
+public class DeviceDataOptInHistoryItem
+{
+    public int Id { get; set; }
+    public int DeviceId { get; set; }
+    public int? UserId { get; set; }
+    public string PerformedBy { get; set; } = string.Empty;
+    public DateTime PerformedAtUtc { get; set; }
+    public bool? OldStatus { get; set; }
+    public bool NewStatus { get; set; }
+    public bool ApiSuccess { get; set; }
+    public int? HttpStatusCode { get; set; }
+    public string ApiResponse { get; set; } = string.Empty;
+    public string JobId { get; set; } = string.Empty;
+    public string PerformedAtDisplay => TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(PerformedAtUtc, DateTimeKind.Utc), TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")).ToString("yyyy-MM-dd HH:mm:ss");
+}
+
+public class UpdateDeviceDataOptInRequest
+{
+    public int Id { get; set; }
+    public bool Enabled { get; set; }
+}
+
+public class DeviceDataOptInChangeResult
+{
+    public bool Success { get; set; }
+    public string ErrorCode { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    public string MessageEn { get; set; } = string.Empty;
+    public int DeviceId { get; set; }
+    public string TerminalId { get; set; } = string.Empty;
+    public bool? OldStatus { get; set; }
+    public bool NewStatus { get; set; }
+    public int? HttpStatusCode { get; set; }
+    public string ApiResponse { get; set; } = string.Empty;
+    public string JobId { get; set; } = string.Empty;
+    public DeviceDataOptInHistoryItem? HistoryItem { get; set; }
 }
 
 public class DeviceTenantOptionViewModel

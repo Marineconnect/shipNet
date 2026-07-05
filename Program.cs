@@ -2,9 +2,12 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Logging.EventLog;
 using System.Security.Cryptography.X509Certificates;
+using StarlinkDeviceManager.Filters;
+using StarlinkDeviceManager.Models;
 using StarlinkDeviceManager.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Configuration.AddJsonFile("appsettings.InvoiceRabbitMq.json", optional: true, reloadOnChange: true);
 builder.WebHost.UseIISIntegration();
 
 if (OperatingSystem.IsWindows())
@@ -44,7 +47,10 @@ if (builder.Environment.IsDevelopment())
     });
 }
 
-builder.Services.AddControllersWithViews();
+builder.Services.AddControllersWithViews(options =>
+{
+    options.Filters.Add<ViewOnlyGuardFilter>();
+});
 builder.Services.AddDataProtection();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<ISqlAuthService, SqlAuthService>();
@@ -56,6 +62,8 @@ builder.Services.AddScoped<ICurrencyExchangeService, CurrencyExchangeService>();
 builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
 builder.Services.AddScoped<IPaymentTransactionService, PaymentTransactionService>();
 builder.Services.AddScoped<ITelegramNotificationService, TelegramNotificationService>();
+builder.Services.Configure<InvoiceRabbitMqOptions>(builder.Configuration.GetSection(InvoiceRabbitMqOptions.SectionName));
+builder.Services.AddSingleton<IInvoiceRabbitMqPublisher, InvoiceRabbitMqPublisher>();
 
 builder.Services
     .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)

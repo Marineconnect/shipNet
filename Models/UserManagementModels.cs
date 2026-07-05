@@ -25,7 +25,7 @@ public class UserManagementIndexViewModel
     public string? CurrentTenantName { get; set; }
     public bool CanSelectTenant => !IsTenantScoped;
     public bool CanManageUsers { get; set; } = true;
-    public bool CanCreateUsers => CreatableUserGroups.Count > 0;
+    public bool CanCreateUsers => CanManageUsers && CreatableUserGroups.Count > 0;
 }
 
 public class UserManagementPageResult
@@ -54,6 +54,7 @@ public class UserListItemViewModel
     public string? DeviceCode { get; set; }
     public DateTime? LastOnlineTime { get; set; }
     public DateTime? LastUpdatePassword { get; set; }
+    public bool IsViewOnly { get; set; }
 
     public string DisplayNameOrUsername => string.IsNullOrWhiteSpace(DisplayName) ? Username : DisplayName;
     public string UserGroupDisplay => ManagedUserType.ToDisplay(UserGroup);
@@ -65,6 +66,7 @@ public class UserListItemViewModel
         : "-";
     public string LastOnlineTimeVietnam => FormatDateTime(LastOnlineTime);
     public string LastUpdatePasswordVietnam => FormatDateTime(LastUpdatePassword);
+    public string ViewOnlyDisplay => IsViewOnly ? "Chỉ xem / View only" : "Đầy đủ / Full access";
 
     private static string FormatDateTime(DateTime? value)
     {
@@ -120,6 +122,9 @@ public class UserManagementFormViewModel
 
     [StringLength(50)]
     public string Status { get; set; } = "active";
+
+    [Display(Name = "Chỉ theo dõi")]
+    public bool IsViewOnly { get; set; }
 
     [StringLength(100, ErrorMessage = "Mật khẩu tối đa 100 ký tự")]
     [DataType(DataType.Password)]

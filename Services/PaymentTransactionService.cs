@@ -15,6 +15,7 @@ public class PaymentTransactionService(
     ISystemSettingsService systemSettingsService,
     IHttpClientFactory httpClientFactory,
     ITelegramNotificationService telegramNotificationService,
+    IInvoiceRabbitMqPublisher invoiceRabbitMqPublisher,
     ILogger<PaymentTransactionService> logger) : IPaymentTransactionService
 {
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")
@@ -596,6 +597,405 @@ public class PaymentTransactionService(
         };
     }
 
+    public async Task<InvoiceRabbitMqPublishResult> SendInvoiceToRabbitMqAsync(
+        int invoiceId,
+        string transactionCode = "",
+        DateTime? paymentTime = null,
+        string operatorName = "",
+        CancellationToken cancellationToken = default)
+    {
+        var result = new InvoiceRabbitMqPublishResult();
+        void AddLog(string message)
+        {
+            result.Logs.Add($"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} | {message}");
+        }
+
+        if (!configuration.GetValue("InvoiceRabbitMq:SendInvoiceToRabitMQ", true))
+        {
+            result.Success = true;
+            result.Message = "SendInvoiceToRabitMQ is disabled. Invoice message was not sent.";
+            AddLog(result.Message);
+            logger.LogInformation("Invoice RabbitMQ publish skipped because SendInvoiceToRabitMQ is disabled. InvoiceId={InvoiceId}.", invoiceId);
+            return result;
+        }
+
+        AddLog($"STEP 1 - Load invoice payload context. InvoiceId={invoiceId}.");
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using (var schemaTransaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken))
+        {
+            await EnsureSchemaAsync(connection, schemaTransaction, cancellationToken);
+            await schemaTransaction.CommitAsync(cancellationToken);
+        }
+
+        var context = await GetInvoicePdfPayloadContextAsync(connection, invoiceId, cancellationToken)
+            ?? throw new InvalidOperationException($"Invoice {invoiceId} was not found.");
+
+        var bank = ExtractNinePayBankInfo(context.ProviderResponseJson, context.BankAccountNo, context.TransferContent);
+        var resolvedTransactionCode = FirstNotEmpty(transactionCode, context.IpnPaymentNo, context.ProviderPaymentNo, context.ReceiptNumber, $"INVOICE-{invoiceId}");
+        var resolvedPaymentTime = paymentTime ?? context.CompletedAt ?? context.IpnReceivedAt ?? context.LatestTransactionAt ?? DateTime.UtcNow;
+        var resolvedOperatorName = FirstNotEmpty(operatorName, context.UpdatedBy, context.CreatedBy, "system");
+        var kitNumber = FirstNotEmpty(context.KitNumber, context.KitId);
+        var amountVnd = context.InvoiceAmountVnd > 0
+            ? context.InvoiceAmountVnd
+            : context.TransactionAmountVnd;
+        var generatedInvoiceCode = BuildShipNetInvoiceCode(context);
+        var resolvedEmail = FirstNotEmpty(context.TenantEmail, configuration["InvoicePdf:CustomerEmail"], configuration["InvoicePdf:DefaultEmail"]);
+
+        AddLog($"STEP 2 - Build invoice PDF JSON. Invoice={context.InvoiceNumber}; InvoiceCode={generatedInvoiceCode}; Email={FirstNotEmpty(resolvedEmail, "-")}; Company={InvoicePdfSetting("CompanyName", "MLTECH MARINE CONNECT PTE LTD")}; TransactionCode={resolvedTransactionCode}; KitNumber={kitNumber}; AmountVnd={amountVnd:#,##0.##}.");
+        var payload = BuildInvoicePdfPayloadJson(context, bank, resolvedTransactionCode, resolvedPaymentTime, resolvedOperatorName, kitNumber, amountVnd);
+        AddLog($"STEP 3 - Payload built. Size={Encoding.UTF8.GetByteCount(payload)} bytes.");
+
+        var publishResult = await invoiceRabbitMqPublisher.PublishInvoiceAsync(new InvoiceRabbitMqPublishRequest
+        {
+            InvoiceJson = payload,
+            Username = resolvedOperatorName
+        }, cancellationToken);
+
+        result.Success = publishResult.Success;
+        result.Message = publishResult.Message;
+        result.MessageId = publishResult.MessageId;
+        result.Payload = payload;
+        result.Logs.AddRange(publishResult.Logs);
+        result.Logs.Add($"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} | Payload: {payload}");
+
+        if (publishResult.Success)
+        {
+            logger.LogInformation(
+                "Invoice PDF RabbitMQ message sent. InvoiceId={InvoiceId}; InvoiceNumber={InvoiceNumber}; TransactionCode={TransactionCode}; MessageId={MessageId}.",
+                invoiceId,
+                context.InvoiceNumber,
+                resolvedTransactionCode,
+                publishResult.MessageId);
+        }
+        else
+        {
+            logger.LogError(
+                "Invoice PDF RabbitMQ message failed. InvoiceId={InvoiceId}; InvoiceNumber={InvoiceNumber}; TransactionCode={TransactionCode}; Reason={Reason}.",
+                invoiceId,
+                context.InvoiceNumber,
+                resolvedTransactionCode,
+                publishResult.Message);
+        }
+
+        return result;
+    }
+
+    private async Task<InvoicePdfPayloadContext?> GetInvoicePdfPayloadContextAsync(SqlConnection connection, int invoiceId, CancellationToken cancellationToken)
+    {
+        const string query = """
+            SELECT TOP 1
+                i.[ID] AS [InvoiceId],
+                i.[InvoiceNumber],
+                YEAR(i.[CreatedAt]) AS [InvoiceYear],
+                (
+                    SELECT COUNT(1)
+                    FROM [dbo].[TblSubscriptionInvoice] yearInv
+                    WHERE yearInv.[CreatedAt] >= DATEFROMPARTS(YEAR(i.[CreatedAt]), 1, 1)
+                      AND yearInv.[CreatedAt] < DATEFROMPARTS(YEAR(i.[CreatedAt]) + 1, 1, 1)
+                      AND (
+                          yearInv.[CreatedAt] < i.[CreatedAt]
+                          OR (yearInv.[CreatedAt] = i.[CreatedAt] AND yearInv.[ID] <= i.[ID])
+                      )
+                ) AS [InvoiceSequenceInYear],
+                i.[InvoiceType],
+                i.[Description],
+                i.[ReceiptNumber],
+                i.[CompletedAt],
+                i.[CreatedAt],
+                i.[Created_By],
+                i.[Updated_By],
+                s.[ID] AS [SubscriptionId],
+                s.[DeviceId],
+                s.[TenantId],
+                s.[TenantName],
+                s.[VesselName],
+                s.[KitId],
+                s.[PlanName],
+                s.[StartDate],
+                s.[EndDate],
+                d.[KITNumber],
+                d.[DeviceCode],
+                t.[Email] AS [TenantEmail],
+                q.[ID] AS [QrSessionId],
+                q.[ProviderInvoiceNo],
+                q.[ProviderPaymentNo],
+                q.[IpnPaymentNo],
+                q.[IpnReceivedAt],
+                q.[BankAccountNo],
+                q.[TransferContent],
+                q.[ProviderResponseJson],
+                COALESCE(q.[InvoiceAmountVnd], q.[AmountVnd], tx.[AmountVnd], 0) AS [InvoiceAmountVnd],
+                tx.[ProviderPaymentNo] AS [TransactionPaymentNo],
+                tx.[AmountVnd] AS [TransactionAmountVnd],
+                tx.[UpdatedAt] AS [LatestTransactionAt]
+            FROM [dbo].[TblSubscriptionInvoice] i
+            INNER JOIN [dbo].[TblMonthlySubscription] s ON s.[ID] = i.[SubscriptionId]
+            LEFT JOIN [dbo].[TblDevices] d ON d.[ID] = s.[DeviceId]
+            LEFT JOIN [dbo].[TblTenant] t ON t.[ID] = s.[TenantId]
+            OUTER APPLY (
+                SELECT TOP 1
+                    qs.[ID],
+                    qs.[ProviderInvoiceNo],
+                    qs.[ProviderPaymentNo],
+                    qs.[IpnPaymentNo],
+                    qs.[IpnReceivedAt],
+                    qs.[BankAccountNo],
+                    qs.[TransferContent],
+                    qs.[ProviderResponseJson],
+                    qs.[AmountVnd],
+                    qi.[AmountVnd] AS [InvoiceAmountVnd],
+                    qs.[Created_Date]
+                FROM [dbo].[TblNinePayQrSession] qs
+                LEFT JOIN [dbo].[TblNinePayQrSessionInvoice] qi ON qi.[QrSessionId] = qs.[ID] AND qi.[InvoiceId] = i.[ID]
+                WHERE qs.[InvoiceId] = i.[ID]
+                   OR qi.[InvoiceId] = i.[ID]
+                ORDER BY qs.[Created_Date] DESC, qs.[ID] DESC
+            ) q
+            OUTER APPLY (
+                SELECT TOP 1
+                    pt.[ProviderPaymentNo],
+                    pt.[AmountVnd],
+                    COALESCE(pt.[CompletedAt], pt.[ProviderCreatedAt], pt.[Updated_Date], pt.[Created_Date]) AS [UpdatedAt]
+                FROM [dbo].[TblPaymentTransaction] pt
+                WHERE pt.[InvoiceId] = i.[ID]
+                   OR pt.[InvoiceNumber] = i.[InvoiceNumber]
+                ORDER BY COALESCE(pt.[CompletedAt], pt.[ProviderCreatedAt], pt.[Updated_Date], pt.[Created_Date]) DESC, pt.[ID] DESC
+            ) tx
+            WHERE i.[ID] = @invoiceId;
+            """;
+
+        await using var command = new SqlCommand(query, connection);
+        command.Parameters.Add("@invoiceId", SqlDbType.Int).Value = invoiceId;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return new InvoicePdfPayloadContext(
+            ReadInt(reader, "InvoiceId"),
+            ReadText(reader, "InvoiceNumber"),
+            ReadInt(reader, "InvoiceYear"),
+            ReadInt(reader, "InvoiceSequenceInYear"),
+            ReadText(reader, "InvoiceType"),
+            ReadText(reader, "Description"),
+            ReadText(reader, "ReceiptNumber"),
+            ReadDate(reader, "CompletedAt"),
+            ReadDate(reader, "CreatedAt"),
+            ReadText(reader, "Created_By"),
+            ReadText(reader, "Updated_By"),
+            ReadInt(reader, "SubscriptionId"),
+            ReadInt(reader, "DeviceId"),
+            ReadInt(reader, "TenantId"),
+            ReadText(reader, "TenantName"),
+            ReadText(reader, "VesselName"),
+            ReadText(reader, "KitId"),
+            ReadText(reader, "PlanName"),
+            ReadDate(reader, "StartDate"),
+            ReadDate(reader, "EndDate"),
+            ReadText(reader, "KITNumber"),
+            ReadText(reader, "DeviceCode"),
+            ReadText(reader, "TenantEmail"),
+            ReadInt(reader, "QrSessionId"),
+            ReadText(reader, "ProviderInvoiceNo"),
+            ReadText(reader, "ProviderPaymentNo"),
+            ReadText(reader, "IpnPaymentNo"),
+            ReadDate(reader, "IpnReceivedAt"),
+            ReadText(reader, "BankAccountNo"),
+            ReadText(reader, "TransferContent"),
+            ReadText(reader, "ProviderResponseJson"),
+            ReadDecimal(reader, "InvoiceAmountVnd"),
+            ReadText(reader, "TransactionPaymentNo"),
+            ReadDecimal(reader, "TransactionAmountVnd"),
+            ReadDate(reader, "LatestTransactionAt"));
+    }
+
+    private string BuildInvoicePdfPayloadJson(
+        InvoicePdfPayloadContext context,
+        InvoicePdfBankInfo bank,
+        string transactionCode,
+        DateTime paymentTime,
+        string operatorName,
+        string kitNumber,
+        decimal amountVnd)
+    {
+        var startDate = context.StartDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? string.Empty;
+        var endDate = context.EndDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? string.Empty;
+        var invoiceCode = BuildShipNetInvoiceCode(context);
+        var email = FirstNotEmpty(context.TenantEmail, InvoicePdfSetting("CustomerEmail", string.Empty), InvoicePdfSetting("DefaultEmail", "admin@shipnet.vn"));
+        var titlePeriod = string.IsNullOrWhiteSpace(startDate) || string.IsNullOrWhiteSpace(endDate)
+            ? context.PlanName
+            : $"{context.PlanName} ({startDate} - {endDate})";
+
+        var payload = new
+        {
+            transactionCode,
+            invoiceCode,
+            source = "SHIPNET",
+            paymentTime = FormatIsoUtc(paymentTime),
+            operatorName,
+            email = EmptyToNull(email),
+            invoiceParams = new
+            {
+                LogoUrl = InvoicePdfSetting("LogoUrl", string.Empty),
+                CompanyName = InvoicePdfSetting("CompanyName", "MLTECH MARINE CONNECT PTE LTD"),
+                CompanyAddressLine1 = InvoicePdfSetting("CompanyAddressLine1", "Address: 18 Sin Ming Lane, #07-13, Midview City,"),
+                CompanyAddressLine2 = InvoicePdfSetting("CompanyAddressLine2", "Singapore- 573960, Singapore"),
+                CompanyEmail = InvoicePdfSetting("CompanyEmail", "Email: admin@marineconnect.sg"),
+                ContactNote = InvoicePdfSetting("ContactNote", "If you have any questions regarding this invoice, please contact us."),
+                PaymentTitle = InvoicePdfSetting("PaymentTitle", "PAYMENT INSTRUCTIONS:"),
+                BankAccountNumber = FirstNotEmpty(bank.BankAccountNo, InvoicePdfSetting("BankAccountNumber", string.Empty)),
+                BeneficiaryName = FirstNotEmpty(bank.BankAccountName, InvoicePdfSetting("BeneficiaryName", string.Empty)),
+                BankName = FirstNotEmpty(bank.BankName, InvoicePdfSetting("BankName", string.Empty)),
+                SwiftCode = FirstNotEmpty(bank.SwiftCode, InvoicePdfSetting("SwiftCode", string.Empty)),
+                BankAddressLine1 = FirstNotEmpty(bank.BankAddressLine1, InvoicePdfSetting("BankAddressLine1", string.Empty)),
+                BankAddressLine2 = FirstNotEmpty(bank.BankAddressLine2, InvoicePdfSetting("BankAddressLine2", string.Empty))
+            },
+            vessels = new[]
+            {
+                new
+                {
+                    vesselId = context.DeviceId > 0 ? context.DeviceId.ToString(CultureInfo.InvariantCulture) : context.SubscriptionId.ToString(CultureInfo.InvariantCulture),
+                    vesselName = context.VesselName,
+                    kit_id = kitNumber,
+                    subscriptions = new[]
+                    {
+                        new
+                        {
+                            type = NormalizeInvoiceType(context.InvoiceType),
+                            title = titlePeriod,
+                            subTitles = new[]
+                            {
+                                $"Terminal ID: {FirstNotEmpty(context.KitId, context.DeviceCode)}",
+                                $"KIT Code: {kitNumber}"
+                            },
+                            price = amountVnd,
+                            start_time = startDate,
+                            end_time = endDate,
+                            kit_id = kitNumber
+                        }
+                    }
+                }
+            }
+        };
+
+        return JsonSerializer.Serialize(payload, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = null,
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        });
+    }
+
+    private static InvoicePdfBankInfo ExtractNinePayBankInfo(string providerResponseJson, string bankAccountNoFallback, string transferContentFallback)
+    {
+        if (string.IsNullOrWhiteSpace(providerResponseJson))
+        {
+            return new InvoicePdfBankInfo(bankAccountNoFallback, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, transferContentFallback);
+        }
+
+        try
+        {
+            using var json = JsonDocument.Parse(providerResponseJson);
+            JsonElement banksElement = default;
+            if ((!TryFindPropertyRecursive(json.RootElement, "list_bank_info", out banksElement) || banksElement.ValueKind != JsonValueKind.Array)
+                && (!TryFindPropertyRecursive(json.RootElement, "banks", out banksElement) || banksElement.ValueKind != JsonValueKind.Array))
+            {
+                banksElement = default;
+            }
+
+            InvoicePdfBankInfo? firstBank = null;
+            if (banksElement.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var bankElement in banksElement.EnumerateArray())
+                {
+                    var bank = new InvoicePdfBankInfo(
+                        GetJsonStringAny(bankElement, "bank_account_no", "bankAccountNo", "account_no", "accountNo", "va_number", "vaNumber"),
+                        GetJsonStringAny(bankElement, "bank_account_name", "bankAccountName", "account_name", "accountName", "beneficiary_name", "beneficiaryName"),
+                        GetJsonStringAny(bankElement, "bank_name", "bankName", "name"),
+                        GetJsonStringAny(bankElement, "swift_code", "swiftCode", "swift", "bank_swift_code", "bankSwiftCode"),
+                        GetJsonStringAny(bankElement, "bank_address_line1", "bankAddressLine1", "bank_address_1", "address_line1", "addressLine1"),
+                        GetJsonStringAny(bankElement, "bank_address_line2", "bankAddressLine2", "bank_address_2", "address_line2", "addressLine2"),
+                        GetJsonStringAny(bankElement, "remark", "content", "description", "plaintext"));
+
+                    firstBank ??= bank;
+                    if (!string.IsNullOrWhiteSpace(bankAccountNoFallback) &&
+                        string.Equals(bank.BankAccountNo, bankAccountNoFallback, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return bank with
+                        {
+                            TransferContent = FirstNotEmpty(bank.TransferContent, transferContentFallback)
+                        };
+                    }
+                }
+            }
+
+            if (firstBank is not null)
+            {
+                return firstBank with
+                {
+                    BankAccountNo = FirstNotEmpty(firstBank.BankAccountNo, bankAccountNoFallback),
+                    TransferContent = FirstNotEmpty(firstBank.TransferContent, transferContentFallback)
+                };
+            }
+        }
+        catch
+        {
+        }
+
+        return new InvoicePdfBankInfo(bankAccountNoFallback, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, transferContentFallback);
+    }
+
+    private static string NormalizeInvoiceType(string invoiceType)
+    {
+        return string.Equals(invoiceType, "SUBSCRIPTION", StringComparison.OrdinalIgnoreCase)
+            ? "subscription"
+            : invoiceType.ToLowerInvariant();
+    }
+
+    private string InvoicePdfSetting(string key, string fallback)
+    {
+        var value = configuration[$"InvoicePdf:{key}"];
+        return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+    }
+
+    private static string BuildShipNetInvoiceCode(InvoicePdfPayloadContext context)
+    {
+        var year = context.InvoiceYear > 0
+            ? context.InvoiceYear
+            : (context.CreatedAt ?? DateTime.UtcNow).Year;
+        var sequence = context.InvoiceSequenceInYear > 0
+            ? context.InvoiceSequenceInYear
+            : context.InvoiceId;
+        return $"SHIPNET-INV-{year}-{sequence:00000}";
+    }
+
+    private static string FormatIsoUtc(DateTime value)
+    {
+        var utcValue = value.Kind == DateTimeKind.Utc
+            ? value
+            : DateTime.SpecifyKind(value, DateTimeKind.Local).ToUniversalTime();
+        return utcValue.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
+    }
+
+    private static string FirstNotEmpty(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static string? EmptyToNull(string value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
     public async Task<NinePayIpnProcessResult> ProcessNinePayIpnAsync(
         string resultBase64,
         string checksum,
@@ -615,14 +1015,11 @@ public class PaymentTransactionService(
 
         if (string.IsNullOrWhiteSpace(providerInvoiceNumber))
         {
-            await SendNinePayIpnTelegramNotificationAsync(
-                null,
+            await SendUnmatchedNinePayIpnTelegramNotificationAsync(
                 string.Empty,
                 paymentNo,
                 providerStatus,
                 amountVnd,
-                "Failed",
-                "IPN payload does not contain invoice_no.",
                 cancellationToken);
 
             return new NinePayIpnProcessResult
@@ -699,22 +1096,19 @@ public class PaymentTransactionService(
                 cancellationToken);
 
             await transaction.CommitAsync(cancellationToken);
-            await SendNinePayIpnTelegramNotificationAsync(
-                null,
+            await SendUnmatchedNinePayIpnTelegramNotificationAsync(
                 providerInvoiceNumber,
                 paymentNo,
                 providerStatus,
                 amountVnd,
-                "Failed",
-                "Invoice was not found for IPN invoice_no.",
                 cancellationToken);
 
             return new NinePayIpnProcessResult
             {
-                Success = false,
+                Success = true,
                 InvoiceNumber = providerInvoiceNumber,
                 PaymentNo = paymentNo,
-                Message = "Invoice was not found for IPN invoice_no."
+                Message = "Thanh toán không thông qua shipNet."
             };
         }
 
@@ -787,6 +1181,28 @@ public class PaymentTransactionService(
             processMessage,
             cancellationToken);
 
+        if (isPaidStatus)
+        {
+            foreach (var invoice in mappedInvoices)
+            {
+                var publishResult = await SendInvoiceToRabbitMqAsync(
+                    invoice.InvoiceId,
+                    paymentNo,
+                    completedAt,
+                    "9Pay IPN",
+                    cancellationToken);
+                if (!publishResult.Success)
+                {
+                    logger.LogError(
+                        "9Pay IPN was processed but invoice PDF RabbitMQ publish failed. InvoiceId={InvoiceId}; InvoiceNumber={InvoiceNumber}; PaymentNo={PaymentNo}; Reason={Reason}.",
+                        invoice.InvoiceId,
+                        invoice.InvoiceNumber,
+                        paymentNo,
+                        publishResult.Message);
+                }
+            }
+        }
+
         return new NinePayIpnProcessResult
         {
             Success = true,
@@ -842,6 +1258,24 @@ public class PaymentTransactionService(
         catch (Exception exception)
         {
             logger.LogWarning(exception, "Failed to send Telegram notification for 9Pay IPN {ProviderInvoiceNo}.", providerInvoiceNumber);
+        }
+    }
+
+    private async Task SendUnmatchedNinePayIpnTelegramNotificationAsync(
+        string providerInvoiceNumber,
+        string paymentNo,
+        string providerStatus,
+        decimal amountVnd,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var message = BuildUnmatchedNinePayIpnTelegramMessage(providerInvoiceNumber, paymentNo, providerStatus, amountVnd);
+            await telegramNotificationService.SendMessageAsync(message, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Failed to send unmatched Telegram notification for 9Pay IPN {ProviderInvoiceNo}.", providerInvoiceNumber);
         }
     }
 
@@ -935,6 +1369,27 @@ public class PaymentTransactionService(
             $"Payment no: {Html(paymentNo)}",
             $"Provider status: {Html(providerStatus)}",
             $"Message: {Html(processMessage)}"
+        };
+
+        return string.Join("\n", lines);
+    }
+
+    private static string BuildUnmatchedNinePayIpnTelegramMessage(
+        string providerInvoiceNumber,
+        string paymentNo,
+        string providerStatus,
+        decimal amountVnd)
+    {
+        var paymentStatus = IsNinePayPaidStatus(providerStatus) ? "Success" : "Failed";
+        var lines = new[]
+        {
+            "<b>9Pay IPN payment notification</b>",
+            $"Total amount: {Html($"{amountVnd:#,##0} VND")}",
+            $"Tình trạng thanh toán: {Html(paymentStatus)}",
+            $"Provider invoice: {Html(providerInvoiceNumber)}",
+            $"Payment no: {Html(paymentNo)}",
+            $"Provider status: {Html(providerStatus)}",
+            "Message: Thanh toán không thông qua shipNet"
         };
 
         return string.Join("\n", lines);
@@ -1894,7 +2349,7 @@ public class PaymentTransactionService(
 
     private static object EmptyToDbNull(string value) => string.IsNullOrWhiteSpace(value) ? DBNull.Value : value;
 
-    private static int ReadInt(SqlDataReader reader, string columnName) => reader[columnName] is int value ? value : Convert.ToInt32(reader[columnName]);
+    private static int ReadInt(SqlDataReader reader, string columnName) => reader[columnName] == DBNull.Value ? 0 : reader[columnName] is int value ? value : Convert.ToInt32(reader[columnName], CultureInfo.InvariantCulture);
 
     private static decimal ReadDecimal(SqlDataReader reader, string columnName)
     {
@@ -1906,6 +2361,12 @@ public class PaymentTransactionService(
     {
         var value = reader[columnName];
         return value == DBNull.Value ? null : Convert.ToDateTime(value, CultureInfo.InvariantCulture);
+    }
+
+    private static string ReadText(SqlDataReader reader, string columnName)
+    {
+        var value = reader[columnName];
+        return value == DBNull.Value ? string.Empty : value?.ToString() ?? string.Empty;
     }
 
     private string BuildNinePayPaymentUrl(string invoiceNumber, decimal totalToPayVnd, string method)
@@ -2864,6 +3325,52 @@ public class PaymentTransactionService(
     }
 
     private sealed record QrInvoiceItem(int InvoiceId, int SubscriptionId, int TenantId, string InvoiceNumber, decimal Amount);
+
+    private sealed record InvoicePdfPayloadContext(
+        int InvoiceId,
+        string InvoiceNumber,
+        int InvoiceYear,
+        int InvoiceSequenceInYear,
+        string InvoiceType,
+        string Description,
+        string ReceiptNumber,
+        DateTime? CompletedAt,
+        DateTime? CreatedAt,
+        string CreatedBy,
+        string UpdatedBy,
+        int SubscriptionId,
+        int DeviceId,
+        int TenantId,
+        string TenantName,
+        string VesselName,
+        string KitId,
+        string PlanName,
+        DateTime? StartDate,
+        DateTime? EndDate,
+        string KitNumber,
+        string DeviceCode,
+        string TenantEmail,
+        int QrSessionId,
+        string ProviderInvoiceNo,
+        string ProviderPaymentNo,
+        string IpnPaymentNo,
+        DateTime? IpnReceivedAt,
+        string BankAccountNo,
+        string TransferContent,
+        string ProviderResponseJson,
+        decimal InvoiceAmountVnd,
+        string TransactionPaymentNo,
+        decimal TransactionAmountVnd,
+        DateTime? LatestTransactionAt);
+
+    private sealed record InvoicePdfBankInfo(
+        string BankAccountNo,
+        string BankAccountName,
+        string BankName,
+        string SwiftCode,
+        string BankAddressLine1,
+        string BankAddressLine2,
+        string TransferContent);
 
     private sealed record TelegramSubscriptionNotificationDetail(
         int SubscriptionId,

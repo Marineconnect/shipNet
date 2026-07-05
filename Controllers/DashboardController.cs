@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using StarlinkDeviceManager.Models;
@@ -221,6 +221,55 @@ public class DashboardController(
                 Message = ex.Message,
                 MessageEn = ex.Message
             });
+        }
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> DeviceDataOptInData(int id)
+    {
+        var currentUser = await GetCurrentUserAsync();
+        if (!CanManageDataOptIn(currentUser)) return Forbid();
+        try
+        {
+            var result = await deviceService.GetDeviceDataOptInAsync(id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            if (!result.Success)
+            {
+                var statusCode = result.ErrorCode == "device_not_found" ? StatusCodes.Status404NotFound : StatusCodes.Status502BadGateway;
+                return StatusCode(statusCode, result);
+            }
+            return Json(result);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new DeviceDataOptInManagementResult { ErrorCode = "server_exception", Message = ex.Message, MessageEn = ex.Message });
+        }
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> UpdateDeviceDataOptIn([FromForm] UpdateDeviceDataOptInRequest request)
+    {
+        var currentUser = await GetCurrentUserAsync();
+        if (!CanManageDataOptIn(currentUser)) return Forbid();
+        try
+        {
+            var performedBy = User.FindFirstValue("DisplayName") ?? User.Identity?.Name ?? "system";
+            var result = await deviceService.UpdateDeviceDataOptInAsync(request, currentUser?.Id, performedBy, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            if (!result.Success)
+            {
+                var statusCode = result.ErrorCode switch
+                {
+                    "device_not_found" => StatusCodes.Status404NotFound,
+                    "validation_required" or "status_unchanged" => StatusCodes.Status400BadRequest,
+                    _ => StatusCodes.Status502BadGateway
+                };
+                return StatusCode(statusCode, result);
+            }
+            return Json(result);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new DeviceDataOptInChangeResult { ErrorCode = "server_exception", Message = ex.Message, MessageEn = ex.Message });
         }
     }
 
@@ -578,7 +627,8 @@ public class DashboardController(
             CurrentTenantId = currentUser?.TenantId,
             CurrentTenantName = tenants.FirstOrDefault(tenant => tenant.Id == currentUser?.TenantId)?.TenantName,
             CanManageDevices = CanManageDevices(currentUser),
-            CanViewMap = CanViewMap(currentUser)
+            CanViewMap = CanViewMap(currentUser),
+            CanManageDataOptIn = CanManageDataOptIn(currentUser)
         };
     }
 
@@ -609,12 +659,19 @@ public class DashboardController(
 
     private static bool CanManageDevices(AuthUserRecord? user)
     {
-        return user is not null && !user.IsTenantUser && !user.IsShipAdmin && !user.IsCrew;
+        return user is not null && !user.IsViewOnly && !user.IsTenantUser && !user.IsShipAdmin && !user.IsCrew;
     }
 
     private static bool CanViewMap(AuthUserRecord? user)
     {
         return user is not null && !user.IsShipAdmin && !user.IsCrew;
+    }
+
+    private static bool CanManageDataOptIn(AuthUserRecord? user)
+    {
+        return user?.IsViewOnly != true &&
+            (string.Equals(user?.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(user?.UserType?.Trim(), ManagedUserType.Admin, StringComparison.OrdinalIgnoreCase));
     }
 
     private static string? NormalizeSearchTerm(string? search)
@@ -643,3 +700,6 @@ public class DashboardController(
         return string.Equals(Request.Headers["X-Requested-With"], "XMLHttpRequest", StringComparison.OrdinalIgnoreCase);
     }
 }
+
+
+

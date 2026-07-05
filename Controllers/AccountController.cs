@@ -85,7 +85,8 @@ public class AccountController(
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim(ClaimTypes.Name, user.Username),
             new Claim("DisplayName", displayName),
-            new Claim("UserType", ManagedUserType.NormalizeGroup(user.UserType))
+            new Claim("UserType", ManagedUserType.NormalizeGroup(user.UserType)),
+            new Claim("IsViewOnly", user.IsViewOnly ? "true" : "false")
         };
 
         if (!string.IsNullOrWhiteSpace(user.Avatar))
@@ -522,7 +523,8 @@ public class AccountController(
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim(ClaimTypes.Name, user.Username),
             new Claim("DisplayName", displayName),
-            new Claim("UserType", ManagedUserType.NormalizeGroup(user.UserType))
+            new Claim("UserType", ManagedUserType.NormalizeGroup(user.UserType)),
+            new Claim("IsViewOnly", user.IsViewOnly ? "true" : "false")
         };
 
         if (!string.IsNullOrWhiteSpace(user.Avatar))
@@ -533,6 +535,11 @@ public class AccountController(
         if (user.TenantId.HasValue && user.TenantId.Value > 0)
         {
             claims.Add(new Claim("TenantID", user.TenantId.Value.ToString()));
+        }
+
+        if (user.DeviceId.HasValue && user.DeviceId.Value > 0)
+        {
+            claims.Add(new Claim("DeviceID", user.DeviceId.Value.ToString()));
         }
 
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);

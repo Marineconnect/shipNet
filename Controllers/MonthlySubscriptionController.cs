@@ -258,7 +258,7 @@ public class MonthlySubscriptionController(
 
     private static bool CanManageSubscriptions(AuthUserRecord? user)
     {
-        return user is not null && !user.IsShipAdmin && !user.IsCrew;
+        return user is not null && !user.IsViewOnly && !user.IsShipAdmin && !user.IsCrew;
     }
 
     private static bool CanViewQrSessions(AuthUserRecord? user)

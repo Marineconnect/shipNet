@@ -599,6 +599,7 @@ public class PricingController(
     {
         var currentUser = await GetCurrentUserAsync();
         return currentUser is not null &&
+            !currentUser.IsViewOnly &&
             !currentUser.IsTenantUser &&
             !currentUser.IsShipAdmin &&
             !currentUser.IsCrew;

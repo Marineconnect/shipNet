@@ -6,7 +6,11 @@
     <title>@ViewData["Title"] - Shipnet portal</title>
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
 </head>
-<body class="app-body">
+<body class="app-body @(User.HasClaim("IsViewOnly", "true") ? "is-view-only" : string.Empty)">
+    @if (TempData["ViewOnlyDenied"] is string viewOnlyDeniedMessage && !string.IsNullOrWhiteSpace(viewOnlyDeniedMessage))
+    {
+        <div class="view-only-denied" role="alert">@viewOnlyDeniedMessage</div>
+    }
     @RenderBody()
     @RenderSection("Scripts", required: false)
     <script>
@@ -309,18 +313,67 @@
             window.shipnetApplySplitLanguage?.();
         }
 
+        function applyViewOnlyMode() {
+            if (!document.body.classList.contains("is-view-only")) return;
+
+            const blockedPattern = /\/(Create|Edit|Update|Delete|Save|Import|Change|LoginAsUser|RefreshExpiredDevice|RebootDeviceRouter|NinePayQrInfo|NinePayBankTransferInfo|NinePaySubscriptionQr)(\?|\/|$)/i;
+            const blockedIds = [
+                "openDeviceModal",
+                "openUserCreateModal",
+                "openTenantCreateModal",
+                "openPricingCreateModal",
+                "openTenantPricingCreateModal",
+                "openSubscriptionModal",
+                "makeGroupedQrButton",
+                "makeQrButton",
+                "openInvoiceModal",
+                "detailPlanAddButton",
+                "detailRouterRebootButton",
+                "dataOptInAction"
+            ];
+
+            blockedIds.forEach((id) => {
+                const element = document.getElementById(id);
+                if (element) element.hidden = true;
+            });
+
+            document.querySelectorAll("a[href], form[action]").forEach((element) => {
+                const target = element.getAttribute("href") || element.getAttribute("action") || "";
+                if (!blockedPattern.test(target)) return;
+                element.hidden = true;
+                element.setAttribute("aria-hidden", "true");
+            });
+
+            document.querySelectorAll("button[type='submit'], .js-delete-device-plan, .js-edit-device-plan").forEach((button) => {
+                const form = button.closest("form");
+                const action = form?.getAttribute("action") || "";
+                const label = button.textContent || "";
+                if (!blockedPattern.test(action) && !/(Tạo|Thêm|Sửa|Xóa|Lưu|Cập nhật|Create|Add|Edit|Delete|Save|Update|Import)/i.test(label)) {
+                    return;
+                }
+                button.disabled = true;
+                button.classList.add("is-view-only-disabled");
+                button.setAttribute("title", "Tài khoản chỉ theo dõi không được thực hiện thao tác này / View-only accounts cannot perform this action");
+            });
+        }
+
         window.shipnetApplySplitLanguage = applySplitLanguage;
         window.shipnetEnhanceSelectSearch = enhanceAllSelectSearch;
         document.addEventListener("DOMContentLoaded", () => {
             enhanceAllSelectSearch();
             applySplitLanguage();
+            applyViewOnlyMode();
             let enhanceTimer = null;
             const observer = new MutationObserver((mutations) => {
                 if (!mutations.some((mutation) => mutation.target instanceof HTMLSelectElement || Array.from(mutation.addedNodes).some((node) => node instanceof HTMLSelectElement || (node instanceof Element && node.querySelector?.("select"))))) {
+                    applyViewOnlyMode();
                     return;
                 }
                 window.clearTimeout(enhanceTimer);
-                enhanceTimer = window.setTimeout(enhanceAllSelectSearch, 80);
+                enhanceTimer = window.setTimeout(() => {
+                    enhanceAllSelectSearch();
+                    applyViewOnlyMode();
+                }, 80);
             });
             observer.observe(document.body, { childList: true, subtree: true });
         });
