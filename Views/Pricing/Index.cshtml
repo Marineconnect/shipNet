@@ -23,6 +23,7 @@
 
     string Money(decimal value) => $"${value:#,##0.##}";
     string Data(decimal value) => $"{value:#,##0.##} GB";
+    string NumberInput(decimal value) => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
 
     var accountDisplayName = User.FindFirst("DisplayName")?.Value;
     if (string.IsNullOrWhiteSpace(accountDisplayName))
@@ -533,10 +534,10 @@
             @foreach (var plan in Model.PricingPlanOptions)
             {
               <option value="@plan.Id"
-                      data-reseller-price="@plan.ResellerPrice"
-                      data-final-price="@plan.FinalPrice"
-                      data-reseller-overcharge-price="@plan.ResellerOverChargePrice"
-                      data-final-overcharge-price="@plan.FinalOverChargePrice">@plan.DisplayName</option>
+                      data-reseller-price="@NumberInput(plan.ResellerPrice)"
+                      data-final-price="@NumberInput(plan.FinalPrice)"
+                      data-reseller-overcharge-price="@NumberInput(plan.ResellerOverChargePrice)"
+                      data-final-overcharge-price="@NumberInput(plan.FinalOverChargePrice)">@plan.DisplayName</option>
             }
           </select>
           <span asp-validation-for="TenantPriceCreateForm.PricingPlanId" class="field-error"></span>
@@ -604,10 +605,10 @@
             @foreach (var plan in Model.PricingPlanOptions)
             {
               <option value="@plan.Id"
-                      data-reseller-price="@plan.ResellerPrice"
-                      data-final-price="@plan.FinalPrice"
-                      data-reseller-overcharge-price="@plan.ResellerOverChargePrice"
-                      data-final-overcharge-price="@plan.FinalOverChargePrice">@plan.DisplayName</option>
+                      data-reseller-price="@NumberInput(plan.ResellerPrice)"
+                      data-final-price="@NumberInput(plan.FinalPrice)"
+                      data-reseller-overcharge-price="@NumberInput(plan.ResellerOverChargePrice)"
+                      data-final-overcharge-price="@NumberInput(plan.FinalOverChargePrice)">@plan.DisplayName</option>
             }
           </select>
           <span asp-validation-for="TenantPriceEditForm.PricingPlanId" class="field-error"></span>

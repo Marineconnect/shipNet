@@ -2247,7 +2247,11 @@
     }
   }
 
-  function antiForgeryToken(formElement) { return formElement?.querySelector("input[name='__RequestVerificationToken']")?.value || ""; }
+  function antiForgeryToken(formElement) {
+    return formElement?.querySelector("input[name='__RequestVerificationToken']")?.value
+      || document.querySelector("input[name='__RequestVerificationToken']")?.value
+      || "";
+  }
   function setProcessing(isProcessing) { submitButton.disabled = isProcessing; submitButton.classList.toggle("is-processing", isProcessing); submitLabel.textContent = isProcessing ? text("processing") : text(deviceModalMode === "edit" ? "update_device" : "save_device"); }
   function showFeedback(message, type) { feedback.hidden = false; feedback.textContent = message; feedback.classList.remove("is-success", "is-error"); feedback.classList.add(type === "success" ? "is-success" : "is-error"); }
   function hideFeedback() { feedback.hidden = true; feedback.textContent = ""; feedback.classList.remove("is-success", "is-error"); }

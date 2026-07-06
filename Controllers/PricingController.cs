@@ -195,6 +195,8 @@ public class PricingController(
         var model = requestModel.CreateForm;
         NormalizePlanModel(model);
         RemoveModelStateForPrefix(nameof(PricingPlanIndexViewModel.EditForm));
+        RemoveModelStateForPrefix(nameof(PricingPlanIndexViewModel.TenantPriceCreateForm));
+        RemoveModelStateForPrefix(nameof(PricingPlanIndexViewModel.TenantPriceEditForm));
         await ValidateDuplicatePlanCodeAsync(model, nameof(PricingPlanIndexViewModel.CreateForm), excludePlanId: null);
         ValidateStatus(model, nameof(PricingPlanIndexViewModel.CreateForm));
 
@@ -268,6 +270,8 @@ public class PricingController(
         var model = requestModel.EditForm;
         NormalizePlanModel(model);
         RemoveModelStateForPrefix(nameof(PricingPlanIndexViewModel.CreateForm));
+        RemoveModelStateForPrefix(nameof(PricingPlanIndexViewModel.TenantPriceCreateForm));
+        RemoveModelStateForPrefix(nameof(PricingPlanIndexViewModel.TenantPriceEditForm));
         await ValidateDuplicatePlanCodeAsync(model, nameof(PricingPlanIndexViewModel.EditForm), model.Id);
         ValidateStatus(model, nameof(PricingPlanIndexViewModel.EditForm));
 
