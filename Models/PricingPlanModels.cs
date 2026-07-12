@@ -62,9 +62,35 @@ public class TenantPricingImportResult
 {
     public int CreatedCount { get; set; }
     public int UpdatedCount { get; set; }
+    public int DeviceCreatedCount { get; set; }
+    public int DeviceUpdatedCount { get; set; }
+    public int DeviceSkippedCount { get; set; }
     public int SkippedCount { get; set; }
     public List<string> Errors { get; set; } = [];
     public List<TenantPricingImportRow> Prices { get; set; } = [];
+}
+
+public class TenantPricingDevicePreviewResult
+{
+    public List<TenantPricingDeviceTenantViewModel> Tenants { get; set; } = [];
+    public List<string> Errors { get; set; } = [];
+}
+
+public class TenantPricingDeviceTenantViewModel
+{
+    public int TenantId { get; set; }
+    public string TenantName { get; set; } = string.Empty;
+    public int ImportedPlanCount { get; set; }
+    public List<TenantPricingDeviceItemViewModel> Devices { get; set; } = [];
+}
+
+public class TenantPricingDeviceItemViewModel
+{
+    public int DeviceId { get; set; }
+    public string DeviceName { get; set; } = string.Empty;
+    public string DeviceCode { get; set; } = string.Empty;
+    public string VesselName { get; set; } = string.Empty;
+    public int ExistingPlanCount { get; set; }
 }
 
 public class TenantPricingImportRow
@@ -73,6 +99,7 @@ public class TenantPricingImportRow
     public string TenantKey { get; set; } = string.Empty;
     public string TenantName { get; set; } = string.Empty;
     public string PlanCode { get; set; } = string.Empty;
+    public string PlanName { get; set; } = string.Empty;
     public decimal ResellerPrice { get; set; }
     public decimal FinalPrice { get; set; }
     public decimal ResellerOverChargePrice { get; set; }

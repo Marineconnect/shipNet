@@ -4,6 +4,7 @@ public class CreateDeviceRequest
 {
     public string DeviceName { get; set; } = string.Empty;
     public string DeviceCode { get; set; } = string.Empty;
+    public string KitNumber { get; set; } = string.Empty;
     public string VesselName { get; set; } = string.Empty;
     public int? TenantId { get; set; }
 }
@@ -19,11 +20,26 @@ public class CreateDeviceResult
     public int? DeviceId { get; set; }
 }
 
+public class KitTerminalLookupResult
+{
+    public bool Success { get; set; }
+    public bool IsRateLimited { get; set; }
+    public string ErrorCode { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    public string MessageEn { get; set; } = string.Empty;
+    public string TerminalId { get; set; } = string.Empty;
+    public string KitId { get; set; } = string.Empty;
+    public string KitNumber { get; set; } = string.Empty;
+    public string ServiceLine { get; set; } = string.Empty;
+    public string ApiResult { get; set; } = string.Empty;
+}
+
 public class UpdateDeviceRequest
 {
     public int Id { get; set; }
     public string DeviceName { get; set; } = string.Empty;
     public string DeviceCode { get; set; } = string.Empty;
+    public string KitNumber { get; set; } = string.Empty;
     public string VesselName { get; set; } = string.Empty;
     public int? TenantId { get; set; }
 }
@@ -85,4 +101,16 @@ public class RefreshDeviceResult
     public string UsageDataDisplay { get; set; } = "-";
     public string PriorityDataDisplay { get; set; } = "-";
     public string PlanName { get; set; } = string.Empty;
+}
+
+public class StockDeviceSyncResult
+{
+    public bool Success { get; set; }
+    public int TotalStockDevices { get; set; }
+    public int SyncedCount { get; set; }
+    public int SkippedNoTerminalCount { get; set; }
+    public int FailedCount { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public string MessageEn { get; set; } = string.Empty;
+    public List<string> Errors { get; set; } = [];
 }

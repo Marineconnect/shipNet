@@ -1,11 +1,17 @@
-@model MonthlySubscriptionDetailViewModel
+﻿@model MonthlySubscriptionDetailViewModel
 @inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 @{
     ViewData["ActiveNav"] = "subscription";
     ViewData["Title"] = "Subscription Detail";
-    string Money(decimal value) => $"$ {value:#,##0.##}";
+    var defaultCurrency = (Configuration["System:DefaultCurrency"] ?? "VND").Trim().ToUpperInvariant();
+    string Money(decimal value) => string.Equals(defaultCurrency, "VND", StringComparison.OrdinalIgnoreCase)
+        ? $"{value:#,##0} VND"
+        : $"{defaultCurrency} {value:#,##0.##}";
     string Data(decimal value) => $"{value:#,##0.##} GB";
     string Vnd(decimal value) => $"{value:#,##0} VND";
+    string FormulaUsd(decimal value) => string.Equals(defaultCurrency, "VND", StringComparison.OrdinalIgnoreCase)
+        ? $"{value.ToString("#,##0", System.Globalization.CultureInfo.InvariantCulture)} VND"
+        : $"{defaultCurrency} {value.ToString("#,##0.##", System.Globalization.CultureInfo.InvariantCulture)}";
     string NumberInput(decimal value) => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
     string DateTimeInput(DateTime? value) => value.HasValue ? value.Value.ToString("yyyy-MM-ddTHH:mm") : string.Empty;
     string DateInput(DateTime value) => value.ToString("yyyy-MM-dd");
@@ -23,6 +29,9 @@
     var errorMessage = TempData["SubscriptionError"]?.ToString();
     var defaultInvoice = Model.Invoices.FirstOrDefault();
     var showInvoiceRabbitMq = Configuration.GetValue("InvoiceRabbitMq:ShowInvoiceRabbitMQ", false);
+    var billingDays = Math.Max(0, (Model.UpdateBillingForm.EndDate.Date - Model.UpdateBillingForm.StartDate.Date).Days + 1);
+    var billingAmount = Math.Round(Model.UpdateBillingForm.BasePlanPrice * billingDays / 30m, 2, MidpointRounding.AwayFromZero);
+    var billingFormula = $"{FormulaUsd(billingAmount)} = ({FormulaUsd(Model.UpdateBillingForm.BasePlanPrice)} / 30 days) x {billingDays} days";
 }
 
 <div class="device-page">
@@ -106,15 +115,18 @@
                 <input type="date" name="NextBillingDate" value="@DateInput(Model.UpdateBillingForm.NextBillingDate)" disabled="@(!Model.CanEditBilling)" />
               </label>
               <label class="detail-field">
-                <span>Giá bán cuối ($) / Final Sale Price ($)</span>
+                <span>Final Sale Price (@defaultCurrency)</span>
                 <input type="number" step="0.01" min="0" name="BasePlanPrice" id="Billing_BasePlanPrice" value="@NumberInput(Model.UpdateBillingForm.BasePlanPrice)" disabled="@(!Model.CanEditBilling)" />
               </label>
               <label class="detail-field">
-                <span>Giá overcharge ($/GB) / Overcharge Price ($/GB)</span>
+                <span>Overcharge Price (@defaultCurrency/GB)</span>
                 <input type="number" step="0.01" min="0" name="OverChargePrice" value="@NumberInput(Model.UpdateBillingForm.OverChargePrice)" disabled="@(!Model.CanEditBilling)" />
               </label>
             </div>
-            <div class="subscription-calculation" id="billingCalculation">-</div>
+            <div class="subscription-calculation" id="billingCalculation" title="@billingFormula">
+              <strong>@FormulaUsd(billingAmount)</strong>
+              <span>= (@FormulaUsd(Model.UpdateBillingForm.BasePlanPrice) / 30 days) x @billingDays days</span>
+            </div>
             @if (!Model.CanEditBilling && !string.IsNullOrWhiteSpace(Model.BillingEditBlockedReason))
             {
               <div class="tenant-feedback">@Model.BillingEditBlockedReason</div>
@@ -155,11 +167,11 @@
                 <input name="InvoiceNumber" id="UpdateInvoice_InvoiceNumber" maxlength="100" value="@defaultInvoice.InvoiceNumber" disabled="@(defaultInvoice.IsPaidByBankTransfer)" />
               </label>
               <label class="detail-field">
-                <span>Tổng tiền ($) / Total Amount ($)</span>
+                <span>Total Amount (@defaultCurrency)</span>
                 <input type="number" step="0.01" min="0" name="Amount" id="UpdateInvoice_Amount" value="@NumberInput(defaultInvoice.Amount)" disabled="@(defaultInvoice.IsPaidByBankTransfer)" />
               </label>
               <label class="detail-field">
-                <span>Hoàn tiền ($) / Refund Amount ($)</span>
+                <span>Refund Amount (@defaultCurrency)</span>
                 <input type="number" step="0.01" min="0" name="RefundAmount" id="UpdateInvoice_RefundAmount" value="@NumberInput(defaultInvoice.RefundAmount)" disabled="@(defaultInvoice.IsPaidByBankTransfer)" />
               </label>
               <label class="detail-field">
@@ -376,7 +388,7 @@
           <input type="number" step="0.01" min="0" name="DataGb" value="0" />
         </label>
         <label class="detail-field">
-          <span>Số tiền cho OTHER ($) / Amount for OTHER ($)</span>
+          <span>Amount for OTHER (@defaultCurrency)</span>
           <input type="number" step="0.01" min="0" name="Amount" value="0" />
         </label>
         <label class="detail-field">
@@ -407,7 +419,7 @@
         <tbody>
           <tr><th>Phương thức thanh toán / Payment method</th><td id="ninePayMethod">bank_transfer</td></tr>
           <tr><th>Tổng đơn hàng / Order total</th><td id="ninePayOrderTotal">-</td></tr>
-          <tr><th>Tỷ giá VND/USD / VND/USD Exchange Rate</th><td id="ninePayExchangeRate">-</td></tr>
+          <tr><th>Exchange Rate</th><td id="ninePayExchangeRate">-</td></tr>
           <tr><th>Số tiền (VND) / Amount (VND)</th><td id="ninePayAmountVnd">-</td></tr>
           <tr><th>Phí giao dịch / Transaction Fee</th><td id="ninePayFeeVnd">-</td></tr>
           <tr><th>Tổng cần thanh toán / Total to Pay</th><td id="ninePayTotalVnd">-</td></tr>
@@ -640,7 +652,17 @@
   let paymentPollTimer = null;
   let paymentPollCount = 0;
   function formatUsd(value) {
-    return `$ ${Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+    const currency = "@defaultCurrency";
+    const number = Number(value || 0);
+    return currency === "VND"
+      ? `${number.toLocaleString("vi-VN", { maximumFractionDigits: 0 })} VND`
+      : `${currency} ${number.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+  }
+  function parseDateInput(value) {
+    const parts = `${value || ""}`.split("-").map(Number);
+    if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part))) return null;
+    const [year, month, day] = parts;
+    return new Date(year, month - 1, day);
   }
   function updateBillingCalculation() {
     const start = document.querySelector("#Billing_StartDate")?.value;
@@ -652,23 +674,25 @@
       target.textContent = "Chọn ngày billing để tính lại tiền subscription / Select billing dates to recalculate subscription amount.";
       return;
     }
-    const startDate = new Date(start);
-    const endDate = new Date(end);
-    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate < startDate) {
+    const startDate = parseDateInput(start);
+    const endDate = parseDateInput(end);
+    if (!startDate || !endDate || Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate < startDate) {
       target.textContent = "Kỳ billing không hợp lệ / Invalid billing period.";
       return;
     }
     const days = Math.round((endDate - startDate) / 86400000) + 1;
     const amount = price * days / 30;
     const formula = `${formatUsd(amount)} = (${formatUsd(price)} / 30 days) x ${days} days`;
-    target.textContent = formula;
+    target.innerHTML = `<strong>${formatUsd(amount)}</strong><span>= (${formatUsd(price)} / 30 days) x ${days} days</span>`;
     target.title = formula;
   }
   ["#Billing_StartDate", "#Billing_EndDate", "#Billing_BasePlanPrice"].forEach((selector) => {
     document.querySelector(selector)?.addEventListener("input", updateBillingCalculation);
     document.querySelector(selector)?.addEventListener("change", updateBillingCalculation);
   });
-  updateBillingCalculation();
+  document.addEventListener("DOMContentLoaded", updateBillingCalculation);
+  window.addEventListener("pageshow", updateBillingCalculation);
+  window.requestAnimationFrame(updateBillingCalculation);
   function formatVnd(value) {
     return `${Number(value || 0).toLocaleString("vi-VN")} VND`;
   }
@@ -985,7 +1009,7 @@
       }
       if (qrFields.method) qrFields.method.textContent = data.paymentMethod || "bank_transfer";
       if (qrFields.orderTotal) qrFields.orderTotal.textContent = formatUsd(data.orderTotalUsd);
-      if (qrFields.exchangeRate) qrFields.exchangeRate.textContent = `${Number(data.exchangeRateVndPerUsd || 0).toLocaleString("vi-VN")} VND/USD`;
+      if (qrFields.exchangeRate) qrFields.exchangeRate.textContent = `1 @defaultCurrency = ${Number(data.exchangeRateVndPerUsd || 0).toLocaleString("vi-VN")} VND`;
       if (qrFields.amountVnd) qrFields.amountVnd.textContent = formatVnd(data.amountVnd);
       if (qrFields.feeVnd) qrFields.feeVnd.textContent = formatVnd(data.transactionFeeVnd);
       if (qrFields.totalVnd) qrFields.totalVnd.textContent = formatVnd(data.totalToPayVnd);

@@ -126,7 +126,14 @@
               @foreach (var rate in Model.Rates)
               {
                 <tr>
-                  <td>@rate.PairDisplay</td>
+                  <td>
+                    <a asp-controller="CurrencyExchange"
+                       asp-action="Edit"
+                       asp-route-id="@rate.Id"
+                       asp-route-page="@Model.CurrentPage"
+                       asp-route-pageSize="@Model.PageSize"
+                       class="table-primary-link">@rate.PairDisplay</a>
+                  </td>
                   <td>1 @rate.FromCurrency = @rate.RateDisplay @rate.ToCurrency</td>
                   <td>@rate.EffectiveDateDisplay</td>
                   <td><span class="subscription-status @rate.Status">@rate.Status</span></td>

@@ -22,7 +22,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         ?? throw new InvalidOperationException("Missing connection string: DefaultConnection");
     private bool? _hasPlanNameColumn;
 
-    public async Task<DevicePageResult> GetDevicesAsync(int page, int pageSize, string? searchTerm = null, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
+    public async Task<DevicePageResult> GetDevicesAsync(int page, int pageSize, string? searchTerm = null, int? tenantId = null, int? deviceId = null, bool stockOnly = false, CancellationToken cancellationToken = default)
     {
         page = page < 1 ? 1 : page;
         pageSize = pageSize <= 0 ? 10 : pageSize;
@@ -59,6 +59,10 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             LEFT JOIN [TblTenant] t ON t.[ID] = d.[TenantID]
             WHERE (@tenantId IS NULL OR d.[TenantID] = @tenantId)
               AND (@deviceId IS NULL OR d.[ID] = @deviceId)
+              AND (
+                    (@stockOnly = 1 AND NULLIF(LTRIM(RTRIM(ISNULL(d.[DeviceCode], ''))), '') IS NULL)
+                    OR (@stockOnly = 0 AND NULLIF(LTRIM(RTRIM(ISNULL(d.[DeviceCode], ''))), '') IS NOT NULL)
+                  )
             {searchClause}
             """;
         var query = $"""
@@ -89,6 +93,10 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             {planDataLimitApply}
             WHERE (@tenantId IS NULL OR d.[TenantID] = @tenantId)
               AND (@deviceId IS NULL OR d.[ID] = @deviceId)
+              AND (
+                    (@stockOnly = 1 AND NULLIF(LTRIM(RTRIM(ISNULL(d.[DeviceCode], ''))), '') IS NULL)
+                    OR (@stockOnly = 0 AND NULLIF(LTRIM(RTRIM(ISNULL(d.[DeviceCode], ''))), '') IS NOT NULL)
+                  )
             {searchClause}
             ORDER BY d.[LastUpdateTime] DESC, d.[DeviceName] ASC
             OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
@@ -97,6 +105,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         await using var countCommand = new SqlCommand(countQuery, connection);
         countCommand.Parameters.Add("@tenantId", SqlDbType.Int).Value = (object?)tenantId ?? DBNull.Value;
         countCommand.Parameters.Add("@deviceId", SqlDbType.Int).Value = (object?)deviceId ?? DBNull.Value;
+        countCommand.Parameters.Add("@stockOnly", SqlDbType.Bit).Value = stockOnly;
         AddDeviceSearchParameters(countCommand, normalizedSearchTerm, searchPattern);
         var totalResult = await countCommand.ExecuteScalarAsync(cancellationToken);
         var totalDevices = totalResult is int total ? total : Convert.ToInt32(totalResult ?? 0);
@@ -104,6 +113,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         await using var command = new SqlCommand(query, connection);
         command.Parameters.Add("@tenantId", SqlDbType.Int).Value = (object?)tenantId ?? DBNull.Value;
         command.Parameters.Add("@deviceId", SqlDbType.Int).Value = (object?)deviceId ?? DBNull.Value;
+        command.Parameters.Add("@stockOnly", SqlDbType.Bit).Value = stockOnly;
         AddDeviceSearchParameters(command, normalizedSearchTerm, searchPattern);
         command.Parameters.AddWithValue("@offset", offset);
         command.Parameters.AddWithValue("@pageSize", pageSize);
@@ -624,6 +634,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
 
         request.ResellerPrice = planOption.ResellerPrice;
         request.ResellerOverChargePrice = planOption.ResellerOverChargePrice;
+        request.Status = string.IsNullOrWhiteSpace(planOption.Status) ? "active" : planOption.Status;
 
         var existingId = await GetExistingDevicePlanPriceIdAsync(connection, transaction, request.DeviceId, request.PricingPlanId, cancellationToken);
         var created = !existingId.HasValue;
@@ -631,9 +642,9 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         {
             const string insertQuery = """
                 INSERT INTO [TblDevicePricing]
-                    ([DeviceId], [TenantId], [PricingPlanId], [ResellerPrice], [FinalPrice], [ResellerOverChargePrice], [FinalOverChargePrice], [Created_Date], [Created_By], [Updated_Date], [Updated_By])
+                    ([DeviceId], [TenantId], [PricingPlanId], [ResellerPrice], [FinalPrice], [ResellerOverChargePrice], [FinalOverChargePrice], [Status], [Created_Date], [Created_By], [Updated_Date], [Updated_By])
                 VALUES
-                    (@deviceId, @tenantId, @pricingPlanId, @resellerPrice, @finalPrice, @resellerOverChargePrice, @finalOverChargePrice, GETDATE(), @createdBy, GETDATE(), @updatedBy)
+                    (@deviceId, @tenantId, @pricingPlanId, @resellerPrice, @finalPrice, @resellerOverChargePrice, @finalOverChargePrice, @status, GETDATE(), @createdBy, GETDATE(), @updatedBy)
                 """;
             await using var insertCommand = new SqlCommand(insertQuery, connection, transaction);
             AddDevicePlanPriceParameters(insertCommand, request, device.TenantId.Value);
@@ -651,6 +662,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                     [FinalPrice] = @finalPrice,
                     [ResellerOverChargePrice] = @resellerOverChargePrice,
                     [FinalOverChargePrice] = @finalOverChargePrice,
+                    [Status] = @status,
                     [Updated_Date] = GETDATE(),
                     [Updated_By] = @updatedBy
                 WHERE [ID] = @id
@@ -800,14 +812,70 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         return RefreshDeviceInternalAsync(id, onlyIfTokenExpired: false, cancellationToken: cancellationToken);
     }
 
+    public async Task<StockDeviceSyncResult> SyncStockDevicesAsync(int? tenantId = null, CancellationToken cancellationToken = default)
+    {
+        var result = new StockDeviceSyncResult { Success = true };
+        var stockDevices = new List<(int Id, string DeviceCode)>();
+
+        await using (var connection = new SqlConnection(_connectionString))
+        {
+            await connection.OpenAsync(cancellationToken);
+            const string query = """
+                SELECT [ID], ISNULL([DeviceCode], '') AS [DeviceCode]
+                FROM [TblDevices]
+                WHERE (@tenantId IS NULL OR [TenantID] = @tenantId)
+                  AND [LastSysnTime] IS NULL
+                  AND (
+                        NULLIF(LTRIM(RTRIM(ISNULL([DeviceCode], ''))), '') IS NULL
+                        OR LOWER(ISNULL([Availability], '')) = 'offline'
+                      )
+                ORDER BY [ID] ASC
+                """;
+
+            await using var command = new SqlCommand(query, connection);
+            command.Parameters.Add("@tenantId", SqlDbType.Int).Value = (object?)tenantId ?? DBNull.Value;
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                stockDevices.Add((reader["ID"] is int id ? id : Convert.ToInt32(reader["ID"]), reader["DeviceCode"]?.ToString() ?? string.Empty));
+            }
+        }
+
+        result.TotalStockDevices = stockDevices.Count;
+        foreach (var stockDevice in stockDevices)
+        {
+            if (string.IsNullOrWhiteSpace(stockDevice.DeviceCode))
+            {
+                result.SkippedNoTerminalCount++;
+                continue;
+            }
+
+            var refresh = await RefreshDeviceInternalAsync(stockDevice.Id, onlyIfTokenExpired: false, cancellationToken: cancellationToken);
+            if (refresh.Success)
+            {
+                result.SyncedCount++;
+            }
+            else
+            {
+                result.FailedCount++;
+                result.Errors.Add($"Device #{stockDevice.Id}: {refresh.MessageEn}");
+            }
+        }
+
+        result.Message = $"Sync stock hoan tat. Dong bo: {result.SyncedCount}, bo qua chua co SLK: {result.SkippedNoTerminalCount}, loi: {result.FailedCount}.";
+        result.MessageEn = $"Stock sync completed. Synced: {result.SyncedCount}, skipped without SLK: {result.SkippedNoTerminalCount}, failed: {result.FailedCount}.";
+        return result;
+    }
+
     public async Task<CreateDeviceResult> CreateDeviceAsync(CreateDeviceRequest request, int? userId, CancellationToken cancellationToken = default)
     {
-        request.DeviceName = request.DeviceName.Trim();
-        request.DeviceCode = request.DeviceCode.Trim();
-        request.VesselName = request.VesselName.Trim();
+        request.DeviceName = (request.DeviceName ?? string.Empty).Trim();
+        request.DeviceCode = (request.DeviceCode ?? string.Empty).Trim();
+        request.KitNumber = (request.KitNumber ?? string.Empty).Trim();
+        request.VesselName = (request.VesselName ?? string.Empty).Trim();
 
         if (string.IsNullOrWhiteSpace(request.DeviceName) ||
-            string.IsNullOrWhiteSpace(request.DeviceCode) ||
+            (string.IsNullOrWhiteSpace(request.DeviceCode) && string.IsNullOrWhiteSpace(request.KitNumber)) ||
             string.IsNullOrWhiteSpace(request.VesselName) ||
             !request.TenantId.HasValue ||
             request.TenantId.Value <= 0)
@@ -816,7 +884,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             {
                 ErrorCode = "validation_required",
                 Message = "TÃƒÂªn thiÃ¡ÂºÂ¿t bÃ¡Â»â€¹, mÃƒÂ£ thiÃ¡ÂºÂ¿t bÃ¡Â»â€¹, tÃƒÂªn tÃƒÂ u vÃƒÂ  tenant lÃƒÂ  bÃ¡ÂºÂ¯t buÃ¡Â»â„¢c",
-                MessageEn = "Device name, terminal id, vessel name and tenant are required"
+                MessageEn = "Device name, terminal id or KIT Number, vessel name and tenant are required"
             };
         }
 
@@ -824,7 +892,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         await connection.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
 
-        if (await DeviceCodeExistsAsync(connection, transaction, request.DeviceCode, cancellationToken))
+        if (!string.IsNullOrWhiteSpace(request.DeviceCode) && await DeviceCodeExistsAsync(connection, transaction, request.DeviceCode, cancellationToken))
         {
             return new CreateDeviceResult
             {
@@ -832,6 +900,30 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                 ErrorCode = "duplicate_kit_code",
                 Message = "MÃƒÂ£ KIT Ã„â€˜ÃƒÂ£ trÃƒÂ¹ng",
                 MessageEn = "Terminal id already exists"
+            };
+        }
+
+        if (string.IsNullOrWhiteSpace(request.DeviceCode))
+        {
+            var stockDeviceId = await InsertDeviceAsync(
+                connection,
+                transaction,
+                request,
+                accessToken: null,
+                tokenExpiredTime: null,
+                kitId: null,
+                availability: "offline",
+                cancellationToken);
+
+            await InsertAuditAsync(connection, transaction, userId, stockDeviceId, $"Created stock device KIT '{request.KitNumber}' without terminal id.", cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            return new CreateDeviceResult
+            {
+                Success = true,
+                Message = "Them thiet bi stock thanh cong",
+                MessageEn = "Stock device created successfully",
+                DeviceId = stockDeviceId
             };
         }
 
@@ -895,15 +987,104 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         };
     }
 
+    public async Task<KitTerminalLookupResult> LookupKitTerminalInfoAsync(string terminalId, CancellationToken cancellationToken = default)
+    {
+        terminalId = (terminalId ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(terminalId))
+        {
+            return new KitTerminalLookupResult
+            {
+                Success = false,
+                ErrorCode = "validation_required",
+                Message = "Terminal ID is required.",
+                MessageEn = "Terminal ID is required."
+            };
+        }
+
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        var settings = await GetApiCredentialsAsync(connection, null, cancellationToken);
+        if (string.IsNullOrWhiteSpace(settings.ClientId) || string.IsNullOrWhiteSpace(settings.ClientSecret))
+        {
+            return new KitTerminalLookupResult
+            {
+                Success = false,
+                ErrorCode = "missing_api_credentials",
+                Message = "Missing client_id or client_secret in TblSettings.",
+                MessageEn = "Missing client_id or client_secret in TblSettings.",
+                TerminalId = terminalId
+            };
+        }
+
+        var tokenCall = await RequestDeviceTokenAsync(settings.ClientId, settings.ClientSecret, terminalId, cancellationToken);
+        if (!tokenCall.Success)
+        {
+            return new KitTerminalLookupResult
+            {
+                Success = false,
+                IsRateLimited = IsRateLimitResponse(tokenCall.RawResponse, tokenCall.MessageEn),
+                ErrorCode = tokenCall.ErrorCode,
+                Message = tokenCall.Message,
+                MessageEn = tokenCall.MessageEn,
+                TerminalId = terminalId,
+                ApiResult = tokenCall.RawResponse
+            };
+        }
+
+        var terminalCall = await RequestTerminalDevicesAsync(terminalId, tokenCall.AccessToken, cancellationToken);
+        if (!terminalCall.Success)
+        {
+            return new KitTerminalLookupResult
+            {
+                Success = false,
+                IsRateLimited = IsRateLimitResponse(terminalCall.RawResponse, terminalCall.MessageEn),
+                ErrorCode = terminalCall.ErrorCode,
+                Message = terminalCall.Message,
+                MessageEn = terminalCall.MessageEn,
+                TerminalId = terminalId,
+                ApiResult = BuildCombinedApiResult(tokenCall.RawResponse, terminalCall.RawResponse)
+            };
+        }
+
+        var statusCall = await RequestTerminalStatusAsync(terminalId, tokenCall.AccessToken ?? string.Empty, cancellationToken);
+        if (!statusCall.Success)
+        {
+            return new KitTerminalLookupResult
+            {
+                Success = false,
+                IsRateLimited = IsRateLimitResponse(statusCall.RawResponse, string.Empty),
+                ErrorCode = IsRateLimitResponse(statusCall.RawResponse, string.Empty) ? "rate_limited" : "terminal_status_error",
+                Message = IsRateLimitResponse(statusCall.RawResponse, string.Empty) ? "Rate limit. Pending retry." : "Cannot load terminal status.",
+                MessageEn = IsRateLimitResponse(statusCall.RawResponse, string.Empty) ? "Rate limit. Pending retry." : "Cannot load terminal status.",
+                TerminalId = terminalId,
+                KitId = terminalCall.KitId ?? string.Empty,
+                ApiResult = BuildCombinedApiResult(tokenCall.RawResponse, terminalCall.RawResponse, statusCall.RawResponse)
+            };
+        }
+
+        return new KitTerminalLookupResult
+        {
+            Success = true,
+            TerminalId = terminalId,
+            KitId = string.IsNullOrWhiteSpace(statusCall.KitId) ? terminalCall.KitId ?? string.Empty : statusCall.KitId,
+            KitNumber = statusCall.KitNumber,
+            ServiceLine = statusCall.ServiceLine,
+            Message = "OK",
+            MessageEn = "OK",
+            ApiResult = BuildCombinedApiResult(tokenCall.RawResponse, terminalCall.RawResponse, statusCall.RawResponse)
+        };
+    }
+
     public async Task<UpdateDeviceResult> UpdateDeviceAsync(UpdateDeviceRequest request, int? userId, CancellationToken cancellationToken = default)
     {
-        request.DeviceName = request.DeviceName.Trim();
-        request.DeviceCode = request.DeviceCode.Trim();
-        request.VesselName = request.VesselName.Trim();
+        request.DeviceName = (request.DeviceName ?? string.Empty).Trim();
+        request.DeviceCode = (request.DeviceCode ?? string.Empty).Trim();
+        request.KitNumber = (request.KitNumber ?? string.Empty).Trim();
+        request.VesselName = (request.VesselName ?? string.Empty).Trim();
 
         if (request.Id <= 0 ||
             string.IsNullOrWhiteSpace(request.DeviceName) ||
-            string.IsNullOrWhiteSpace(request.DeviceCode) ||
+            (string.IsNullOrWhiteSpace(request.DeviceCode) && string.IsNullOrWhiteSpace(request.KitNumber)) ||
             string.IsNullOrWhiteSpace(request.VesselName) ||
             !request.TenantId.HasValue ||
             request.TenantId.Value <= 0)
@@ -912,7 +1093,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             {
                 ErrorCode = "validation_required",
                 Message = "TÃƒÂªn thiÃ¡ÂºÂ¿t bÃ¡Â»â€¹, mÃƒÂ£ thiÃ¡ÂºÂ¿t bÃ¡Â»â€¹, tÃƒÂªn tÃƒÂ u vÃƒÂ  tenant lÃƒÂ  bÃ¡ÂºÂ¯t buÃ¡Â»â„¢c",
-                MessageEn = "Device name, terminal id, vessel name and tenant are required"
+                MessageEn = "Device name, terminal id or KIT Number, vessel name and tenant are required"
             };
         }
 
@@ -932,7 +1113,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         }
 
         var deviceCodeChanged = !string.Equals(existingDevice.DeviceCode, request.DeviceCode, StringComparison.OrdinalIgnoreCase);
-        if (await DeviceCodeExistsAsync(connection, transaction, request.DeviceCode, cancellationToken, request.Id))
+        if (!string.IsNullOrWhiteSpace(request.DeviceCode) && await DeviceCodeExistsAsync(connection, transaction, request.DeviceCode, cancellationToken, request.Id))
         {
             return new UpdateDeviceResult
             {
@@ -949,7 +1130,14 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         string? kitId = null;
         string availability = existingDevice.Availability;
 
-        if (deviceCodeChanged)
+        if (deviceCodeChanged && string.IsNullOrWhiteSpace(request.DeviceCode))
+        {
+            accessToken = null;
+            tokenExpiredTime = null;
+            kitId = null;
+            availability = "offline";
+        }
+        else if (deviceCodeChanged)
         {
             var settings = await GetApiCredentialsAsync(connection, transaction, cancellationToken);
             if (string.IsNullOrWhiteSpace(settings.ClientId) || string.IsNullOrWhiteSpace(settings.ClientSecret))
@@ -1280,9 +1468,9 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
     {
         const string query = """
             INSERT INTO [TblDevices]
-                ([DeviceName], [DeviceCode], [VesselName], [TenantID], [TokenString], [TokenExpiredTime], [Availability], [LastUpdateTime], [KITID], [LastSysnTime])
+                ([DeviceName], [DeviceCode], [VesselName], [TenantID], [TokenString], [TokenExpiredTime], [Availability], [LastUpdateTime], [KITID], [KITNumber], [LastSysnTime])
             VALUES
-                (@deviceName, @deviceCode, @vesselName, @tenantId, @tokenString, @tokenExpiredTime, @availability, GETUTCDATE(), @kitId, NULL);
+                (@deviceName, @deviceCode, @vesselName, @tenantId, @tokenString, @tokenExpiredTime, @availability, GETUTCDATE(), @kitId, @kitNumber, NULL);
             SELECT CAST(SCOPE_IDENTITY() AS INT);
             """;
 
@@ -1295,6 +1483,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         command.Parameters.AddWithValue("@tokenExpiredTime", (object?)tokenExpiredTime ?? DBNull.Value);
         command.Parameters.AddWithValue("@availability", string.IsNullOrWhiteSpace(availability) ? "unknown" : availability);
         command.Parameters.AddWithValue("@kitId", (object?)kitId ?? DBNull.Value);
+        command.Parameters.AddWithValue("@kitNumber", (object?)request.KitNumber ?? DBNull.Value);
         var result = await command.ExecuteScalarAsync(cancellationToken);
         return result is int deviceId ? deviceId : 0;
     }
@@ -1315,6 +1504,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             SET
                 [DeviceName] = @deviceName,
                 [DeviceCode] = @deviceCode,
+                [KITNumber] = @kitNumber,
                 [VesselName] = @vesselName,
                 [TenantID] = @tenantId
             """;
@@ -1328,6 +1518,11 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                 [TokenExpiredTime] = @tokenExpiredTime,
                 [Availability] = @availability,
                 [KITID] = @kitId,
+                [UsageData] = CASE WHEN NULLIF(@deviceCode, '') IS NULL THEN NULL ELSE [UsageData] END,
+                [PriorityData] = CASE WHEN NULLIF(@deviceCode, '') IS NULL THEN NULL ELSE [PriorityData] END,
+                [OverageData] = CASE WHEN NULLIF(@deviceCode, '') IS NULL THEN NULL ELSE [OverageData] END,
+                [ServiceLine] = CASE WHEN NULLIF(@deviceCode, '') IS NULL THEN NULL ELSE [ServiceLine] END,
+                [LastSysnTime] = CASE WHEN NULLIF(@deviceCode, '') IS NULL THEN NULL ELSE [LastSysnTime] END,
                 [LastUpdateTime] = GETUTCDATE()
                 """;
         }
@@ -1338,6 +1533,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         command.Parameters.AddWithValue("@id", request.Id);
         command.Parameters.AddWithValue("@deviceName", request.DeviceName);
         command.Parameters.AddWithValue("@deviceCode", request.DeviceCode);
+        command.Parameters.AddWithValue("@kitNumber", (object?)request.KitNumber ?? DBNull.Value);
         command.Parameters.AddWithValue("@vesselName", request.VesselName);
         command.Parameters.AddWithValue("@tenantId", (object?)request.TenantId ?? DBNull.Value);
 
@@ -1558,6 +1754,16 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         }
 
         var tokenExpired = IsTokenExpired(device.TokenExpiredTime);
+        if (string.IsNullOrWhiteSpace(device.DeviceCode))
+        {
+            device.Availability = string.IsNullOrWhiteSpace(device.Availability) ? "offline" : device.Availability;
+            var stockResult = MapRefreshResult(device, refreshed: false);
+            stockResult.Success = true;
+            stockResult.Message = "Thiet bi stock chua co ma SLK.";
+            stockResult.MessageEn = "Stock device does not have an SLK terminal id.";
+            return stockResult;
+        }
+
         var canUseCachedData = IsSyncStillFresh(device.LastSysnTime)
             && !string.IsNullOrWhiteSpace(device.Availability)
             && device.SubscriptionUsageGb.HasValue
@@ -1811,6 +2017,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                     [FinalPrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblDevicePricing_FinalPrice] DEFAULT(0),
                     [ResellerOverChargePrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblDevicePricing_ResellerOverChargePrice] DEFAULT(0),
                     [FinalOverChargePrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblDevicePricing_FinalOverChargePrice] DEFAULT(0),
+                    [Status] nvarchar(50) NOT NULL CONSTRAINT [DF_TblDevicePricing_Status] DEFAULT('active'),
                     [Created_Date] datetime NULL,
                     [Created_By] nvarchar(50) NULL,
                     [Updated_Date] datetime NULL,
@@ -1827,6 +2034,13 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                 CREATE UNIQUE INDEX [UX_TblDevicePricing_Device_Plan]
                     ON [dbo].[TblDevicePricing]([DeviceId], [PricingPlanId]);
             END;
+
+            IF COL_LENGTH(N'[dbo].[TblDevicePricing]', N'Status') IS NULL
+            BEGIN
+                ALTER TABLE [dbo].[TblDevicePricing]
+                ADD [Status] nvarchar(50) NOT NULL
+                    CONSTRAINT [DF_TblDevicePricing_Status] DEFAULT('active') WITH VALUES;
+            END;
             """;
 
         await using var command = new SqlCommand(query, connection, transaction);
@@ -1841,6 +2055,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                 tp.[PricingPlanId],
                 pp.[PlanName],
                 pp.[PlanCode],
+                pp.[Status],
                 pp.[BaseData],
                 tp.[ResellerPrice],
                 tp.[FinalPrice],
@@ -1872,6 +2087,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                 tp.[PricingPlanId],
                 pp.[PlanName],
                 pp.[PlanCode],
+                pp.[Status],
                 pp.[BaseData],
                 tp.[ResellerPrice],
                 tp.[FinalPrice],
@@ -1899,6 +2115,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                 dp.[PricingPlanId],
                 pp.[PlanName],
                 pp.[PlanCode],
+                COALESCE(dp.[Status], pp.[Status], 'active') AS [Status],
                 pp.[BaseData],
                 dp.[ResellerPrice],
                 dp.[FinalPrice],
@@ -1942,6 +2159,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             PricingPlanId = reader["PricingPlanId"] is int pricingPlanId ? pricingPlanId : 0,
             PlanName = reader["PlanName"]?.ToString() ?? string.Empty,
             PlanCode = reader["PlanCode"]?.ToString() ?? string.Empty,
+            Status = reader["Status"]?.ToString() ?? "active",
             BaseData = ReadDecimal(reader, "BaseData"),
             ResellerPrice = ReadDecimal(reader, "ResellerPrice"),
             FinalPrice = ReadDecimal(reader, "FinalPrice"),
@@ -1959,6 +2177,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             PricingPlanId = reader["PricingPlanId"] is int pricingPlanId ? pricingPlanId : 0,
             PlanName = reader["PlanName"]?.ToString() ?? string.Empty,
             PlanCode = reader["PlanCode"]?.ToString() ?? string.Empty,
+            Status = reader["Status"]?.ToString() ?? "active",
             BaseData = ReadDecimal(reader, "BaseData"),
             ResellerPrice = ReadDecimal(reader, "ResellerPrice"),
             FinalPrice = ReadDecimal(reader, "FinalPrice"),
@@ -1983,6 +2202,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         AddDecimalParameter(command, "@finalPrice", request.FinalPrice);
         AddDecimalParameter(command, "@resellerOverChargePrice", request.ResellerOverChargePrice);
         AddDecimalParameter(command, "@finalOverChargePrice", request.FinalOverChargePrice);
+        command.Parameters.Add("@status", SqlDbType.NVarChar, 50).Value = string.IsNullOrWhiteSpace(request.Status) ? "active" : request.Status;
     }
 
     private static void AddDecimalParameter(SqlCommand command, string name, decimal value)
@@ -2000,6 +2220,8 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             "ISNULL(d.[VesselName], '') LIKE @searchPattern ESCAPE '\\'",
             "ISNULL(t.[TenantName], '') LIKE @searchPattern ESCAPE '\\'",
             "ISNULL(d.[DeviceCode], '') LIKE @searchPattern ESCAPE '\\'",
+            "ISNULL(d.[KITNumber], '') LIKE @searchPattern ESCAPE '\\'",
+            "ISNULL(d.[ServiceLine], '') LIKE @searchPattern ESCAPE '\\'",
             "ISNULL(d.[Availability], '') LIKE @searchPattern ESCAPE '\\'"
         };
 
@@ -3236,17 +3458,19 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         return bytes > 0m ? Math.Round(bytes / 1_000_000_000m, 2) : 0m;
     }
 
-    private static string BuildCombinedApiResult(string tokenRawResponse, string devicesRawResponse)
+    private static string BuildCombinedApiResult(string tokenRawResponse, string devicesRawResponse, string statusRawResponse = "")
     {
         try
         {
             using var tokenDocument = JsonDocument.Parse(tokenRawResponse);
             using var devicesDocument = JsonDocument.Parse(devicesRawResponse);
+            using var statusDocument = string.IsNullOrWhiteSpace(statusRawResponse) ? null : JsonDocument.Parse(statusRawResponse);
 
             return JsonSerializer.Serialize(new
             {
                 token = tokenDocument.RootElement.Clone(),
-                devices = devicesDocument.RootElement.Clone()
+                devices = devicesDocument.RootElement.Clone(),
+                status = statusDocument?.RootElement.Clone()
             }, new JsonSerializerOptions
             {
                 WriteIndented = true
@@ -3254,8 +3478,19 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         }
         catch (JsonException)
         {
-            return $"TOKEN RESPONSE:{Environment.NewLine}{tokenRawResponse}{Environment.NewLine}{Environment.NewLine}DEVICES RESPONSE:{Environment.NewLine}{devicesRawResponse}";
+            var result = $"TOKEN RESPONSE:{Environment.NewLine}{tokenRawResponse}{Environment.NewLine}{Environment.NewLine}DEVICES RESPONSE:{Environment.NewLine}{devicesRawResponse}";
+            return string.IsNullOrWhiteSpace(statusRawResponse)
+                ? result
+                : $"{result}{Environment.NewLine}{Environment.NewLine}STATUS RESPONSE:{Environment.NewLine}{statusRawResponse}";
         }
+    }
+
+    private static bool IsRateLimitResponse(string rawResponse, string message)
+    {
+        return (message ?? string.Empty).Contains("429", StringComparison.OrdinalIgnoreCase)
+            || (rawResponse ?? string.Empty).Contains("429", StringComparison.OrdinalIgnoreCase)
+            || (rawResponse ?? string.Empty).Contains("too many", StringComparison.OrdinalIgnoreCase)
+            || (rawResponse ?? string.Empty).Contains("rate", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string BuildSyncApiResult(string tokenRawResponse, string statusRawResponse, string usageRawResponse = "")

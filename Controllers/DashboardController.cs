@@ -13,25 +13,27 @@ public class DashboardController(
     ISqlAuthService authService) : Controller
 {
     [HttpGet]
-    public async Task<IActionResult> Index(int page = 1, int pageSize = 10, string? search = null)
+    public async Task<IActionResult> Index(int page = 1, int pageSize = 10, string? search = null, string tab = "synced")
     {
-        return View("~/Views/Dashboard/Index.cshtml", await BuildDashboardViewModelAsync(page, pageSize, search));
+        return View("~/Views/Dashboard/Index.cshtml", await BuildDashboardViewModelAsync(page, pageSize, search, tab));
     }
 
     [HttpGet]
-    public async Task<IActionResult> DevicePageData(int page = 1, int pageSize = 10, string? search = null)
+    public async Task<IActionResult> DevicePageData(int page = 1, int pageSize = 10, string? search = null, string tab = "synced")
     {
         try
         {
             var currentUser = await GetCurrentUserAsync();
             var normalizedSearch = NormalizeSearchTerm(search);
-            var result = await deviceService.GetDevicesAsync(page, pageSize, normalizedSearch, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            var normalizedTab = NormalizeDeviceTab(tab);
+            var result = await deviceService.GetDevicesAsync(page, pageSize, normalizedSearch, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), stockOnly: normalizedTab == "stock", cancellationToken: HttpContext.RequestAborted);
             return Json(new
             {
                 currentPage = page < 1 ? 1 : page,
                 pageSize = pageSize <= 0 ? 10 : pageSize,
                 totalDevices = result.TotalDevices,
                 searchTerm = normalizedSearch ?? string.Empty,
+                tab = normalizedTab,
                 devices = result.Devices
             });
         }
@@ -46,7 +48,7 @@ public class DashboardController(
     }
 
     [HttpGet]
-    public async Task<IActionResult> Details(int id, int page = 1, int pageSize = 10, string? search = null)
+    public async Task<IActionResult> Details(int id, int page = 1, int pageSize = 10, string? search = null, string tab = "synced")
     {
         var currentUser = await GetCurrentUserAsync();
         var device = await deviceService.GetDeviceByIdAsync(id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
@@ -55,7 +57,7 @@ public class DashboardController(
             return NotFound();
         }
 
-        var model = await BuildDashboardViewModelAsync(page, pageSize, search);
+        var model = await BuildDashboardViewModelAsync(page, pageSize, search, tab);
         model.SelectedDeviceId = id;
         return View("~/Views/Dashboard/Index.cshtml", model);
     }
@@ -570,6 +572,33 @@ public class DashboardController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
+    public async Task<IActionResult> SyncStockDevices()
+    {
+        try
+        {
+            var currentUser = await GetCurrentUserAsync();
+            if (!CanManageDevices(currentUser))
+            {
+                return Forbid();
+            }
+
+            var result = await deviceService.SyncStockDevicesAsync(GetAllowedTenantId(currentUser), HttpContext.RequestAborted);
+            return Json(result);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new StockDeviceSyncResult
+            {
+                Success = false,
+                Message = ex.Message,
+                MessageEn = ex.Message,
+                Errors = [ex.ToString()]
+            });
+        }
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
     public async Task<IActionResult> RefreshExpiredDevice(int id)
     {
         try
@@ -604,15 +633,16 @@ public class DashboardController(
         }
     }
 
-    private async Task<DeviceDashboardViewModel> BuildDashboardViewModelAsync(int page, int pageSize, string? search)
+    private async Task<DeviceDashboardViewModel> BuildDashboardViewModelAsync(int page, int pageSize, string? search, string tab = "synced")
     {
         var currentUser = await GetCurrentUserAsync();
         var normalizedPage = page < 1 ? 1 : page;
         var normalizedPageSize = pageSize <= 0 ? 10 : pageSize;
         var normalizedSearch = NormalizeSearchTerm(search);
+        var normalizedTab = NormalizeDeviceTab(tab);
         var allowedTenantId = GetAllowedTenantId(currentUser);
         var allowedDeviceId = GetAllowedDeviceId(currentUser);
-        var devicePage = await deviceService.GetDevicesAsync(normalizedPage, normalizedPageSize, normalizedSearch, allowedTenantId, allowedDeviceId, HttpContext.RequestAborted);
+        var devicePage = await deviceService.GetDevicesAsync(normalizedPage, normalizedPageSize, normalizedSearch, allowedTenantId, allowedDeviceId, stockOnly: normalizedTab == "stock", cancellationToken: HttpContext.RequestAborted);
         var tenants = await tenantService.GetTenantOptionsAsync(allowedTenantId, HttpContext.RequestAborted);
 
         return new DeviceDashboardViewModel
@@ -623,6 +653,7 @@ public class DashboardController(
             PageSize = normalizedPageSize,
             TotalDevices = devicePage.TotalDevices,
             SearchTerm = normalizedSearch ?? string.Empty,
+            ActiveDeviceTab = normalizedTab,
             IsTenantScoped = currentUser?.IsTenantUser == true || currentUser?.IsShipAdmin == true || currentUser?.IsCrew == true,
             CurrentTenantId = currentUser?.TenantId,
             CurrentTenantName = tenants.FirstOrDefault(tenant => tenant.Id == currentUser?.TenantId)?.TenantName,
@@ -677,6 +708,11 @@ public class DashboardController(
     private static string? NormalizeSearchTerm(string? search)
     {
         return string.IsNullOrWhiteSpace(search) ? null : search.Trim();
+    }
+
+    private static string NormalizeDeviceTab(string? tab)
+    {
+        return string.Equals(tab?.Trim(), "stock", StringComparison.OrdinalIgnoreCase) ? "stock" : "synced";
     }
 
     private IActionResult AjaxError(int statusCode, string errorCode, string message, string messageEn)

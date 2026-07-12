@@ -7,11 +7,15 @@ namespace StarlinkDeviceManager.Services;
 
 public class MonthlySubscriptionService(
     IConfiguration configuration,
+    ICurrencyExchangeService currencyExchangeService,
+    ISystemSettingsService systemSettingsService,
     IInvoiceRabbitMqPublisher invoiceRabbitMqPublisher,
     ILogger<MonthlySubscriptionService> logger) : IMonthlySubscriptionService
 {
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")
         ?? throw new InvalidOperationException("Missing connection string: DefaultConnection");
+    private const string DefaultCurrencySettingCode = "system_default_currency";
+    private const string DefaultPricingCurrency = "USD";
 
     public async Task<MonthlySubscriptionPageResult> GetSubscriptionsAsync(MonthlySubscriptionFilterViewModel filter, int page, int pageSize, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
     {
@@ -259,6 +263,11 @@ public class MonthlySubscriptionService(
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
+            var resellerPrice = await ConvertPricingAmountAsync(ReadDecimal(reader, "ResellerPrice"), DateTime.Today, cancellationToken);
+            var finalPrice = await ConvertPricingAmountAsync(ReadDecimal(reader, "FinalPrice"), DateTime.Today, cancellationToken);
+            var resellerOverChargePrice = await ConvertPricingAmountAsync(ReadDecimal(reader, "ResellerOverChargePrice"), DateTime.Today, cancellationToken);
+            var finalOverChargePrice = await ConvertPricingAmountAsync(ReadDecimal(reader, "FinalOverChargePrice"), DateTime.Today, cancellationToken);
+
             plans.Add(new SubscriptionPlanOptionViewModel
             {
                 DeviceId = ReadInt(reader, "DeviceId"),
@@ -266,10 +275,10 @@ public class MonthlySubscriptionService(
                 PlanName = reader["PlanName"]?.ToString() ?? string.Empty,
                 PlanCode = reader["PlanCode"]?.ToString() ?? string.Empty,
                 DataLimitGb = ReadDecimal(reader, "BaseData"),
-                ResellerPrice = ReadDecimal(reader, "ResellerPrice"),
-                FinalPrice = ReadDecimal(reader, "FinalPrice"),
-                ResellerOverChargePrice = ReadDecimal(reader, "ResellerOverChargePrice"),
-                FinalOverChargePrice = ReadDecimal(reader, "FinalOverChargePrice")
+                ResellerPrice = resellerPrice,
+                FinalPrice = finalPrice,
+                ResellerOverChargePrice = resellerOverChargePrice,
+                FinalOverChargePrice = finalOverChargePrice
             });
         }
 
@@ -306,8 +315,11 @@ public class MonthlySubscriptionService(
 
         var usageMonth = new DateTime(model.UsageMonth.Year, model.UsageMonth.Month, 1);
         var days = (model.EndDate.Date - model.StartDate.Date).Days + 1;
-        var subscriptionPrice = Math.Round(context.FinalPrice * days / 30m, 2, MidpointRounding.AwayFromZero);
-        var buyPrice = Math.Round(context.ResellerPrice * days / 30m, 2, MidpointRounding.AwayFromZero);
+        var finalPrice = await ConvertPricingAmountAsync(context.FinalPrice, model.StartDate, cancellationToken);
+        var resellerPrice = await ConvertPricingAmountAsync(context.ResellerPrice, model.StartDate, cancellationToken);
+        var finalOverChargePrice = await ConvertPricingAmountAsync(context.FinalOverChargePrice, model.StartDate, cancellationToken);
+        var subscriptionPrice = Math.Round(finalPrice * days / 30m, 2, MidpointRounding.AwayFromZero);
+        var buyPrice = Math.Round(resellerPrice * days / 30m, 2, MidpointRounding.AwayFromZero);
         var invoiceNumber = await BuildInvoiceNumberAsync(connection, transaction, cancellationToken);
 
         const string insertSubscriptionQuery = """
@@ -341,10 +353,10 @@ public class MonthlySubscriptionService(
             command.Parameters.Add("@endDate", SqlDbType.Date).Value = model.EndDate.Date;
             command.Parameters.Add("@nextBillingDate", SqlDbType.Date).Value = model.NextBillingDate.Date;
             AddDecimal(command, "@dataLimitGb", context.DataLimitGb);
-            AddDecimal(command, "@basePlanPrice", context.FinalPrice);
+            AddDecimal(command, "@basePlanPrice", finalPrice);
             command.Parameters.Add("@subscriptionDays", SqlDbType.Int).Value = days;
             AddDecimal(command, "@subscriptionPrice", subscriptionPrice);
-            AddDecimal(command, "@overChargePrice", context.FinalOverChargePrice);
+            AddDecimal(command, "@overChargePrice", finalOverChargePrice);
             command.Parameters.Add("@createdBy", SqlDbType.NVarChar, 50).Value = username;
             command.Parameters.Add("@updatedBy", SqlDbType.NVarChar, 50).Value = username;
             subscriptionId = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
@@ -954,6 +966,7 @@ public class MonthlySubscriptionService(
                 s.[VesselName],
                 s.[KitId],
                 s.[PlanName],
+                s.[OverChargePrice],
                 dp.[ResellerOverChargePrice],
                 dp.[FinalOverChargePrice]
             FROM [dbo].[TblMonthlySubscription] s
@@ -967,15 +980,25 @@ public class MonthlySubscriptionService(
         command.Parameters.Add("@tenantId", SqlDbType.Int).Value = (object?)tenantId ?? DBNull.Value;
         command.Parameters.Add("@deviceId", SqlDbType.Int).Value = (object?)deviceId ?? DBNull.Value;
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        return await reader.ReadAsync(cancellationToken)
-            ? new SubscriptionPriceContext(
-                ReadText(reader, "TenantName"),
-                ReadText(reader, "VesselName"),
-                ReadText(reader, "KitId"),
-                ReadText(reader, "PlanName"),
-                ReadDecimal(reader, "ResellerOverChargePrice"),
-                ReadDecimal(reader, "FinalOverChargePrice"))
-            : null;
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var resellerOverChargePrice = await ConvertPricingAmountAsync(ReadDecimal(reader, "ResellerOverChargePrice"), DateTime.Today, cancellationToken);
+        var finalOverChargePrice = ReadDecimal(reader, "OverChargePrice");
+        if (finalOverChargePrice <= 0)
+        {
+            finalOverChargePrice = await ConvertPricingAmountAsync(ReadDecimal(reader, "FinalOverChargePrice"), DateTime.Today, cancellationToken);
+        }
+
+        return new SubscriptionPriceContext(
+            ReadText(reader, "TenantName"),
+            ReadText(reader, "VesselName"),
+            ReadText(reader, "KitId"),
+            ReadText(reader, "PlanName"),
+            resellerOverChargePrice,
+            finalOverChargePrice);
     }
 
     private async Task PublishInvoiceGenerateEventAfterCommitAsync(
@@ -1151,6 +1174,44 @@ public class MonthlySubscriptionService(
         command.Parameters.Add("@subscriptionId", SqlDbType.Int).Value = subscriptionId;
         command.Parameters.Add("@detail", SqlDbType.NVarChar, 1000).Value = detail;
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private async Task<decimal> ConvertPricingAmountAsync(decimal amount, DateTime conversionDate, CancellationToken cancellationToken)
+    {
+        if (amount <= 0)
+        {
+            return 0;
+        }
+
+        var pricingCurrency = (configuration["System:PricingCurrency"] ?? DefaultPricingCurrency).Trim().ToUpperInvariant();
+        var defaultCurrency = await GetSystemDefaultCurrencyAsync(cancellationToken);
+        var conversion = await currencyExchangeService.ConvertAsync(new CurrencyConversionFormViewModel
+        {
+            Amount = amount,
+            FromCurrency = pricingCurrency,
+            ToCurrency = defaultCurrency,
+            ConversionDate = conversionDate.Date
+        }, cancellationToken);
+
+        if (conversion is null)
+        {
+            throw new InvalidOperationException($"Missing active {pricingCurrency} -> {defaultCurrency} exchange rate for subscription pricing date.");
+        }
+
+        return Math.Round(conversion.ConvertedAmount, 2, MidpointRounding.AwayFromZero);
+    }
+
+    private async Task<string> GetSystemDefaultCurrencyAsync(CancellationToken cancellationToken)
+    {
+        var settings = await systemSettingsService.GetSettingsByCodesAsync([DefaultCurrencySettingCode], cancellationToken);
+        var currency = settings.GetValueOrDefault(DefaultCurrencySettingCode);
+        if (string.IsNullOrWhiteSpace(currency))
+        {
+            currency = configuration["System:DefaultCurrency"];
+        }
+
+        currency = string.IsNullOrWhiteSpace(currency) ? "VND" : currency.Trim().ToUpperInvariant();
+        return currency;
     }
 
     private static async Task EnsureNinePayQrHistorySchemaAsync(SqlConnection connection, CancellationToken cancellationToken)

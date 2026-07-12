@@ -1,5 +1,6 @@
 @model PricingPlanIndexViewModel
 @using System.Security.Claims
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 @{
     ViewData["ActiveNav"] = "pricing";
     ViewData["Title"] = "Quản lý gói cước";
@@ -21,9 +22,16 @@
             : Url.Content($"~/{path.TrimStart('~', '/')}");
     }
 
-    string Money(decimal value) => $"${value:#,##0.##}";
+    var defaultCurrency = (Configuration["System:DefaultCurrency"] ?? "VND").Trim().ToUpperInvariant();
+    string Money(decimal value) => string.Equals(defaultCurrency, "VND", StringComparison.OrdinalIgnoreCase)
+        ? $"{value:#,##0} VND"
+        : $"{defaultCurrency} {value:#,##0.##}";
     string Data(decimal value) => $"{value:#,##0.##} GB";
     string NumberInput(decimal value) => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+    string MoneyInput(decimal value) => string.Equals(defaultCurrency, "VND", StringComparison.OrdinalIgnoreCase)
+        ? value.ToString("#,##0", new System.Globalization.CultureInfo("vi-VN"))
+        : value.ToString("#,##0.##", System.Globalization.CultureInfo.InvariantCulture);
+    var moneyDecimals = string.Equals(defaultCurrency, "VND", StringComparison.OrdinalIgnoreCase) ? "0" : "2";
 
     var accountDisplayName = User.FindFirst("DisplayName")?.Value;
     if (string.IsNullOrWhiteSpace(accountDisplayName))
@@ -134,10 +142,10 @@
               <th>Tên gói / Plan Name</th>
               <th>Mã gói / Plan Code</th>
               <th>Dung lượng / Data Limit</th>
-              <th>Đơn giá đại lý ($) / Reseller Price ($)</th>
-              <th>Đơn giá bán ra ($) / Sale Price ($)</th>
-              <th>Mua thêm đại lý ($) / Reseller Overcharge ($)</th>
-              <th>Mua thêm bán ra ($) / Sale Overcharge ($)</th>
+              <th>Đơn giá đại lý (@defaultCurrency) / Reseller Price (@defaultCurrency)</th>
+              <th>Đơn giá bán ra (@defaultCurrency) / Sale Price (@defaultCurrency)</th>
+              <th>Mua thêm đại lý (@defaultCurrency) / Reseller Overcharge (@defaultCurrency)</th>
+              <th>Mua thêm bán ra (@defaultCurrency) / Sale Overcharge (@defaultCurrency)</th>
               <th>Trạng thái / Status</th>
               <th>Cập nhật lúc / Updated At</th>
               <th>Tác vụ / Actions</th>
@@ -155,7 +163,14 @@
               @foreach (var plan in Model.Plans)
               {
                 <tr>
-                  <td>@plan.PlanName</td>
+                  <td>
+                    <a asp-controller="Pricing"
+                       asp-action="Edit"
+                       asp-route-id="@plan.Id"
+                       asp-route-page="@Model.CurrentPage"
+                       asp-route-pageSize="@Model.PageSize"
+                       class="table-primary-link">@plan.PlanName</a>
+                  </td>
                   <td><strong>@plan.PlanCode</strong></td>
                   <td>@Data(plan.BaseData)</td>
                   <td>@Money(plan.ResellerPrice)</td>
@@ -294,13 +309,20 @@
                     asp-route-tenantSearch="@Model.TenantPricingSearch"
                     method="post"
                     enctype="multipart/form-data"
-                    class="pricing-import-form">
+                    class="pricing-import-form"
+                    id="tenantPricingImportForm"
+                    data-preview-url="@Url.Action("PreviewTenantPricingDevices", "Pricing")">
                 @Html.AntiForgeryToken()
                 <label class="pricing-import-picker">
                   <input type="file" name="importFile" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" id="tenantPricingImportFile" />
                   <span class="pricing-import-picker-label">Chọn file import</span>
                   <span class="pricing-import-file-name" id="tenantPricingImportFileName">Chưa chọn file</span>
                 </label>
+                <label class="pricing-import-toggle">
+                  <input type="checkbox" id="tenantPricingApplyDevices" />
+                  <span>Cập nhật bảng giá thiết bị của tenant</span>
+                </label>
+                <div id="tenantDeviceSelectedInputs"></div>
                 <button type="submit" class="btn-primary pricing-import-submit" id="tenantPricingImportSubmit" disabled>Import giá / Import Prices</button>
               </form>
             </div>
@@ -344,10 +366,10 @@
               <th>Tenant / Tenant</th>
               <th>Gói giá / Pricing Plan</th>
               <th>Dung lượng / Data Limit</th>
-              <th>Đơn giá đại lý ($) / Reseller Price ($)</th>
-              <th>Đơn giá bán ra ($) / Sale Price ($)</th>
-              <th>Mua thêm đại lý ($) / Reseller Overcharge ($)</th>
-              <th>Mua thêm bán ra ($) / Sale Overcharge ($)</th>
+              <th>Đơn giá đại lý (@defaultCurrency) / Reseller Price (@defaultCurrency)</th>
+              <th>Đơn giá bán ra (@defaultCurrency) / Sale Price (@defaultCurrency)</th>
+              <th>Mua thêm đại lý (@defaultCurrency) / Reseller Overcharge (@defaultCurrency)</th>
+              <th>Mua thêm bán ra (@defaultCurrency) / Sale Overcharge (@defaultCurrency)</th>
               <th>Cập nhật lúc / Updated At</th>
               <th>Tác vụ / Actions</th>
             </tr>
@@ -364,7 +386,16 @@
               @foreach (var price in Model.TenantPrices)
               {
                 <tr>
-                  <td>@price.TenantName</td>
+                  <td>
+                    <a asp-controller="Pricing"
+                       asp-action="EditTenantPricing"
+                       asp-route-id="@price.Id"
+                       asp-route-tenantPage="@Model.TenantPricingCurrentPage"
+                       asp-route-tenantPageSize="@Model.TenantPricingPageSize"
+                       asp-route-tenantId="@Model.TenantPricingTenantId"
+                       asp-route-tenantSearch="@Model.TenantPricingSearch"
+                       class="table-primary-link">@price.TenantName</a>
+                  </td>
                   <td><strong>@price.PlanCode</strong><div class="tenant-meta">@price.PlanName</div></td>
                   <td>@Data(price.BaseData)</td>
                   <td>@Money(price.ResellerPrice)</td>
@@ -450,6 +481,33 @@
   </div>
 </div>
 
+
+<div class="modal-backdrop" id="tenantDevicePreviewModal" hidden>
+  <div class="device-modal tenant-device-modal" role="dialog" aria-modal="true" aria-labelledby="tenantDevicePreviewModalTitle">
+    <div class="device-modal-head">
+      <div>
+        <h2 id="tenantDevicePreviewModalTitle">Chọn thiết bị cập nhật giá</h2>
+        <p>Chọn tenant hoặc từng thiết bị cần đồng bộ bảng giá từ file import.</p>
+      </div>
+      <button type="button" class="modal-close" id="closeTenantDevicePreviewModal" aria-label="Đóng / Close">×</button>
+    </div>
+    <div class="tenant-device-preview" id="tenantDevicePreview">
+      <div class="tenant-device-preview-head">
+        <strong>Thiết bị sẽ cập nhật</strong>
+        <div class="tenant-device-preview-tools">
+          <input type="search" class="input tenant-device-search" id="tenantDeviceSearchInput" placeholder="Tim theo ma KIT, SLK, ten tau, thiet bi" />
+          <button type="button" class="btn-secondary tenant-device-select-all" id="tenantDeviceSelectAll">Tick all</button>
+        </div>
+      </div>
+      <div class="tenant-device-preview-body" id="tenantDevicePreviewBody"></div>
+      <div class="tenant-device-preview-status" id="tenantDevicePreviewStatus"></div>
+    </div>
+    <div class="device-modal-actions">
+      <button type="button" class="btn-secondary" id="cancelTenantDevicePreviewModal">Hủy</button>
+      <button type="button" class="btn-primary" id="confirmTenantDeviceImport">Xác nhận import</button>
+    </div>
+  </div>
+</div>
 <div class="modal-backdrop" id="pricingCreateModal"@createModalHidden>
   <div class="device-modal tenant-modal" role="dialog" aria-modal="true" aria-labelledby="pricingCreateModalTitle">
     <div class="device-modal-head">
@@ -543,23 +601,23 @@
           <span asp-validation-for="TenantPriceCreateForm.PricingPlanId" class="field-error"></span>
         </div>
         <div class="form-group">
-          <label asp-for="TenantPriceCreateForm.ResellerPrice">Đơn giá đại lý ($) / Reseller Price ($)</label>
-          <input asp-for="TenantPriceCreateForm.ResellerPrice" class="input" type="number" min="0" step="0.01" />
+          <label asp-for="TenantPriceCreateForm.ResellerPrice">Đơn giá đại lý (@defaultCurrency) / Reseller Price (@defaultCurrency)</label>
+          <input asp-for="TenantPriceCreateForm.ResellerPrice" value="@MoneyInput(Model.TenantPriceCreateForm.ResellerPrice)" class="input" type="text" inputmode="decimal" data-money-input data-money-decimals="@moneyDecimals" />
           <span asp-validation-for="TenantPriceCreateForm.ResellerPrice" class="field-error"></span>
         </div>
         <div class="form-group">
-          <label asp-for="TenantPriceCreateForm.FinalPrice">Đơn giá bán ra ($) / Sale Price ($)</label>
-          <input asp-for="TenantPriceCreateForm.FinalPrice" class="input" type="number" min="0" step="0.01" />
+          <label asp-for="TenantPriceCreateForm.FinalPrice">Đơn giá bán ra (@defaultCurrency) / Sale Price (@defaultCurrency)</label>
+          <input asp-for="TenantPriceCreateForm.FinalPrice" value="@MoneyInput(Model.TenantPriceCreateForm.FinalPrice)" class="input" type="text" inputmode="decimal" data-money-input data-money-decimals="@moneyDecimals" />
           <span asp-validation-for="TenantPriceCreateForm.FinalPrice" class="field-error"></span>
         </div>
         <div class="form-group">
-          <label asp-for="TenantPriceCreateForm.ResellerOverChargePrice">Giá mua thêm đại lý ($) / Reseller Overcharge Price ($)</label>
-          <input asp-for="TenantPriceCreateForm.ResellerOverChargePrice" class="input" type="number" min="0" step="0.01" />
+          <label asp-for="TenantPriceCreateForm.ResellerOverChargePrice">Giá mua thêm đại lý (@defaultCurrency) / Reseller Overcharge Price (@defaultCurrency)</label>
+          <input asp-for="TenantPriceCreateForm.ResellerOverChargePrice" value="@MoneyInput(Model.TenantPriceCreateForm.ResellerOverChargePrice)" class="input" type="text" inputmode="decimal" data-money-input data-money-decimals="@moneyDecimals" />
           <span asp-validation-for="TenantPriceCreateForm.ResellerOverChargePrice" class="field-error"></span>
         </div>
         <div class="form-group">
-          <label asp-for="TenantPriceCreateForm.FinalOverChargePrice">Giá mua thêm bán ra ($) / Sale Overcharge Price ($)</label>
-          <input asp-for="TenantPriceCreateForm.FinalOverChargePrice" class="input" type="number" min="0" step="0.01" />
+          <label asp-for="TenantPriceCreateForm.FinalOverChargePrice">Giá mua thêm bán ra (@defaultCurrency) / Sale Overcharge Price (@defaultCurrency)</label>
+          <input asp-for="TenantPriceCreateForm.FinalOverChargePrice" value="@MoneyInput(Model.TenantPriceCreateForm.FinalOverChargePrice)" class="input" type="text" inputmode="decimal" data-money-input data-money-decimals="@moneyDecimals" />
           <span asp-validation-for="TenantPriceCreateForm.FinalOverChargePrice" class="field-error"></span>
         </div>
       </div>
@@ -614,23 +672,23 @@
           <span asp-validation-for="TenantPriceEditForm.PricingPlanId" class="field-error"></span>
         </div>
         <div class="form-group">
-          <label asp-for="TenantPriceEditForm.ResellerPrice">Đơn giá đại lý ($) / Reseller Price ($)</label>
-          <input asp-for="TenantPriceEditForm.ResellerPrice" class="input" type="number" min="0" step="0.01" />
+          <label asp-for="TenantPriceEditForm.ResellerPrice">Đơn giá đại lý (@defaultCurrency) / Reseller Price (@defaultCurrency)</label>
+          <input asp-for="TenantPriceEditForm.ResellerPrice" value="@MoneyInput(Model.TenantPriceEditForm.ResellerPrice)" class="input" type="text" inputmode="decimal" data-money-input data-money-decimals="@moneyDecimals" />
           <span asp-validation-for="TenantPriceEditForm.ResellerPrice" class="field-error"></span>
         </div>
         <div class="form-group">
-          <label asp-for="TenantPriceEditForm.FinalPrice">Đơn giá bán ra ($) / Sale Price ($)</label>
-          <input asp-for="TenantPriceEditForm.FinalPrice" class="input" type="number" min="0" step="0.01" />
+          <label asp-for="TenantPriceEditForm.FinalPrice">Đơn giá bán ra (@defaultCurrency) / Sale Price (@defaultCurrency)</label>
+          <input asp-for="TenantPriceEditForm.FinalPrice" value="@MoneyInput(Model.TenantPriceEditForm.FinalPrice)" class="input" type="text" inputmode="decimal" data-money-input data-money-decimals="@moneyDecimals" />
           <span asp-validation-for="TenantPriceEditForm.FinalPrice" class="field-error"></span>
         </div>
         <div class="form-group">
-          <label asp-for="TenantPriceEditForm.ResellerOverChargePrice">Giá mua thêm đại lý ($) / Reseller Overcharge Price ($)</label>
-          <input asp-for="TenantPriceEditForm.ResellerOverChargePrice" class="input" type="number" min="0" step="0.01" />
+          <label asp-for="TenantPriceEditForm.ResellerOverChargePrice">Giá mua thêm đại lý (@defaultCurrency) / Reseller Overcharge Price (@defaultCurrency)</label>
+          <input asp-for="TenantPriceEditForm.ResellerOverChargePrice" value="@MoneyInput(Model.TenantPriceEditForm.ResellerOverChargePrice)" class="input" type="text" inputmode="decimal" data-money-input data-money-decimals="@moneyDecimals" />
           <span asp-validation-for="TenantPriceEditForm.ResellerOverChargePrice" class="field-error"></span>
         </div>
         <div class="form-group">
-          <label asp-for="TenantPriceEditForm.FinalOverChargePrice">Giá mua thêm bán ra ($) / Sale Overcharge Price ($)</label>
-          <input asp-for="TenantPriceEditForm.FinalOverChargePrice" class="input" type="number" min="0" step="0.01" />
+          <label asp-for="TenantPriceEditForm.FinalOverChargePrice">Giá mua thêm bán ra (@defaultCurrency) / Sale Overcharge Price (@defaultCurrency)</label>
+          <input asp-for="TenantPriceEditForm.FinalOverChargePrice" value="@MoneyInput(Model.TenantPriceEditForm.FinalOverChargePrice)" class="input" type="text" inputmode="decimal" data-money-input data-money-decimals="@moneyDecimals" />
           <span asp-validation-for="TenantPriceEditForm.FinalOverChargePrice" class="field-error"></span>
         </div>
       </div>
@@ -674,11 +732,25 @@
       const tenantPricingImportFile = document.getElementById("tenantPricingImportFile");
       const tenantPricingImportFileName = document.getElementById("tenantPricingImportFileName");
       const tenantPricingImportSubmit = document.getElementById("tenantPricingImportSubmit");
+      const tenantPricingImportForm = document.getElementById("tenantPricingImportForm");
+      const tenantPricingApplyDevices = document.getElementById("tenantPricingApplyDevices");
+      const tenantDevicePreview = document.getElementById("tenantDevicePreview");
+      const tenantDevicePreviewBody = document.getElementById("tenantDevicePreviewBody");
+      const tenantDevicePreviewStatus = document.getElementById("tenantDevicePreviewStatus");
+      const tenantDeviceSelectedInputs = document.getElementById("tenantDeviceSelectedInputs");
+      const tenantDeviceSelectAll = document.getElementById("tenantDeviceSelectAll");
+      const tenantDeviceSearchInput = document.getElementById("tenantDeviceSearchInput");
+      const tenantDevicePreviewModal = document.getElementById("tenantDevicePreviewModal");
+      const closeTenantDevicePreviewModalButton = document.getElementById("closeTenantDevicePreviewModal");
+      const cancelTenantDevicePreviewModalButton = document.getElementById("cancelTenantDevicePreviewModal");
+      const confirmTenantDeviceImportButton = document.getElementById("confirmTenantDeviceImport");
+      let tenantDeviceImportConfirmed = false;
 
       function syncBodyOverflow() {
         const hasOpenModal =
           (createModal && !createModal.hidden) ||
           (editModal && !editModal.hidden) ||
+          (tenantDevicePreviewModal && !tenantDevicePreviewModal.hidden) ||
           (tenantPricingCreateModal && !tenantPricingCreateModal.hidden) ||
           (tenantPricingEditModal && !tenantPricingEditModal.hidden);
 
@@ -718,6 +790,20 @@
       function closeTenantPricingEditModal() {
         if (!tenantPricingEditModal) return;
         tenantPricingEditModal.hidden = true;
+        syncBodyOverflow();
+      }
+
+      function openTenantDevicePreviewModal() {
+        if (!tenantDevicePreviewModal) return;
+        tenantDevicePreviewModal.hidden = false;
+        if (tenantDeviceSearchInput) tenantDeviceSearchInput.value = "";
+        syncBodyOverflow();
+        loadTenantDevicePreview();
+      }
+
+      function closeTenantDevicePreviewModal() {
+        if (!tenantDevicePreviewModal) return;
+        tenantDevicePreviewModal.hidden = true;
         syncBodyOverflow();
       }
 
@@ -801,6 +887,360 @@
         }
       });
 
+      function escapeHtml(value) {
+        return `${value ?? ""}`
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function setTenantDevicePreviewStatus(message, isError = false) {
+        if (!tenantDevicePreviewStatus) return;
+        tenantDevicePreviewStatus.textContent = message || "";
+        tenantDevicePreviewStatus.classList.toggle("is-error", Boolean(isError));
+      }
+
+      function selectedTenantDeviceIds() {
+        return Array.from(document.querySelectorAll(".tenant-device-checkbox:checked"))
+          .map((input) => input.value)
+          .filter(Boolean);
+      }
+
+      function syncSelectedTenantDeviceInputs() {
+        if (!tenantDeviceSelectedInputs) return;
+        tenantDeviceSelectedInputs.innerHTML = "";
+        if (!tenantPricingApplyDevices?.checked) return;
+        selectedTenantDeviceIds().forEach((deviceId) => {
+          const input = document.createElement("input");
+          input.type = "hidden";
+          input.name = "selectedDeviceIds";
+          input.value = deviceId;
+          tenantDeviceSelectedInputs.appendChild(input);
+        });
+      }
+
+      function updateTenantDeviceSelectAllLabel() {
+        if (!tenantDeviceSelectAll) return;
+        const boxes = Array.from(document.querySelectorAll(".tenant-device-checkbox:not([disabled])"));
+        const checked = boxes.filter((box) => box.checked).length;
+        tenantDeviceSelectAll.textContent = boxes.length > 0 && checked === boxes.length ? "Bo tick all" : "Tick all";
+        setTenantDevicePreviewStatus(boxes.length ? `Da chon ${checked}/${boxes.length} thiet bi.` : "Khong co thiet bi de chon.");
+      }
+
+      function normalizeTenantDeviceSearchValue(value) {
+        return `${value || ""}`.trim().toLowerCase();
+      }
+
+      function renderTenantDeviceCopySvg() {
+        return `<svg class="copy-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7a3 3 0 0 1 3-3h6a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-1v1a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-6a3 3 0 0 1 3-3h1V7Zm3-1a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-6Zm-3 4H7a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-1h-3a3 3 0 0 1-3-3v-3Z"/></svg><svg class="check-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9.2 16.6-4.1-4.1L3.7 14l5.5 5.5L20.8 7.9l-1.4-1.4L9.2 16.6Z"/></svg>`;
+      }
+
+      function markTenantDeviceKitCopied(button) {
+        window.clearTimeout(Number(button.dataset.copyResetTimer || 0));
+        button.classList.add("is-copied");
+        button.dataset.copyTooltip = "Copied";
+        button.setAttribute("aria-label", "Copied");
+        const timer = window.setTimeout(() => {
+          button.classList.remove("is-copied");
+          button.dataset.copyTooltip = "Copy";
+          button.setAttribute("aria-label", button.dataset.copyLabel || "Copy KIT");
+          delete button.dataset.copyResetTimer;
+        }, 2000);
+        button.dataset.copyResetTimer = `${timer}`;
+      }
+
+      async function copyTenantDeviceKit(button) {
+        const value = button.dataset.copyValue || "";
+        if (!value) return;
+        button.dataset.copyLabel ||= button.getAttribute("aria-label") || "Copy KIT";
+        try {
+          await navigator.clipboard.writeText(value);
+          markTenantDeviceKitCopied(button);
+        } catch {
+          const textArea = document.createElement("textarea");
+          textArea.value = value;
+          textArea.setAttribute("readonly", "");
+          textArea.style.position = "fixed";
+          textArea.style.opacity = "0";
+          document.body.appendChild(textArea);
+          textArea.select();
+          document.execCommand("copy");
+          textArea.remove();
+          markTenantDeviceKitCopied(button);
+        }
+      }
+
+      function syncTenantDeviceGroupCheck(group) {
+        const tenantCheck = group.querySelector(".tenant-device-tenant-check");
+        if (!tenantCheck) return;
+        const visibleBoxes = Array.from(group.querySelectorAll(".tenant-device-checkbox:not([disabled])"));
+        tenantCheck.checked = visibleBoxes.length > 0 && visibleBoxes.every((box) => box.checked);
+        tenantCheck.disabled = group.hidden || visibleBoxes.length === 0;
+      }
+
+      function applyTenantDeviceSearch() {
+        const keyword = normalizeTenantDeviceSearchValue(tenantDeviceSearchInput?.value);
+        document.querySelectorAll(".tenant-device-group").forEach((group) => {
+          const tenantText = `${group.dataset.search || ""}`.toLowerCase();
+          let visibleDevices = 0;
+          group.querySelectorAll(".tenant-device-row").forEach((row) => {
+            const rowText = `${row.dataset.search || ""}`.toLowerCase();
+            const kitText = `${row.dataset.kit || ""}`.toLowerCase();
+            const kitMatched = Boolean(keyword) && kitText.includes(keyword);
+            const visible = !keyword || rowText.includes(keyword) || tenantText.includes(keyword);
+            row.hidden = !visible;
+            row.classList.toggle("is-kit-search-match", kitMatched);
+            const checkbox = row.querySelector(".tenant-device-checkbox");
+            if (checkbox) {
+              checkbox.disabled = !visible;
+              if (kitMatched) checkbox.checked = true;
+            }
+            if (visible) {
+              visibleDevices++;
+              if (kitMatched) group.open = true;
+            }
+          });
+          const groupVisible = !keyword || visibleDevices > 0 || tenantText.includes(keyword);
+          group.hidden = !groupVisible;
+          syncTenantDeviceGroupCheck(group);
+        });
+        syncSelectedTenantDeviceInputs();
+        updateTenantDeviceSelectAllLabel();
+      }
+
+      function bindTenantDevicePreviewEvents() {
+        document.querySelectorAll(".tenant-device-tenant-check").forEach((checkbox) => {
+          checkbox.addEventListener("click", (event) => {
+            event.stopPropagation();
+          });
+
+          checkbox.addEventListener("change", () => {
+            const tenantId = checkbox.dataset.tenantId || "";
+            document.querySelectorAll(`.tenant-device-checkbox[data-tenant-id="${CSS.escape(tenantId)}"]`).forEach((deviceCheckbox) => {
+              deviceCheckbox.checked = checkbox.checked;
+            });
+            syncSelectedTenantDeviceInputs();
+            updateTenantDeviceSelectAllLabel();
+          });
+        });
+
+        document.querySelectorAll(".tenant-device-checkbox").forEach((checkbox) => {
+          checkbox.addEventListener("change", () => {
+            const tenantId = checkbox.dataset.tenantId || "";
+            const tenantBoxes = Array.from(document.querySelectorAll(`.tenant-device-checkbox[data-tenant-id="${CSS.escape(tenantId)}"]:not([disabled])`));
+            const tenantCheck = document.querySelector(`.tenant-device-tenant-check[data-tenant-id="${CSS.escape(tenantId)}"]`);
+            if (tenantCheck) {
+              tenantCheck.checked = tenantBoxes.length > 0 && tenantBoxes.every((box) => box.checked);
+            }
+            syncSelectedTenantDeviceInputs();
+            updateTenantDeviceSelectAllLabel();
+          });
+        });
+
+        document.querySelectorAll(".tenant-device-kit-copy").forEach((button) => {
+          button.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            copyTenantDeviceKit(button);
+          });
+        });
+      }
+
+      function renderTenantDevicePreview(tenants) {
+        if (!tenantDevicePreviewBody) return;
+        const rows = Array.isArray(tenants) ? tenants : [];
+        if (rows.length === 0) {
+          tenantDevicePreviewBody.innerHTML = `<div class="tenant-device-empty">Khong tim thay tenant trong file import.</div>`;
+          updateTenantDeviceSelectAllLabel();
+          return;
+        }
+
+        tenantDevicePreviewBody.innerHTML = rows.map((tenant) => {
+          const tenantId = tenant.tenantId ?? tenant.TenantId;
+          const tenantName = tenant.tenantName ?? tenant.TenantName ?? `Tenant #${tenantId}`;
+          const importedPlanCount = tenant.importedPlanCount ?? tenant.ImportedPlanCount ?? 0;
+          const devices = tenant.devices ?? tenant.Devices ?? [];
+          const deviceRows = devices.length
+            ? devices.map((device) => {
+                const deviceId = device.deviceId ?? device.DeviceId;
+                const deviceName = device.deviceName ?? device.DeviceName ?? "-";
+                const deviceCode = device.deviceCode ?? device.DeviceCode ?? "-";
+                const vesselName = device.vesselName ?? device.VesselName ?? "-";
+                const existingPlanCount = device.existingPlanCount ?? device.ExistingPlanCount ?? 0;
+                return `
+                  <label class="tenant-device-row" data-search="${escapeHtml(`${deviceName} ${deviceCode} ${vesselName}`)}" data-kit="${escapeHtml(deviceName)}">
+                    <input type="checkbox" class="tenant-device-checkbox" data-tenant-id="${tenantId}" value="${deviceId}" checked />
+                    <span class="tenant-device-main">
+                      <span class="tenant-device-kit-line">
+                        <strong class="tenant-device-kit">${escapeHtml(deviceName)}</strong>
+                        ${deviceName && deviceName !== "-" ? `<button type="button" class="table-copy-btn tenant-device-kit-copy" data-copy-value="${escapeHtml(deviceName)}" data-copy-tooltip="Copy" aria-label="Copy KIT">${renderTenantDeviceCopySvg()}</button>` : ""}
+                      </span>
+                      <small>${escapeHtml(deviceCode)}</small>
+                    </span>
+                    <span class="tenant-device-vessel">${escapeHtml(vesselName)}</span>
+                    <span class="tenant-device-count">${existingPlanCount} goi dang co</span>
+                  </label>`;
+              }).join("")
+            : `<div class="tenant-device-empty">Tenant nay chua co thiet bi.</div>`;
+
+          return `
+            <details class="tenant-device-group" open data-search="${escapeHtml(`${tenantName} ${devices.map((device) => `${device.deviceName ?? device.DeviceName ?? ""} ${device.deviceCode ?? device.DeviceCode ?? ""} ${device.vesselName ?? device.VesselName ?? ""}`).join(" ")}`)}">
+              <summary class="tenant-device-summary">
+                <span class="tenant-device-tenant-toggle">
+                  <input type="checkbox" class="tenant-device-tenant-check" data-tenant-id="${tenantId}" aria-label="Chon tat ca thiet bi cua ${escapeHtml(tenantName)}" ${devices.length ? "checked" : ""} ${devices.length ? "" : "disabled"} />
+                  <span class="tenant-device-tenant-name">${escapeHtml(tenantName)}</span>
+                </span>
+                <em>${devices.length} thiet bi - ${importedPlanCount} goi import</em>
+              </summary>
+              <div class="tenant-device-list">${deviceRows}</div>
+            </details>`;
+        }).join("");
+        bindTenantDevicePreviewEvents();
+        applyTenantDeviceSearch();
+        syncSelectedTenantDeviceInputs();
+        updateTenantDeviceSelectAllLabel();
+      }
+
+      async function loadTenantDevicePreview() {
+        const file = tenantPricingImportFile?.files && tenantPricingImportFile.files[0];
+        if (!tenantPricingImportForm || !tenantDevicePreview || !file || !tenantPricingApplyDevices?.checked) {
+          if (tenantDevicePreview) tenantDevicePreview.hidden = true;
+          if (tenantDevicePreviewBody) tenantDevicePreviewBody.innerHTML = "";
+          syncSelectedTenantDeviceInputs();
+          return;
+        }
+
+        tenantDevicePreview.hidden = false;
+        setTenantDevicePreviewStatus("Dang doc file va tai danh sach thiet bi...");
+        if (confirmTenantDeviceImportButton) confirmTenantDeviceImportButton.disabled = true;
+        if (tenantDevicePreviewBody) tenantDevicePreviewBody.innerHTML = "";
+
+        const formData = new FormData();
+        formData.append("importFile", file);
+        const token = tenantPricingImportForm.querySelector("input[name='__RequestVerificationToken']")?.value;
+        if (token) formData.append("__RequestVerificationToken", token);
+
+        try {
+          const response = await fetch(tenantPricingImportForm.dataset.previewUrl || "", {
+            method: "POST",
+            body: formData,
+            headers: { "X-Requested-With": "XMLHttpRequest" }
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok || payload.success === false) {
+            throw new Error(payload.message || `HTTP ${response.status}`);
+          }
+          renderTenantDevicePreview(payload.tenants || payload.Tenants || []);
+          if (confirmTenantDeviceImportButton) confirmTenantDeviceImportButton.disabled = false;
+        } catch (error) {
+          if (tenantDevicePreviewBody) tenantDevicePreviewBody.innerHTML = "";
+          setTenantDevicePreviewStatus(error.message || "Khong the tai danh sach thiet bi.", true);
+          if (confirmTenantDeviceImportButton) confirmTenantDeviceImportButton.disabled = true;
+        }
+      }
+
+      function syncTenantDevicePreview() {
+        window.clearTimeout(syncTenantDevicePreview.timer);
+        syncTenantDevicePreview.timer = window.setTimeout(loadTenantDevicePreview, 150);
+      }
+
+      tenantPricingApplyDevices?.addEventListener("change", () => {
+        if (!tenantPricingApplyDevices.checked) {
+          closeTenantDevicePreviewModal();
+          if (tenantDevicePreviewBody) tenantDevicePreviewBody.innerHTML = "";
+        }
+        syncSelectedTenantDeviceInputs();
+      });
+      tenantDeviceSearchInput?.addEventListener("input", applyTenantDeviceSearch);
+      closeTenantDevicePreviewModalButton?.addEventListener("click", closeTenantDevicePreviewModal);
+      cancelTenantDevicePreviewModalButton?.addEventListener("click", closeTenantDevicePreviewModal);
+      tenantDeviceSelectAll?.addEventListener("click", () => {
+        const boxes = Array.from(document.querySelectorAll(".tenant-device-checkbox:not([disabled])"));
+        const shouldCheck = boxes.some((box) => !box.checked);
+        boxes.forEach((box) => { box.checked = shouldCheck; });
+        document.querySelectorAll(".tenant-device-tenant-check:not(:disabled)").forEach((box) => {
+          const tenantId = box.dataset.tenantId || "";
+          const tenantBoxes = Array.from(document.querySelectorAll(`.tenant-device-checkbox[data-tenant-id="${CSS.escape(tenantId)}"]:not([disabled])`));
+          box.checked = tenantBoxes.length > 0 && tenantBoxes.every((deviceBox) => deviceBox.checked);
+        });
+        syncSelectedTenantDeviceInputs();
+        updateTenantDeviceSelectAllLabel();
+      });
+      confirmTenantDeviceImportButton?.addEventListener("click", () => {
+        const boxes = Array.from(document.querySelectorAll(".tenant-device-checkbox"));
+        if (boxes.length > 0 && selectedTenantDeviceIds().length === 0) {
+          setTenantDevicePreviewStatus("Vui long chon it nhat mot thiet bi hoac tat cap nhat bang gia thiet bi.", true);
+          return;
+        }
+        tenantDeviceImportConfirmed = true;
+        syncSelectedTenantDeviceInputs();
+        closeTenantDevicePreviewModal();
+        tenantPricingImportForm?.requestSubmit();
+      });
+      tenantPricingImportForm?.addEventListener("submit", (event) => {
+        if (tenantPricingApplyDevices?.checked && !tenantDeviceImportConfirmed) {
+          event.preventDefault();
+          tenantPricingImportMenu.open = false;
+          openTenantDevicePreviewModal();
+          return;
+        }
+        tenantDeviceImportConfirmed = false;
+        syncSelectedTenantDeviceInputs();
+      }, true);
+
+      const moneyInputs = Array.from(document.querySelectorAll("[data-money-input]"));
+      function normalizeMoneyText(value, decimals = 0) {
+        let text = `${value || ""}`.trim();
+        if (!text) return "";
+        text = text.replace(/[^\d,.-]/g, "");
+        if (decimals <= 0) {
+          return text.replace(/[^\d-]/g, "");
+        }
+
+        const lastComma = text.lastIndexOf(",");
+        const lastDot = text.lastIndexOf(".");
+        const decimalIndex = Math.max(lastComma, lastDot);
+        if (decimalIndex < 0) return text.replace(/[^\d-]/g, "");
+
+        const integerPart = text.slice(0, decimalIndex).replace(/[^\d-]/g, "");
+        const decimalPart = text.slice(decimalIndex + 1).replace(/\D/g, "").slice(0, decimals);
+        return decimalPart ? `${integerPart}.${decimalPart}` : integerPart;
+      }
+
+      function formatMoneyText(value, decimals = 0) {
+        const normalized = normalizeMoneyText(value, decimals);
+        if (!normalized || normalized === "-") return "";
+        const number = Number(normalized);
+        if (!Number.isFinite(number)) return "";
+        return number.toLocaleString(decimals <= 0 ? "vi-VN" : "en-US", {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: decimals
+        });
+      }
+
+      function formatMoneyInput(input) {
+        const decimals = Number(input.dataset.moneyDecimals || "0");
+        input.value = formatMoneyText(input.value, decimals);
+      }
+
+      function normalizeMoneyInput(input) {
+        const decimals = Number(input.dataset.moneyDecimals || "0");
+        input.value = normalizeMoneyText(input.value, decimals) || "0";
+      }
+
+      moneyInputs.forEach((input) => {
+        formatMoneyInput(input);
+        input.addEventListener("input", () => formatMoneyInput(input));
+        input.addEventListener("blur", () => formatMoneyInput(input));
+      });
+      document.querySelectorAll("form").forEach((form) => {
+        form.addEventListener("submit", () => {
+          form.querySelectorAll("[data-money-input]").forEach(normalizeMoneyInput);
+        }, true);
+      });
+
       document.querySelectorAll(".tenant-pricing-plan-select").forEach((select) => {
         select.addEventListener("change", () => {
           const option = select.selectedOptions && select.selectedOptions[0];
@@ -816,7 +1256,10 @@
 
           Object.entries(map).forEach(([name, value]) => {
             const input = document.getElementById(`${prefix}_${name}`);
-            if (input && value !== undefined) input.value = value;
+            if (input && value !== undefined) {
+              input.value = value;
+              if (input.matches("[data-money-input]")) formatMoneyInput(input);
+            }
           });
         });
       });

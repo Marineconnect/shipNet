@@ -126,7 +126,52 @@ public class PricingController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> ImportTenantPricing(IFormFile? importFile, int tenantPage = 1, int tenantPageSize = 10, int? tenantId = null, string? tenantSearch = null)
+    public async Task<IActionResult> PreviewTenantPricingDevices(IFormFile? importFile)
+    {
+        if (!await IsSystemAdminAsync())
+        {
+            return Forbid();
+        }
+
+        if (importFile is null || importFile.Length == 0)
+        {
+            return BadRequest(new { success = false, message = "Vui lòng chọn file Excel để xem trước thiết bị." });
+        }
+
+        var extension = Path.GetExtension(importFile.FileName);
+        if (!string.Equals(extension, ".xlsx", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(extension, ".csv", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(new { success = false, message = "File import chỉ hỗ trợ định dạng .xlsx hoặc .csv." });
+        }
+
+        try
+        {
+            await using var stream = importFile.OpenReadStream();
+            var parseResult = PricingPlanExcelTemplate.ParseTenantPricing(stream, importFile.FileName, UnprotectTenantId);
+            if (parseResult.Errors.Count > 0)
+            {
+                return BadRequest(new { success = false, message = string.Join(" ", parseResult.Errors.Take(5)) });
+            }
+
+            if (parseResult.Prices.Count == 0)
+            {
+                return BadRequest(new { success = false, message = "File import không có dòng dữ liệu hợp lệ." });
+            }
+
+            var preview = await pricingPlanService.GetTenantPricingDevicePreviewAsync(parseResult.Prices, HttpContext.RequestAborted);
+            return Json(new { success = true, tenants = preview.Tenants, errors = preview.Errors });
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Failed to preview tenant pricing import devices.");
+            return StatusCode(StatusCodes.Status500InternalServerError, new { success = false, message = $"Không thể xem trước thiết bị. Chi tiết: {exception.GetBaseException().Message}" });
+        }
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ImportTenantPricing(IFormFile? importFile, int tenantPage = 1, int tenantPageSize = 10, int? tenantId = null, string? tenantSearch = null, List<int>? selectedDeviceIds = null)
     {
         if (!await IsSystemAdminAsync())
         {
@@ -164,14 +209,17 @@ public class PricingController(
             }
 
             var (userId, username) = GetCurrentAuditContext();
-            var importResult = await pricingPlanService.ImportTenantPricesAsync(parseResult.Prices, userId, username, HttpContext.RequestAborted);
+            var importResult = await pricingPlanService.ImportTenantPricesAsync(parseResult.Prices, userId, username, selectedDeviceIds, HttpContext.RequestAborted);
             if (importResult.Errors.Count > 0)
             {
                 TempData["PricingError"] = string.Join(" ", importResult.Errors.Take(5));
             }
             else
             {
-                TempData["PricingSuccess"] = $"Import giá tenant thành công. Thêm mới: {importResult.CreatedCount}, cập nhật: {importResult.UpdatedCount}.";
+                var deviceSummary = (importResult.DeviceCreatedCount + importResult.DeviceUpdatedCount + importResult.DeviceSkippedCount) > 0
+                    ? $" Thiết bị - thêm mới: {importResult.DeviceCreatedCount}, cập nhật: {importResult.DeviceUpdatedCount}, bỏ qua: {importResult.DeviceSkippedCount}."
+                    : string.Empty;
+                TempData["PricingSuccess"] = $"Import giá tenant thành công. Thêm mới: {importResult.CreatedCount}, cập nhật: {importResult.UpdatedCount}.{deviceSummary}";
             }
         }
         catch (Exception exception)

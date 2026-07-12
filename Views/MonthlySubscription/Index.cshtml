@@ -1,9 +1,13 @@
-@model MonthlySubscriptionIndexViewModel
+﻿@model MonthlySubscriptionIndexViewModel
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 @using System.Text.Json
 @{
     ViewData["ActiveNav"] = "subscription";
     ViewData["Title"] = "Monthly Subscription";
-    string Money(decimal value) => $"$ {value:#,##0.##}";
+    var defaultCurrency = (Configuration["System:DefaultCurrency"] ?? "VND").Trim().ToUpperInvariant();
+    string Money(decimal value) => string.Equals(defaultCurrency, "VND", StringComparison.OrdinalIgnoreCase)
+        ? $"{value:#,##0} VND"
+        : $"{defaultCurrency} {value:#,##0.##}";
     string Data(decimal value) => $"{value:#,##0.##} GB";
     var successMessage = TempData["SubscriptionSuccess"]?.ToString();
     var errorMessage = TempData["SubscriptionError"]?.ToString();
@@ -200,7 +204,12 @@
                     </td>
                   }
                   <td>@item.TenantName</td>
-                  <td>@item.VesselName</td>
+                  <td>
+                    <a asp-controller="MonthlySubscription"
+                       asp-action="Details"
+                       asp-route-id="@item.Id"
+                       class="table-primary-link">@item.VesselName</a>
+                  </td>
                   <td>@item.KitId</td>
                   <td>@item.PlanName</td>
                   <td>@item.SubscriptionType</td>
@@ -279,11 +288,11 @@
           </select>
         </label>
         <label class="detail-field">
-          <span>Giá overcharge ($/GB) / Overcharge Price ($/GB)</span>
+          <span>Overcharge Price (@defaultCurrency/GB)</span>
           <input id="createOverchargePrice" value="0.00" readonly />
         </label>
         <label class="detail-field">
-          <span>Giá bán cuối ($) / Final Sale Price ($)</span>
+          <span>Final Sale Price (@defaultCurrency)</span>
           <input id="createFinalPrice" value="0.00" readonly />
         </label>
         <input type="hidden" asp-for="CreateForm.SubscriptionType" value="Personal" />
@@ -407,7 +416,10 @@
 
   function money(value) {
     const number = Number(value || 0);
-    return `$ ${number.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+    const currency = "@defaultCurrency";
+    return currency === "VND"
+      ? `${number.toLocaleString("vi-VN", { maximumFractionDigits: 0 })} VND`
+      : `${currency} ${number.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
   }
 
   function vnd(value) {

@@ -1,5 +1,6 @@
-﻿@model DeviceDashboardViewModel
+@model DeviceDashboardViewModel
 @using System.Security.Claims
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 @{
     ViewData["Title"] = "Danh sách thiết bị";
     ViewData["ActiveNav"] = "dashboard";
@@ -36,6 +37,8 @@
     var accountAvatarStyle = !string.IsNullOrWhiteSpace(accountAvatarUrl)
         ? $"background-image:url('{accountAvatarUrl}')"
         : null;
+    var defaultCurrency = (Configuration["System:DefaultCurrency"] ?? "VND").Trim().ToUpperInvariant();
+    var moneyDecimals = string.Equals(defaultCurrency, "VND", StringComparison.OrdinalIgnoreCase) ? "0" : "2";
 }
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQkQfQ52JfCc0QfVIJ7VPF2uu5mBgwI=" crossorigin="" />
@@ -50,11 +53,11 @@
         <p>
           @if (Model.IsTenantScoped)
           {
-            @:Thiết bị thuộc tenant <strong>@(Model.CurrentTenantName ?? "-")</strong>
+            @:Thi?t b? thu?c tenant <strong>@(Model.CurrentTenantName ?? "-")</strong>
           }
           else
           {
-            <span data-i18n="customer_name">@Model.CustomerName</span> <text>•</text> <span data-i18n="customer_type">@Model.CustomerType</span>
+            <span data-i18n="customer_name">@Model.CustomerName</span> <text>.</text> <span data-i18n="customer_type">@Model.CustomerType</span>
           }
         </p>
       </div>
@@ -73,47 +76,98 @@
       <div class="device-card-head">
         <div>
           <h2 data-i18n="inventory_title">Device Inventory</h2>
-          <p><span data-i18n="total_label">Tổng số thiết bị:</span> <span id="totalDevicesText">@Model.TotalDevices</span></p>
+          <p><span data-i18n="total_label">T?ng s? thi?t b?:</span> <span id="totalDevicesText">@Model.TotalDevices</span></p>
         </div>
         <form id="deviceSearchForm" class="device-search" role="search" autocomplete="off">
-          <input
-            type="search"
-            id="deviceSearchInput"
-            class="device-search-input"
-            value="@Model.SearchTerm"
-            placeholder="Tìm theo tên thiết bị, tàu, tenant, mã thiết bị, trạng thái, gói cước"
-            aria-label="Tìm thiết bị" />
-          <button type="submit" class="btn-secondary device-search-btn" data-i18n="search_submit">Tìm</button>
-          <button type="button" class="btn-secondary device-search-btn is-ghost" id="clearDeviceSearch" data-i18n="search_clear">Xóa</button>
+          <div class="device-search-field">
+            <input
+              type="search"
+              id="deviceSearchInput"
+              class="device-search-input"
+              value="@Model.SearchTerm"
+              placeholder="T�m theo t�n thi?t b?, t�u, tenant, m� thi?t b?, KIT Number, Service Line, tr?ng th�i, g�i cu?c"
+              aria-label="T�m thi?t b?" />
+            <button type="submit" class="device-search-icon-btn" id="deviceSearchIconButton" aria-label="T�m thi?t b?">
+              <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 4a6.5 6.5 0 0 1 5.16 10.46l4.44 4.44-1.41 1.41-4.44-4.44A6.5 6.5 0 1 1 10.5 4Zm0 2a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Z"/></svg>
+              <svg class="cancel-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4 6.4 5Z"/></svg>
+            </button>
+          </div>
         </form>
+      </div>
+      <div class="device-tabbar" role="tablist" aria-label="Device inventory tabs">
+        <button type="button" class="device-tab-btn @(Model.ActiveDeviceTab == "synced" ? "is-active" : "")" data-device-tab="synced">Thiết bị đã sync</button>
+        <button type="button" class="device-tab-btn @(Model.ActiveDeviceTab == "stock" ? "is-active" : "")" data-device-tab="stock">Stock device</button>
+        @if (Model.CanManageDevices)
+        {
+          <button type="button" class="btn-secondary stock-sync-btn" id="syncStockDevicesButton" @(Model.ActiveDeviceTab == "stock" ? "" : "hidden")>Sync stock</button>
+        }
       </div>
       <div class="table-wrap">
         <table class="device-table">
           <thead>
             <tr>
-              <th data-i18n="col_device_name">Tên thiết bị</th>
-              <th data-i18n="col_vessel_name">Tên tàu</th>
+              <th data-i18n="col_device_name">T�n thi?t b?</th>
+              <th data-i18n="col_vessel_name">T�n t�u</th>
               <th data-i18n="col_tenant_name">Tenant</th>
-              <th data-i18n="col_kit_code">Mã thiết bị đầu cuối</th>
-              <th data-i18n="col_availability">Trạng thái online</th>
+              <th data-i18n="col_kit_code">M� thi?t b? d?u cu?i</th>
+              <th data-i18n="col_kit_number">KIT Number</th>
+              <th data-i18n="col_service_line">Service Line</th>
+              <th data-i18n="col_availability">Tr?ng th�i online</th>
               <th data-i18n="col_data_usage">Data Usage</th>
-              <th data-i18n="col_plan_name">Gói cước</th>
-              <th data-i18n="col_last_sync">Đồng bộ lúc</th>
-              <th data-i18n="col_actions">Tác vụ</th>
+              <th data-i18n="col_plan_name">G�i cu?c</th>
+              <th data-i18n="col_last_sync">D?ng b? l�c</th>
+              <th data-i18n="col_actions">T�c v?</th>
             </tr>
           </thead>
           <tbody id="deviceTableBody">
 	            @foreach (var device in Model.Devices)
 		            {
-		              <tr data-device-id="@device.Id" data-token-expired-utc="@device.TokenExpiredTimeUtcIso" data-client-synced="@device.IsSyncFresh.ToString().ToLowerInvariant()">
-		                <td>@device.DeviceName</td>
+		              <tr data-device-id="@device.Id" data-token-expired-utc="@device.TokenExpiredTimeUtcIso" data-client-synced="@device.IsSyncFresh.ToString().ToLowerInvariant()" data-has-terminal="@(string.IsNullOrWhiteSpace(device.DeviceCode) ? "false" : "true")">
+		                <td>
+                      @if (Model.CanManageDevices)
+                      {
+                        <button type="button" class="table-primary-link js-edit-device" data-device-id="@device.Id">@device.DeviceName</button>
+                      }
+                      else
+                      {
+                        <button type="button" class="table-primary-link js-open-detail" data-device-id="@device.Id">@device.DeviceName</button>
+                      }
+                    </td>
 		                <td>@device.VesselNameDisplay</td>
 		                <td>@device.TenantNameDisplay</td>
 		                <td>
-		                  <button type="button" class="table-code-btn js-open-detail" data-device-id="@device.Id">
-		                    @device.DeviceCode
-	                  </button>
+                      <span class="table-copy-value">
+		                <button type="button" class="table-code-btn js-open-detail" data-device-id="@device.Id">@device.DeviceCode</button>
+                        <button type="button" class="table-copy-btn js-copy-table-value" data-copy-value="@device.DeviceCode" data-copy-tooltip="Copy" aria-label="Copy m� thi?t b? d?u cu?i">
+                          <svg class="copy-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7a3 3 0 0 1 3-3h6a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-1v1a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-6a3 3 0 0 1 3-3h1V7Zm3-1a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-6Zm-3 4H7a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-1h-3a3 3 0 0 1-3-3v-3Z"/></svg>
+                          <svg class="check-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9.2 16.6-4.1-4.1L3.7 14l5.5 5.5L20.8 7.9l-1.4-1.4L9.2 16.6Z"/></svg>
+                        </button>
+                      </span>
 	                </td>
+                    <td>
+                      <span class="table-copy-value">
+                        <span>@(string.IsNullOrWhiteSpace(device.KitNumber) ? "-" : device.KitNumber)</span>
+                        @if (!string.IsNullOrWhiteSpace(device.KitNumber))
+                        {
+                          <button type="button" class="table-copy-btn js-copy-table-value" data-copy-value="@device.KitNumber" data-copy-tooltip="Copy" aria-label="Copy KIT Number">
+                            <svg class="copy-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7a3 3 0 0 1 3-3h6a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-1v1a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-6a3 3 0 0 1 3-3h1V7Zm3-1a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-6Zm-3 4H7a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-1h-3a3 3 0 0 1-3-3v-3Z"/></svg>
+                            <svg class="check-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9.2 16.6-4.1-4.1L3.7 14l5.5 5.5L20.8 7.9l-1.4-1.4L9.2 16.6Z"/></svg>
+                          </button>
+                        }
+                      </span>
+                    </td>
+                    <td>
+                      <span class="table-copy-value">
+                        <span>@(string.IsNullOrWhiteSpace(device.ServiceLine) ? "-" : device.ServiceLine)</span>
+                        @if (!string.IsNullOrWhiteSpace(device.ServiceLine))
+                        {
+                          <button type="button" class="table-copy-btn js-copy-table-value" data-copy-value="@device.ServiceLine" data-copy-tooltip="Copy" aria-label="Copy Service Line">
+                            <svg class="copy-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7a3 3 0 0 1 3-3h6a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-1v1a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-6a3 3 0 0 1 3-3h1V7Zm3-1a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-6Zm-3 4H7a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-1h-3a3 3 0 0 1-3-3v-3Z"/></svg>
+                            <svg class="check-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9.2 16.6-4.1-4.1L3.7 14l5.5 5.5L20.8 7.9l-1.4-1.4L9.2 16.6Z"/></svg>
+                          </button>
+                        }
+                      </span>
+                    </td>
 	                <td data-role="availability">
 	                  <span class="status-pill">
 	                    <span class="status-dot @(string.Equals(device.Availability, "online", StringComparison.OrdinalIgnoreCase) ? "is-online" : "is-offline")"></span>
@@ -133,16 +187,16 @@
 	                  <div class="table-actions">
 	                    <button type="button" class="table-action-btn js-open-detail" data-device-id="@device.Id">
 	                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5c5.23 0 9.27 4.11 10.57 6-.85 1.23-2.98 3.64-6.06 5.08C15.1 16.75 13.57 17 12 17c-5.23 0-9.27-4.11-10.57-6C2.73 9.11 6.77 5 12 5Zm0 2c-3.73 0-6.93 2.46-8.43 4 1.5 1.54 4.7 4 8.43 4s6.93-2.46 8.43-4C18.93 9.46 15.73 7 12 7Zm0 1.5A2.5 2.5 0 1 1 9.5 11 2.5 2.5 0 0 1 12 8.5Zm0 2A.5.5 0 1 0 12.5 11 .5.5 0 0 0 12 10.5Z"/></svg>
-	                      <span data-i18n="view_action">Chi tiết</span>
+	                      <span data-i18n="view_action">Chi ti?t</span>
 	                    </button>
                     @if (Model.CanManageDevices)
                     {
                       <button type="button" class="table-action-btn js-edit-device" data-device-id="@device.Id">
-                        <span data-i18n="edit_action">Sửa</span>
+                        <span data-i18n="edit_action">S?a</span>
                       </button>
                       <button type="button" class="table-action-btn is-danger js-delete-device" data-device-id="@device.Id" data-device-code="@device.DeviceCode">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h2v8H7V9Zm4 0h2v8h-2V9Zm4 0h2v8h-2V9ZM6 21a2 2 0 0 1-2-2V8h16v11a2 2 0 0 1-2 2H6Z"/></svg>
-                        <span data-i18n="delete_action">Xóa</span>
+                        <span data-i18n="delete_action">X�a</span>
                       </button>
                     }
                   </div>
@@ -155,7 +209,7 @@
       <div class="device-pagination" id="devicePagination">
         <div class="device-pagination-meta">
           <label class="page-size-wrap" for="pageSizeSelect">
-            <span data-i18n="pagination_pagesize">Số dòng</span>
+            <span data-i18n="pagination_pagesize">S? d�ng</span>
             <select id="pageSizeSelect" class="page-size-select">
               <option value="10" selected="@(Model.PageSize == 10)">10</option>
               <option value="20" selected="@(Model.PageSize == 20)">20</option>
@@ -179,7 +233,7 @@
       <div class="device-detail-toolbar">
         <div>
           <div class="device-brand">Shipnet portal</div>
-          <h2 id="deviceDetailTitle" class="device-detail-title" data-i18n="detail_title">Chi tiết thiết bị</h2>
+          <h2 id="deviceDetailTitle" class="device-detail-title" data-i18n="detail_title">Chi ti?t thi?t b?</h2>
         </div>
         <div class="device-detail-toolbar-right">
           <div class="language-switch detail-language-switch" aria-label="Detail language switch">
@@ -202,12 +256,12 @@
       <div class="device-detail-content">
         <div class="detail-loading" id="detailLoading" hidden>
           <span class="detail-loading-spinner" aria-hidden="true"></span>
-          <span class="detail-loading-text" data-i18n="processing">Đang xử lý...</span>
+          <span class="detail-loading-text" data-i18n="processing">Dang x? l�...</span>
         </div>
         <section class="detail-tab-panel is-active" data-detail-panel="information">
           <div class="detail-info-layout">
             <section class="detail-usage-panel">
-              <div class="detail-panel-head"><span data-i18n="detail_subscription_title">Gói hiện tại</span></div>
+              <div class="detail-panel-head"><span data-i18n="detail_subscription_title">G�i hi?n t?i</span></div>
               <div class="usage-progress">
                 <div class="usage-progress-bar">
                   <div class="usage-progress-fill" id="detailUsageProgress"></div>
@@ -215,37 +269,37 @@
                 <div class="usage-progress-scale"><span>0</span><span id="detailUsageLimitTop">-</span></div>
               </div>
               <div class="usage-grid">
-                <div class="usage-row"><span data-i18n="detail_total_usage">Tổng dung lượng</span><div class="usage-values"><strong id="detailTotalUsage">-</strong><span>/</span><strong id="detailTotalUsageLimit">-</strong></div></div>
+                <div class="usage-row"><span data-i18n="detail_total_usage">T?ng dung lu?ng</span><div class="usage-values"><strong id="detailTotalUsage">-</strong><span>/</span><strong id="detailTotalUsageLimit">-</strong></div></div>
                 <div class="usage-row"><span data-i18n="detail_priority_overage">Priority Overage</span><div class="usage-values"><strong id="detailPriorityOverage">-</strong><span>/</span><strong id="detailPriorityOverageLimit">-</strong></div></div>
-                <div class="usage-row"><span data-i18n="detail_plan_name">Tên gói</span><div class="usage-values usage-values-single"><strong id="detailPlanName">-</strong></div></div>
+                <div class="usage-row"><span data-i18n="detail_plan_name">T�n g�i</span><div class="usage-values usage-values-single"><strong id="detailPlanName">-</strong></div></div>
               </div>
               @if (Model.CanManageDataOptIn)
               {
                 <section class="data-optin-panel" id="dataOptInPanel">
                   <div class="data-optin-head">
-                    <div><div class="data-optin-title" data-i18n="detail_data_optin_title">Data opt-in / opt-out</div><div class="data-optin-current"><span data-i18n="detail_data_optin_current">Trạng thái hiện tại</span>: <strong id="dataOptInCurrent">-</strong></div></div>
-                    <button type="button" class="data-optin-action" id="dataOptInAction" disabled>—</button>
+                    <div><div class="data-optin-title" data-i18n="detail_data_optin_title">Data opt-in / opt-out</div><div class="data-optin-current"><span data-i18n="detail_data_optin_current">Tr?ng th�i hi?n t?i</span>: <strong id="dataOptInCurrent">-</strong></div></div>
+                    <button type="button" class="data-optin-action" id="dataOptInAction" disabled>-</button>
                   </div>
                   <div class="data-optin-message" id="dataOptInMessage"></div>
-                  <div class="data-optin-history-title" data-i18n="detail_data_optin_history">Lịch sử thay đổi</div>
+                  <div class="data-optin-history-title" data-i18n="detail_data_optin_history">L?ch s? thay d?i</div>
                   <div class="data-optin-history" id="dataOptInHistory"></div>
                 </section>
               }
             </section>
             <section class="detail-panel">
-              <div class="detail-panel-title" data-i18n="detail_system_info">Thông tin hệ thống</div>
-	              <div class="detail-kv"><span data-i18n="detail_device_name">Tên thiết bị</span><strong id="detailDeviceName">-</strong></div>
-	              <div class="detail-kv"><span data-i18n="detail_device_code">Mã thiết bị đầu cuối</span><strong id="detailDeviceCode">-</strong></div>
-	              <div class="detail-kv"><span data-i18n="detail_vessel_name">Tên tàu</span><strong id="detailVesselName">-</strong></div>
+              <div class="detail-panel-title" data-i18n="detail_system_info">Th�ng tin h? th?ng</div>
+	              <div class="detail-kv"><span data-i18n="detail_device_name">T�n thi?t b?</span><strong id="detailDeviceName">-</strong></div>
+	              <div class="detail-kv"><span data-i18n="detail_device_code">M� thi?t b? d?u cu?i</span><strong id="detailDeviceCode">-</strong></div>
+	              <div class="detail-kv"><span data-i18n="detail_vessel_name">T�n t�u</span><strong id="detailVesselName">-</strong></div>
 	              <div class="detail-kv"><span data-i18n="detail_tenant">Tenant</span><strong id="detailTenantName">-</strong></div>
 	              <div class="detail-kv"><span data-i18n="detail_tenant_id">Tenant ID</span><strong id="detailTenantId">-</strong></div>
 	              <div class="detail-kv"><span data-i18n="detail_kit_id">KITID</span><strong id="detailKitId">-</strong></div>
               <div class="detail-kv"><span data-i18n="detail_system_type">System Type</span><strong id="detailSystemType">-</strong></div>
               <div class="detail-kv"><span data-i18n="detail_kit_number">KIT Number</span><strong id="detailKitNumber">-</strong></div>
               <div class="detail-kv"><span data-i18n="detail_service_line">Service Line</span><strong id="detailServiceLine">-</strong></div>
-              <div class="detail-kv"><span data-i18n="detail_status">Trạng thái</span><strong id="detailAvailability">-</strong></div>
-              <div class="detail-kv"><span data-i18n="detail_last_update">Cập nhật cuối</span><strong id="detailLastUpdate">-</strong></div>
-              <div class="detail-kv"><span data-i18n="detail_last_sync">Đồng bộ lúc</span><strong id="detailLastSync">-</strong></div>
+              <div class="detail-kv"><span data-i18n="detail_status">Tr?ng th�i</span><strong id="detailAvailability">-</strong></div>
+              <div class="detail-kv"><span data-i18n="detail_last_update">C?p nh?t cu?i</span><strong id="detailLastUpdate">-</strong></div>
+              <div class="detail-kv"><span data-i18n="detail_last_sync">D?ng b? l�c</span><strong id="detailLastSync">-</strong></div>
             </section>
           </div>
         </section>
@@ -254,15 +308,15 @@
           <section class="detail-tab-panel" data-detail-panel="map" hidden>
             <section class="detail-map-panel">
               <div class="detail-panel-head">
-                <span data-i18n="detail_map_title">Vị trí tàu</span>
+                <span data-i18n="detail_map_title">V? tr� t�u</span>
                 <div class="detail-location-tools">
                   <span class="detail-pill" id="detailMapCoordinates">-</span>
-                  <button type="button" class="detail-map-fullscreen-btn" id="detailMapFullscreenButton" data-i18n="detail_map_fullscreen">Toàn màn hình</button>
+                  <button type="button" class="detail-map-fullscreen-btn" id="detailMapFullscreenButton" data-i18n="detail_map_fullscreen">To�n m�n h�nh</button>
                 </div>
               </div>
               <div class="detail-map-surface">
                 <div id="detailMapCanvas" class="detail-map-canvas" role="application" aria-label="Device map"></div>
-                <div class="detail-map-empty" id="detailMapEmpty" data-i18n="detail_map_empty">Chưa có dữ liệu GPS</div>
+                <div class="detail-map-empty" id="detailMapEmpty" data-i18n="detail_map_empty">Chua c� d? li?u GPS</div>
               </div>
             </section>
           </section>
@@ -270,10 +324,10 @@
         <section class="detail-tab-panel" data-detail-panel="plan" hidden>
           <section class="detail-panel detail-plan-panel">
             <div class="detail-panel-head">
-              <span data-i18n="detail_plan_management">Quản lý gói cước</span>
+              <span data-i18n="detail_plan_management">Qu?n l� g�i cu?c</span>
               <div class="detail-plan-head-actions">
-                <span class="detail-network-status" id="detailPlanStatus" data-i18n="detail_plan_loading">Đang tải gói cước...</span>
-                <button type="button" class="detail-ghost-btn detail-plan-add-btn" id="detailPlanAddButton" data-i18n="detail_add_plan">Thêm mới</button>
+                <span class="detail-network-status" id="detailPlanStatus" data-i18n="detail_plan_loading">Dang t?i g�i cu?c...</span>
+                <button type="button" class="detail-ghost-btn detail-plan-add-btn" id="detailPlanAddButton" data-i18n="detail_add_plan">Th�m m?i</button>
               </div>
             </div>
             <div class="detail-plan-list" id="detailPlanList"></div>
@@ -283,11 +337,11 @@
           <div class="detail-network-layout">
             <section class="detail-panel">
               <div class="detail-panel-head">
-                <span data-i18n="detail_wifi">Quản lý WiFi</span>
-                <span class="detail-network-status" id="detailNetworkStatus" data-i18n="detail_network_loading">Đang tải networking...</span>
+                <span data-i18n="detail_wifi">Qu?n l� WiFi</span>
+                <span class="detail-network-status" id="detailNetworkStatus" data-i18n="detail_network_loading">Dang t?i networking...</span>
               </div>
               <div class="detail-kv"><span data-i18n="detail_ssid">SSID</span><strong id="detailWifiSsid">-</strong></div>
-              <div class="detail-kv"><span data-i18n="detail_password">Mật khẩu</span><strong id="detailWifiPassword">-</strong></div>
+              <div class="detail-kv"><span data-i18n="detail_password">M?t kh?u</span><strong id="detailWifiPassword">-</strong></div>
               <div class="detail-kv"><span data-i18n="detail_wifi_enabled">WiFi Enabled</span><strong id="detailWifiEnabled">-</strong></div>
               <form id="detailWifiForm" class="detail-wifi-form">
                 <label class="detail-field">
@@ -295,7 +349,7 @@
                   <input id="detailWifiSsidInput" class="input" name="Ssid" autocomplete="off" />
                 </label>
                 <label class="detail-field">
-                  <span data-i18n="detail_password">Mật khẩu</span>
+                  <span data-i18n="detail_password">M?t kh?u</span>
                   <input id="detailWifiPasswordInput" class="input" name="Password" autocomplete="off" />
                 </label>
                 <label class="detail-check">
@@ -303,8 +357,8 @@
                   <span data-i18n="detail_wifi_enabled">WiFi Enabled</span>
                 </label>
                 <div class="detail-command-actions">
-                  <button type="submit" class="detail-ghost-btn" id="detailWifiSaveButton" data-i18n="detail_save_wifi">Lưu WiFi</button>
-                  <button type="button" class="detail-ghost-btn is-danger" id="detailRouterRebootButton" data-i18n="detail_restart_router">Khởi động lại router</button>
+                  <button type="submit" class="detail-ghost-btn" id="detailWifiSaveButton" data-i18n="detail_save_wifi">Luu WiFi</button>
+                  <button type="button" class="detail-ghost-btn is-danger" id="detailRouterRebootButton" data-i18n="detail_restart_router">Kh?i d?ng l?i router</button>
                 </div>
               </form>
             </section>
@@ -327,7 +381,7 @@
                   <span class="detail-chart-stats">Min 0.00 Mbps | Avg 0.00 Mbps | Max 0.00 Mbps</span>
                 </div>
                 <div class="detail-chart">
-                  <div class="detail-chart-state" data-state-key="detail_chart_loading" data-i18n="detail_chart_loading">Đang tải dữ liệu biểu đồ...</div>
+                  <div class="detail-chart-state" data-state-key="detail_chart_loading" data-i18n="detail_chart_loading">Dang t?i d? li?u bi?u d?...</div>
                   <svg class="detail-chart-svg" viewBox="0 0 900 260" preserveAspectRatio="none" aria-hidden="true"></svg>
                   <div class="detail-chart-axis detail-chart-axis-y">
                     <span>0.00</span>
@@ -344,7 +398,7 @@
                   <span class="detail-chart-stats">Min 0.00 Mbps | Avg 0.00 Mbps | Max 0.00 Mbps</span>
                 </div>
                 <div class="detail-chart">
-                  <div class="detail-chart-state" data-state-key="detail_chart_loading" data-i18n="detail_chart_loading">Đang tải dữ liệu biểu đồ...</div>
+                  <div class="detail-chart-state" data-state-key="detail_chart_loading" data-i18n="detail_chart_loading">Dang t?i d? li?u bi?u d?...</div>
                   <svg class="detail-chart-svg" viewBox="0 0 900 260" preserveAspectRatio="none" aria-hidden="true"></svg>
                   <div class="detail-chart-axis detail-chart-axis-y">
                     <span>0.00</span>
@@ -361,7 +415,7 @@
                   <span class="detail-chart-stats">Min 0.00 ms | Avg 0.00 ms | Max 0.00 ms</span>
                 </div>
                 <div class="detail-chart">
-                  <div class="detail-chart-state" data-state-key="detail_chart_loading" data-i18n="detail_chart_loading">Đang tải dữ liệu biểu đồ...</div>
+                  <div class="detail-chart-state" data-state-key="detail_chart_loading" data-i18n="detail_chart_loading">Dang t?i d? li?u bi?u d?...</div>
                   <svg class="detail-chart-svg" viewBox="0 0 900 260" preserveAspectRatio="none" aria-hidden="true"></svg>
                   <div class="detail-chart-axis detail-chart-axis-y">
                     <span>0.00</span>
@@ -378,7 +432,7 @@
                   <span class="detail-chart-stats">Min 0.00 | Avg 0.00 | Max 0.00</span>
                 </div>
                 <div class="detail-chart">
-                  <div class="detail-chart-state" data-state-key="detail_chart_loading" data-i18n="detail_chart_loading">Đang tải dữ liệu biểu đồ...</div>
+                  <div class="detail-chart-state" data-state-key="detail_chart_loading" data-i18n="detail_chart_loading">Dang t?i d? li?u bi?u d?...</div>
                   <svg class="detail-chart-svg" viewBox="0 0 900 260" preserveAspectRatio="none" aria-hidden="true"></svg>
                   <div class="detail-chart-axis detail-chart-axis-y">
                     <span>0.00</span>
@@ -395,7 +449,7 @@
                   <span class="detail-chart-stats">Min 0.00 % | Avg 0.00 % | Max 0.00 %</span>
                 </div>
                 <div class="detail-chart">
-                  <div class="detail-chart-state" data-state-key="detail_chart_loading" data-i18n="detail_chart_loading">Đang tải dữ liệu biểu đồ...</div>
+                  <div class="detail-chart-state" data-state-key="detail_chart_loading" data-i18n="detail_chart_loading">Dang t?i d? li?u bi?u d?...</div>
                   <svg class="detail-chart-svg" viewBox="0 0 900 260" preserveAspectRatio="none" aria-hidden="true"></svg>
                   <div class="detail-chart-axis detail-chart-axis-y">
                     <span>0.00</span>
@@ -412,7 +466,7 @@
                   <span class="detail-chart-stats">Min 0.00 | Avg 0.00 | Max 0.00</span>
                 </div>
                 <div class="detail-chart">
-                  <div class="detail-chart-state" data-state-key="detail_chart_loading" data-i18n="detail_chart_loading">Đang tải dữ liệu biểu đồ...</div>
+                  <div class="detail-chart-state" data-state-key="detail_chart_loading" data-i18n="detail_chart_loading">Dang t?i d? li?u bi?u d?...</div>
                   <svg class="detail-chart-svg" viewBox="0 0 900 260" preserveAspectRatio="none" aria-hidden="true"></svg>
                   <div class="detail-chart-axis detail-chart-axis-y">
                     <span>0.00</span>
@@ -435,31 +489,31 @@
   <div class="device-plan-editor" role="dialog" aria-modal="true" aria-labelledby="devicePlanEditorTitle">
     <div class="device-modal-head">
       <div>
-        <h2 id="devicePlanEditorTitle" data-i18n="detail_plan_editor_title">Thêm gói thiết bị</h2>
-        <p data-i18n="detail_plan_editor_subtitle">Chọn gói tenant và điều chỉnh giá bán ra cho thiết bị.</p>
+        <h2 id="devicePlanEditorTitle" data-i18n="detail_plan_editor_title">Th�m g�i thi?t b?</h2>
+        <p data-i18n="detail_plan_editor_subtitle">Ch?n g�i tenant v� di?u ch?nh gi� b�n ra cho thi?t b?.</p>
       </div>
       <button type="button" class="modal-close" id="closeDevicePlanEditorModal" aria-label="Close">×</button>
     </div>
     <form id="detailPlanForm" class="detail-plan-form">
       <label class="detail-field detail-plan-select-field">
-        <span data-i18n="detail_plan_select">Gói tenant</span>
+        <span data-i18n="detail_plan_select">G�i tenant</span>
         <select id="detailPlanSelect" class="input" name="PricingPlanId">
-          <option value="" data-i18n="detail_plan_select_placeholder">Chọn gói cước</option>
+          <option value="" data-i18n="detail_plan_select_placeholder">Ch?n g�i cu?c</option>
         </select>
       </label>
       <div class="detail-plan-price-grid">
         <label class="detail-field">
-          <span data-i18n="detail_final_price">Đơn giá bán ra ($)</span>
-          <input id="detailPlanFinalPrice" class="input" name="FinalPrice" type="number" min="0" step="0.01" />
+          <span data-i18n="detail_final_price">Don gi� b�n ra ($)</span>
+          <input id="detailPlanFinalPrice" class="input" name="FinalPrice" type="text" inputmode="decimal" data-money-input data-money-decimals="@moneyDecimals" />
         </label>
         <label class="detail-field">
-          <span data-i18n="detail_final_overcharge">Giá mua thêm bán ra ($)</span>
-          <input id="detailPlanFinalOverChargePrice" class="input" name="FinalOverChargePrice" type="number" min="0" step="0.01" />
+          <span data-i18n="detail_final_overcharge">Gi� mua th�m b�n ra ($)</span>
+          <input id="detailPlanFinalOverChargePrice" class="input" name="FinalOverChargePrice" type="text" inputmode="decimal" data-money-input data-money-decimals="@moneyDecimals" />
         </label>
       </div>
       <div class="device-modal-actions">
-        <button type="button" class="btn-secondary" id="cancelDevicePlanEditorModal" data-i18n="cancel">Hủy</button>
-        <button type="submit" class="btn-primary" id="detailPlanSaveButton" data-i18n="detail_save_plan">Lưu gói thiết bị</button>
+        <button type="button" class="btn-secondary" id="cancelDevicePlanEditorModal" data-i18n="cancel">H?y</button>
+        <button type="submit" class="btn-primary" id="detailPlanSaveButton" data-i18n="detail_save_plan">Luu g�i thi?t b?</button>
       </div>
     </form>
   </div>
@@ -469,8 +523,8 @@
   <div class="device-modal" role="dialog" aria-modal="true" aria-labelledby="deviceModalTitle">
 	    <div class="device-modal-head">
 	      <div>
-	        <h2 id="deviceModalTitle" data-i18n="modal_title">Thêm mới thiết bị</h2>
-	        <p id="deviceModalSubtitle" data-i18n="modal_subtitle">Nhập thông tin thiết bị và xác thực mã thiết bị đầu cuối qua API.</p>
+	        <h2 id="deviceModalTitle" data-i18n="modal_title">Th�m m?i thi?t b?</h2>
+	        <p id="deviceModalSubtitle" data-i18n="modal_subtitle">Nh?p th�ng tin thi?t b? v� x�c th?c m� thi?t b? d?u cu?i qua API.</p>
 	      </div>
       <button type="button" class="modal-close" id="closeDeviceModal" aria-label="Close">×</button>
     </div>
@@ -480,7 +534,7 @@
       <div class="form-group">
         <label for="tenantId" data-i18n="field_tenant">Tenant</label>
         <select id="tenantId" name="TenantId" class="input">
-          <option value="" data-i18n="field_tenant_placeholder">Chọn tenant</option>
+          <option value="" data-i18n="field_tenant_placeholder">Ch?n tenant</option>
           @foreach (var tenant in Model.Tenants)
           {
             <option value="@tenant.Id">@tenant.TenantName</option>
@@ -488,27 +542,31 @@
         </select>
       </div>
       <div class="form-group">
-        <label for="deviceName" data-i18n="field_device_name">Tên thiết bị</label>
+        <label for="deviceName" data-i18n="field_device_name">T�n thi?t b?</label>
         <input id="deviceName" name="DeviceName" class="input" maxlength="150" autocomplete="off" />
       </div>
       <div class="form-group">
-        <label for="deviceCode" data-i18n="field_kit_code">Mã thiết bị đầu cuối</label>
+        <label for="deviceCode" data-i18n="field_kit_code">M� thi?t b? d?u cu?i</label>
         <input id="deviceCode" name="DeviceCode" class="input" maxlength="100" autocomplete="off" />
       </div>
       <div class="form-group">
-        <label for="vesselName" data-i18n="field_vessel_name">Tên tàu</label>
+        <label for="kitNumber" data-i18n="field_kit_number">KIT Number</label>
+        <input id="kitNumber" name="KitNumber" class="input" maxlength="100" autocomplete="off" />
+      </div>
+      <div class="form-group">
+        <label for="vesselName" data-i18n="field_vessel_name">T�n t�u</label>
         <input id="vesselName" name="VesselName" class="input" maxlength="250" autocomplete="off" />
       </div>
       <div id="modalFeedback" class="modal-feedback" hidden></div>
       <div id="apiResult" class="api-result" hidden>
-        <div class="api-result-title" data-i18n="api_result">Kết quả API</div>
+        <div class="api-result-title" data-i18n="api_result">K?t qu? API</div>
         <pre id="apiResultText"></pre>
       </div>
       <div class="device-modal-actions">
-        <button type="button" class="btn-secondary" id="cancelDeviceModal" data-i18n="cancel">Hủy</button>
+        <button type="button" class="btn-secondary" id="cancelDeviceModal" data-i18n="cancel">H?y</button>
         <button type="submit" class="btn-primary btn-submit" id="submitDeviceButton">
           <span class="btn-spinner" aria-hidden="true"></span>
-          <span class="btn-label" data-i18n="save_device">Lưu thiết bị</span>
+          <span class="btn-label" data-i18n="save_device">Luu thi?t b?</span>
         </button>
       </div>
     </form>
@@ -523,6 +581,10 @@
   @Html.AntiForgeryToken()
 </form>
 
+<form id="syncStockDevicesForm" asp-controller="Dashboard" asp-action="SyncStockDevices" method="post" hidden>
+  @Html.AntiForgeryToken()
+</form>
+
 <script id="initialDevicePageData" type="application/json">
 @Html.Raw(System.Text.Json.JsonSerializer.Serialize(new
 {
@@ -530,6 +592,7 @@
     pageSize = Model.PageSize,
     totalDevices = Model.TotalDevices,
     searchTerm = Model.SearchTerm,
+    tab = Model.ActiveDeviceTab,
     devices = Model.Devices,
     selectedDeviceId = Model.SelectedDeviceId,
     scopeKey = Model.IsTenantScoped
@@ -544,27 +607,29 @@
   const dictionary = {
     vi: {
       page_title: "Danh sách thiết bị",
-	      add_device: "Thêm mới",
-	      logout: "Đăng xuất",
-	      nav_subtitle: "Bảng điều khiển vận hành",
-	      nav_tenant: "Quản lý tenant",
-	      nav_users: "Quản lý người dùng",
-	      nav_profile: "Thông tin tài khoản",
-	      nav_password: "Đổi mật khẩu",
-	      nav_account_name: "Admin User",
-	      nav_account_role: "Operations Admin",
-	      inventory_title: "Device Inventory",
+      add_device: "Thêm mới",
+      logout: "Đăng xuất",
+      nav_subtitle: "Bảng điều khiển vận hành",
+      nav_tenant: "Quản lý tenant",
+      nav_users: "Quản lý người dùng",
+      nav_profile: "Thông tin tài khoản",
+      nav_password: "Đổi mật khẩu",
+      nav_account_name: "Admin User",
+      nav_account_role: "Operations Admin",
+      inventory_title: "Device Inventory",
       customer_name: "Shipnet Operations",
       customer_type: "Fleet Control Center",
-	      total_label: "Tổng số thiết bị:",
-          search_submit: "Tìm",
-          search_clear: "Xóa",
-          search_placeholder: "Tìm theo tên thiết bị, tàu, tenant, mã thiết bị, trạng thái, gói cước",
-          search_aria_label: "Tìm thiết bị",
-	      col_device_name: "Tên thiết bị",
-	      col_vessel_name: "Tên tàu",
-	      col_tenant_name: "Tenant",
-	      col_kit_code: "Mã thiết bị đầu cuối",
+      total_label: "Tổng số thiết bị:",
+      search_submit: "Tìm",
+      search_clear: "Xóa",
+      search_placeholder: "Tìm theo tên thiết bị, tàu, tenant, mã thiết bị, KIT Number, Service Line, trạng thái, gói cước",
+      search_aria_label: "Tìm thiết bị",
+      col_device_name: "Tên thiết bị",
+      col_vessel_name: "Tên tàu",
+      col_tenant_name: "Tenant",
+      col_kit_code: "Mã thiết bị đầu cuối",
+      col_kit_number: "KIT Number",
+      col_service_line: "Service Line",
       col_availability: "Trạng thái online",
       col_data_usage: "Data Usage",
       col_plan_name: "Gói cước",
@@ -574,64 +639,64 @@
       pagination_pagesize: "Số dòng",
       pagination_first: "Đầu",
       pagination_prev: "Trước",
-	      pagination_next: "Sau",
-	      pagination_last: "Cuối",
-	      view_action: "Chi tiết",
-	      edit_action: "Sửa",
-	      delete_action: "Xóa",
-	      modal_title: "Thêm mới thiết bị",
-	      modal_subtitle: "Nhập thông tin thiết bị và xác thực mã thiết bị đầu cuối qua API.",
-	      modal_title_edit: "Cập nhật thiết bị",
-	      modal_subtitle_edit: "Cập nhật thông tin thiết bị, tên tàu và tenant.",
-	      field_device_name: "Tên thiết bị",
-	      field_kit_code: "Mã thiết bị đầu cuối",
-	      field_vessel_name: "Tên tàu",
-	      field_tenant: "Tenant",
-	      field_tenant_placeholder: "Chọn tenant",
-	      api_result: "Kết quả API",
-	      cancel: "Hủy",
-	      save_device: "Lưu thiết bị",
-	      update_device: "Lưu thay đổi",
-	      processing: "Đang xử lý...",
-	      validation_required: "Tên thiết bị, mã thiết bị, tên tàu và tenant là bắt buộc",
-	      create_success: "Tạo thiết bị thành công. Trang sẽ được làm mới.",
-	      update_success: "Cập nhật thiết bị thành công. Trang sẽ được làm mới.",
-	      generic_error: "Không thể xử lý yêu cầu. Vui lòng thử lại.",
-	      error_validation_required: "Thiếu dữ liệu bắt buộc. Cần nhập tên thiết bị, terminal id, tên tàu và tenant.",
-	      error_duplicate_kit_code: "Terminal id đã tồn tại trong hệ thống.",
-	      error_missing_api_credentials: "Thiếu cấu hình API trong TblSettings: cần client_id và client_secret.",
-	      error_kit_unavailable: "Terminal id này không khả dụng trên API hoặc không thuộc phạm vi truy cập hiện tại.",
-	      error_missing_access_token: "API không trả về access token hợp lệ cho terminal này.",
-	      error_terminal_devices_error: "API danh sách thiết bị trả về lỗi HTTP {status}.",
-	      error_terminal_devices_empty: "API danh sách thiết bị không trả về dữ liệu thiết bị hợp lệ.",
-	      error_terminal_device_missing_id: "API danh sách thiết bị không trả về KITID hợp lệ.",
-	      error_terminal_devices_invalid_json: "API danh sách thiết bị trả về JSON không hợp lệ.",
-	      error_missing_wifi_identifiers: "Thiếu KITID hoặc KIT Number để lấy thông tin WiFi.",
-	      error_router_device_not_found: "Không tìm thấy Starlink WiFi router trong danh sách device của terminal này. Router có thể đang tắt, chưa report cấu hình hoặc đang ở bypass mode.",
-	      error_wifi_endpoint_not_found: "API WiFi không tìm thấy cấu hình router cho thiết bị này. Thiết bị có thể không có router quản lý được hoặc WiFi đang ở bypass mode.",
-	      error_wifi_api_error: "API WiFi trả về lỗi HTTP {status}.",
-	      error_wifi_invalid_json: "API WiFi trả về JSON không hợp lệ.",
-	      error_device_not_found: "Không tìm thấy thiết bị hoặc bạn không có quyền truy cập.",
-	      error_server_exception: "Máy chủ gặp lỗi khi xử lý popup thiết bị.",
-	      error_bad_request: "Yêu cầu không hợp lệ. Vui lòng kiểm tra dữ liệu đã nhập.",
-	      error_unauthorized: "Phiên đăng nhập không còn hợp lệ. Vui lòng đăng nhập lại.",
-	      error_forbidden: "Bạn không có quyền thực hiện thao tác này.",
-	      error_not_found: "Không tìm thấy tài nguyên được yêu cầu.",
-	      error_session_expired: "Phiên làm việc hoặc mã bảo mật đã hết hạn. Vui lòng tải lại trang rồi thử lại.",
-	      error_invalid_response: "Máy chủ trả về phản hồi không hợp lệ cho popup này.",
-	      error_http_status: "Yêu cầu thất bại với HTTP {status}.",
-	      response_error_prefix: "Lỗi phản hồi",
-	      network_error_prefix: "Lỗi kết nối",
-	      delete_confirm: "Bạn có chắc chắn muốn xóa mã thiết bị đầu cuối {kitCode} không?",
+      pagination_next: "Sau",
+      pagination_last: "Cuối",
+      view_action: "Chi tiết",
+      edit_action: "Sửa",
+      delete_action: "Xóa",
+      modal_title: "Thêm mới thiết bị",
+      modal_subtitle: "Nhập thông tin thiết bị và xác thực mã thiết bị đầu cuối qua API.",
+      modal_title_edit: "Cập nhật thiết bị",
+      modal_subtitle_edit: "Cập nhật thông tin thiết bị, tên tàu và tenant.",
+      field_device_name: "Tên thiết bị",
+      field_kit_code: "Mã thiết bị đầu cuối",
+      field_vessel_name: "Tên tàu",
+      field_tenant: "Tenant",
+      field_tenant_placeholder: "Chọn tenant",
+      api_result: "Kết quả API",
+      cancel: "Hủy",
+      save_device: "Lưu thiết bị",
+      update_device: "Lưu thay đổi",
+      processing: "Đang xử lý...",
+      validation_required: "Tên thiết bị, mã thiết bị, tên tàu và tenant là bắt buộc",
+      create_success: "Tạo thiết bị thành công. Trang sẽ được làm mới.",
+      update_success: "Cập nhật thiết bị thành công. Trang sẽ được làm mới.",
+      generic_error: "Không thể xử lý yêu cầu. Vui lòng thử lại.",
+      error_validation_required: "Thiếu dữ liệu bắt buộc. Cần nhập tên thiết bị, terminal id, tên tàu và tenant.",
+      error_duplicate_kit_code: "Terminal id đã tồn tại trong hệ thống.",
+      error_missing_api_credentials: "Thiếu cấu hình API trong TblSettings: cần client_id và client_secret.",
+      error_kit_unavailable: "Terminal id này không khả dụng trên API hoặc không thuộc phạm vi truy cập hiện tại.",
+      error_missing_access_token: "API không trả về access token hợp lệ cho terminal này.",
+      error_terminal_devices_error: "API danh sách thiết bị trả về lỗi HTTP {status}.",
+      error_terminal_devices_empty: "API danh sách thiết bị không trả về dữ liệu thiết bị hợp lệ.",
+      error_terminal_device_missing_id: "API danh sách thiết bị không trả về KITID hợp lệ.",
+      error_terminal_devices_invalid_json: "API danh sách thiết bị trả về JSON không hợp lệ.",
+      error_missing_wifi_identifiers: "Thiếu KITID hoặc KIT Number để lấy thông tin WiFi.",
+      error_router_device_not_found: "Không tìm thấy Starlink WiFi router trong danh sách device của terminal này. Router có thể đang tắt, chưa report cấu hình hoặc đang ở bypass mode.",
+      error_wifi_endpoint_not_found: "API WiFi không tìm thấy cấu hình router cho thiết bị này. Thiết bị có thể không có router quản lý được hoặc WiFi đang ở bypass mode.",
+      error_wifi_api_error: "API WiFi trả về lỗi HTTP {status}.",
+      error_wifi_invalid_json: "API WiFi trả về JSON không hợp lệ.",
+      error_device_not_found: "Không tìm thấy thiết bị hoặc bạn không có quyền truy cập.",
+      error_server_exception: "Máy chủ gặp lỗi khi xử lý popup thiết bị.",
+      error_bad_request: "Yêu cầu không hợp lệ. Vui lòng kiểm tra dữ liệu đã nhập.",
+      error_unauthorized: "Phiên đăng nhập không còn hợp lệ. Vui lòng đăng nhập lại.",
+      error_forbidden: "Bạn không có quyền thực hiện thao tác này.",
+      error_not_found: "Không tìm thấy tài nguyên được yêu cầu.",
+      error_session_expired: "Phiên làm việc hoặc mã bảo mật đã hết hạn. Vui lòng tải lại trang rồi thử lại.",
+      error_invalid_response: "Máy chủ trả về phản hồi không hợp lệ cho popup này.",
+      error_http_status: "Yêu cầu thất bại với HTTP {status}.",
+      response_error_prefix: "Lỗi phản hồi",
+      network_error_prefix: "Lỗi kết nối",
+      delete_confirm: "Bạn có chắc chắn muốn xóa mã thiết bị đầu cuối {kitCode} không?",
       delete_success: "Xóa mã thiết bị đầu cuối thành công. Trang sẽ được làm mới.",
-	      detail_title: "Chi tiết thiết bị",
-	      detail_system_info: "Thông tin hệ thống",
-	      detail_device_name: "Tên thiết bị",
-	      detail_device_code: "Mã thiết bị đầu cuối",
-	      detail_vessel_name: "Tên tàu",
-	      detail_tenant: "Tenant",
-	      detail_tenant_id: "Tenant ID",
-	      detail_kit_id: "KITID",
+      detail_title: "Chi tiết thiết bị",
+      detail_system_info: "Thông tin hệ thống",
+      detail_device_name: "Tên thiết bị",
+      detail_device_code: "Mã thiết bị đầu cuối",
+      detail_vessel_name: "Tên tàu",
+      detail_tenant: "Tenant",
+      detail_tenant_id: "Tenant ID",
+      detail_kit_id: "KITID",
       detail_system_type: "System Type",
       detail_kit_number: "KIT Number",
       detail_service_line: "Service Line",
@@ -643,73 +708,82 @@
       detail_password: "Mật khẩu",
       detail_wifi_enabled: "WiFi Enabled",
       detail_save_wifi: "Lưu WiFi",
-	      detail_restart_router: "Khởi động lại router",
-	      detail_reboot_confirm: "Gửi lệnh khởi động lại router cho thiết bị này?",
-	      detail_tab_information: "Information",
-	      detail_tab_map: "Map",
-	      detail_tab_networking: "Networking",
-	      detail_tab_telemetry: "Telemetry",
-	      detail_tab_plan: "Plan Management",
-	      detail_plan_management: "Quản lý gói cước",
-	      detail_plan_loading: "Đang tải gói cước...",
-	      detail_plan_ready: "Sẵn sàng",
-	      detail_plan_error: "Không tải được gói cước",
-	      detail_plan_select: "Gói tenant",
-	      detail_plan_select_placeholder: "Chọn gói cước",
-	      detail_final_price: "Đơn giá bán ra ($)",
-	      detail_final_overcharge: "Giá mua thêm bán ra ($)",
-	      detail_add_plan: "Thêm mới",
-	      detail_edit_plan: "Sửa",
-	      detail_delete_plan: "Xóa",
-	      detail_plan_editor_title: "Thêm gói thiết bị",
-	      detail_plan_editor_title_edit: "Sửa gói thiết bị",
-	      detail_plan_editor_subtitle: "Chọn gói tenant và điều chỉnh giá bán ra cho thiết bị.",
-	      detail_save_plan: "Lưu gói thiết bị",
-	      detail_device_plan_list: "Gói đã lưu cho thiết bị",
-	      detail_plan_empty: "Chưa có gói thiết bị nào.",
-	      detail_plan_no_options: "Tenant chưa có gói giá.",
-	      detail_plan_saved: "Đã lưu gói thiết bị.",
-	      detail_plan_deleted: "Đã xóa gói thiết bị.",
-	      detail_plan_delete_confirm: "Bạn có chắc chắn muốn xóa gói {planName} khỏi thiết bị này không?",
-	      detail_plan_validation: "Vui lòng chọn gói và nhập đầy đủ đơn giá hợp lệ.",
-	      detail_map_title: "Vị trí tàu",
-	      detail_map_empty: "Chưa có dữ liệu GPS",
-	      detail_map_fullscreen: "Toàn màn hình",
-	      detail_map_exit_fullscreen: "Thoát toàn màn hình",
-	      detail_network_loading: "Đang tải networking...",
-	      detail_network_ready: "Sẵn sàng",
-	      detail_network_error: "Không tải được networking",
-	      detail_wifi_saved: "Đã gửi lệnh cập nhật WiFi.",
-	      detail_reboot_submitted: "Đã gửi lệnh reboot router.",
-	      detail_command_job: "Job ID: {jobId}",
-	      error_wifi_validation_required: "SSID và mật khẩu WiFi là bắt buộc.",
-	      error_wifi_update_api_error: "API cập nhật WiFi trả về lỗi HTTP {status}.",
-	      error_router_reboot_api_error: "API reboot router trả về lỗi HTTP {status}.",
-	      detail_subscription_title: "Gói hiện tại",
+      detail_restart_router: "Khởi động lại router",
+      detail_reboot_confirm: "Gửi lệnh khởi động lại router cho thiết bị này?",
+      detail_tab_information: "Information",
+      detail_tab_map: "Map",
+      detail_tab_networking: "Networking",
+      detail_tab_telemetry: "Telemetry",
+      detail_tab_plan: "Plan Management",
+      detail_plan_management: "Quản lý gói cước",
+      detail_plan_loading: "Đang tải gói cước...",
+      detail_plan_ready: "Sẵn sàng",
+      detail_plan_error: "Không tải được gói cước",
+      detail_plan_select: "Gói tenant",
+      detail_plan_select_placeholder: "Chọn gói cước",
+      detail_final_price: "Đơn giá bán ra (@defaultCurrency)",
+      detail_final_overcharge: "Giá mua thêm bán ra (@defaultCurrency)",
+      detail_add_plan: "Thêm mới",
+      detail_edit_plan: "Sửa",
+      detail_delete_plan: "Xóa",
+      detail_plan_editor_title: "Thêm gói thiết bị",
+      detail_plan_editor_title_edit: "Sửa gói thiết bị",
+      detail_plan_editor_subtitle: "Chọn gói tenant và điều chỉnh giá bán ra cho thiết bị.",
+      detail_save_plan: "Lưu gói thiết bị",
+      detail_device_plan_list: "Gói đã lưu cho thiết bị",
+      detail_plan_empty: "Chưa có gói thiết bị nào.",
+      detail_plan_no_options: "Tenant chưa có gói giá.",
+      detail_plan_saved: "Đã lưu gói thiết bị.",
+      detail_plan_deleted: "Đã xóa gói thiết bị.",
+      detail_plan_delete_confirm: "Bạn có chắc chắn muốn xóa gói {planName} khỏi thiết bị này không?",
+      detail_plan_validation: "Vui lòng chọn gói và nhập đầy đủ đơn giá hợp lệ.",
+      detail_map_title: "Vị trí tàu",
+      detail_map_empty: "Chưa có dữ liệu GPS",
+      detail_map_fullscreen: "Toàn màn hình",
+      detail_map_exit_fullscreen: "Thoát toàn màn hình",
+      detail_network_loading: "Đang tải networking...",
+      detail_network_ready: "Sẵn sàng",
+      detail_network_error: "Không tải được networking",
+      detail_wifi_saved: "Đã gửi lệnh cập nhật WiFi.",
+      detail_reboot_submitted: "Đã gửi lệnh reboot router.",
+      detail_command_job: "Job ID: {jobId}",
+      error_wifi_validation_required: "SSID và mật khẩu WiFi là bắt buộc.",
+      error_wifi_update_api_error: "API cập nhật WiFi trả về lỗi HTTP {status}.",
+      error_router_reboot_api_error: "API reboot router trả về lỗi HTTP {status}.",
+      detail_subscription_title: "Gói hiện tại",
       detail_total_usage: "Tổng dung lượng",
       detail_priority_overage: "Priority Overage",
       detail_plan_name: "Tên gói",
-      detail_data_optin_title: "Data opt-in / opt-out", detail_data_optin_current: "Trạng thái hiện tại", detail_data_optin_history: "Lịch sử thay đổi", detail_data_optin_loading: "Đang tải trạng thái...", detail_data_optin_empty: "Chưa có lịch sử thay đổi.", detail_data_optin_in: "Opt-in", detail_data_optin_out: "Opt-out", detail_data_optin_unknown: "Chưa xác định", detail_data_optin_confirm_in: "Bạn có chắc chắn muốn opt-in data cho thiết bị này không?", detail_data_optin_confirm_out: "Bạn có chắc chắn muốn opt-out data cho thiết bị này không?", detail_data_optin_submitted: "KVH đã tiếp nhận yêu cầu.",
-	      detail_range_15m: "15 phút",
-	      detail_range_1h: "1 giờ",
-	      detail_range_3h: "3 giờ",
-	      detail_range_24h: "24 giờ",
-	      detail_range_7d: "7 ngày",
-	      detail_range_reload: "Tải lại",
-	      detail_chart_loading: "Đang tải dữ liệu biểu đồ...",
-	      detail_chart_empty: "Không có dữ liệu trong khoảng thời gian này",
-	      detail_chart_zero: "Không phát sinh dữ liệu trong khoảng thời gian này",
-	      detail_chart_error: "Không tải được dữ liệu biểu đồ",
-	      detail_chart_stats: "Min {min} {unit} | Avg {avg} {unit} | Max {max} {unit}",
-	      metric_downlink_throughput: "Downlink throughput",
-	      metric_latency: "Latency",
-	      metric_obstruction: "Obstruction",
-	      metric_ping_drop_rate: "Ping drop rate",
-	      metric_signal_quality: "Signal quality",
-	      metric_uplink_throughput: "Uplink throughput",
-	      sync_inline_loading: "Đang tải"
-    },
-    en: {
+      detail_data_optin_title: "Data opt-in / opt-out",
+      detail_data_optin_current: "Trạng thái hiện tại",
+      detail_data_optin_history: "Lịch sử thay đổi",
+      detail_data_optin_loading: "Đang tải trạng thái...",
+      detail_data_optin_empty: "Chưa có lịch sử thay đổi.",
+      detail_data_optin_in: "Opt-in",
+      detail_data_optin_out: "Opt-out",
+      detail_data_optin_unknown: "Chưa xác định",
+      detail_data_optin_confirm_in: "Bạn có chắc chắn muốn opt-in data cho thiết bị này không?",
+      detail_data_optin_confirm_out: "Bạn có chắc chắn muốn opt-out data cho thiết bị này không?",
+      detail_data_optin_submitted: "KVH đã tiếp nhận yêu cầu.",
+      detail_range_15m: "15 phút",
+      detail_range_1h: "1 giờ",
+      detail_range_3h: "3 giờ",
+      detail_range_24h: "24 giờ",
+      detail_range_7d: "7 ngày",
+      detail_range_reload: "Tải lại",
+      detail_chart_loading: "Đang tải dữ liệu biểu đồ...",
+      detail_chart_empty: "Không có dữ liệu trong khoảng thời gian này",
+      detail_chart_zero: "Không phát sinh dữ liệu trong khoảng thời gian này",
+      detail_chart_error: "Không tải được dữ liệu biểu đồ",
+      detail_chart_stats: "Min {min} {unit} | Avg {avg} {unit} | Max {max} {unit}",
+      metric_downlink_throughput: "Downlink throughput",
+      metric_latency: "Latency",
+      metric_obstruction: "Obstruction",
+      metric_ping_drop_rate: "Ping drop rate",
+      metric_signal_quality: "Signal quality",
+      metric_uplink_throughput: "Uplink throughput",
+      sync_inline_loading: "Đang tải"
+    },    en: {
       page_title: "Device List",
 	      add_device: "Add New",
 	      logout: "Sign out",
@@ -726,12 +800,14 @@
 	      total_label: "Total devices:",
           search_submit: "Search",
           search_clear: "Clear",
-          search_placeholder: "Search by device, vessel, tenant, device code, online status, or plan",
+          search_placeholder: "Search by device, vessel, tenant, terminal id, KIT Number, Service Line, online status, or plan",
           search_aria_label: "Search devices",
 	      col_device_name: "Device Name",
 	      col_vessel_name: "Vessel Name",
 	      col_tenant_name: "Tenant",
 	      col_kit_code: "Terminal Id",
+      col_kit_number: "KIT Number",
+      col_service_line: "Service Line",
       col_availability: "Online Status",
       col_data_usage: "Data Usage",
       col_plan_name: "Plan Name",
@@ -823,8 +899,8 @@
 	      detail_plan_error: "Could not load plans",
 	      detail_plan_select: "Tenant plan",
 	      detail_plan_select_placeholder: "Select a plan",
-	      detail_final_price: "Final price ($)",
-	      detail_final_overcharge: "Final overage price ($)",
+	      detail_final_price: "Final price (@defaultCurrency)",
+	      detail_final_overcharge: "Final overage price (@defaultCurrency)",
 	      detail_add_plan: "Add new",
 	      detail_edit_plan: "Edit",
 	      detail_delete_plan: "Delete",
@@ -888,12 +964,16 @@
   const deviceIdInput = q("#deviceId");
   const deviceNameInput = q("#deviceName");
   const deviceCodeInput = q("#deviceCode");
+  const kitNumberInput = q("#kitNumber");
   const vesselNameInput = q("#vesselName");
   const tenantIdInput = q("#tenantId");
   const deviceModalTitle = q("#deviceModalTitle");
   const deviceModalSubtitle = q("#deviceModalSubtitle");
   const deleteForm = q("#deleteDeviceForm");
   const refreshForm = q("#refreshDeviceForm");
+  const syncStockDevicesForm = q("#syncStockDevicesForm");
+  const syncStockDevicesButton = q("#syncStockDevicesButton");
+  const deviceTabButtons = qa(".device-tab-btn[data-device-tab]");
   const submitButton = q("#submitDeviceButton");
   const submitLabel = submitButton.querySelector(".btn-label");
   const feedback = q("#modalFeedback");
@@ -932,7 +1012,7 @@
   const pageSizeSelect = q("#pageSizeSelect");
   const deviceSearchForm = q("#deviceSearchForm");
   const deviceSearchInput = q("#deviceSearchInput");
-  const clearDeviceSearchButton = q("#clearDeviceSearch");
+  const deviceSearchIconButton = q("#deviceSearchIconButton");
   const initialPageData = JSON.parse(q("#initialDevicePageData").textContent);
   const canManageDevices = @Json.Serialize(Model.CanManageDevices);
   const canViewMap = @Json.Serialize(Model.CanViewMap);
@@ -982,12 +1062,13 @@
   const detailMapCanvas = q("#detailMapCanvas");
   const detailMapEmpty = q("#detailMapEmpty");
   const detailMapCoordinates = q("#detailMapCoordinates");
-  const requiredDeviceFields = [deviceNameInput, deviceCodeInput, vesselNameInput, tenantIdInput];
+  const requiredDeviceFields = [deviceNameInput, vesselNameInput, tenantIdInput];
   let deviceModalMode = "create";
   let currentPage = initialPageData.currentPage || 1;
   let currentPageSize = initialPageData.pageSize || 10;
   let totalDevices = initialPageData.totalDevices || 0;
   let currentSearchTerm = normalizeSearchTerm(initialPageData.searchTerm || "");
+  let currentDeviceTab = initialPageData.tab === "stock" ? "stock" : "synced";
   const initialSelectedDeviceId = Number(initialPageData.selectedDeviceId || 0);
   let selectedTelemetryRangeSeconds = 900;
   let currentDetailDeviceId = 0;
@@ -1004,30 +1085,30 @@
   let detailMapLatLng = null;
   let detailMapFullscreen = false;
   const vietnamBaselinePoints = [
-    { name: "A1", label: "Hòn Nhạn", lat: 9 + 15.0 / 60, lng: 103 + 27.0 / 60 },
-    { name: "A2", label: "Hòn Đá Lẻ", lat: 8 + 22.8 / 60, lng: 104 + 52.4 / 60 },
-    { name: "A3", label: "Hòn Tài Lớn", lat: 8 + 37.8 / 60, lng: 106 + 37.5 / 60 },
-    { name: "A4", label: "Hòn Bông Lang", lat: 8 + 38.9 / 60, lng: 106 + 40.3 / 60 },
-    { name: "A5", label: "Hòn Bảy Cạnh", lat: 8 + 39.7 / 60, lng: 106 + 42.1 / 60 },
-    { name: "A6", label: "Hòn Hải", lat: 9 + 58.0 / 60, lng: 109 + 5.0 / 60 },
-    { name: "A7", label: "Hòn Đôi", lat: 12 + 39.0 / 60, lng: 109 + 28.0 / 60 },
-    { name: "A8", label: "Mũi Đại Lãnh", lat: 12 + 53.8 / 60, lng: 109 + 27.2 / 60 },
-    { name: "A9", label: "Hòn Ông Căn", lat: 13 + 54.0 / 60, lng: 109 + 21.0 / 60 },
-    { name: "A10", label: "Đảo Lý Sơn", lat: 15 + 23.1 / 60, lng: 109 + 9.0 / 60 },
-    { name: "A11", label: "Đảo Cồn Cỏ", lat: 17 + 10.0 / 60, lng: 107 + 20.6 / 60 },
-    { name: "A12", label: "Hòn Gió Lớn", lat: 17 + 54 / 60 + 48.1 / 3600, lng: 106 + 40 / 60 + 25.8 / 3600 },
-    { name: "A13", label: "Hòn Chim", lat: 18 + 7 / 60 + 2.5 / 3600, lng: 106 + 29 / 60 + 23.7 / 3600 },
-    { name: "A14", label: "Hòn Mắt Con", lat: 18 + 47 / 60 + 28.2 / 3600, lng: 105 + 59 / 60 + 20.5 / 3600 },
-    { name: "A15", label: "Đảo Hòn Mê", lat: 19 + 22 / 60 + 36.7 / 3600, lng: 105 + 56 / 60 + 18.6 / 3600 },
-    { name: "A16", label: "Đảo Long Châu Đông", lat: 20 + 36 / 60 + 47.9 / 3600, lng: 107 + 12 / 60 + 32.2 / 3600 },
-    { name: "A17", label: "Đảo Hạ Mai", lat: 20 + 42 / 60 + 58.6 / 3600, lng: 107 + 27 / 60 + 14.9 / 3600 },
-    { name: "A18", label: "Đảo Hạ Mai", lat: 20 + 43 / 60 + 21.3 / 3600, lng: 107 + 27 / 60 + 50.2 / 3600 },
-    { name: "A19", label: "Đảo Thanh Lam", lat: 20 + 59 / 60 + 2.3 / 3600, lng: 107 + 49 / 60 + 20.9 / 3600 },
-    { name: "A20", label: "Đảo Thanh Lam", lat: 21 + 1 / 60 + 25.9 / 3600, lng: 107 + 51 / 60 + 46.5 / 3600 },
-    { name: "A21", label: "Hòn Bồ Cát", lat: 21 + 11 / 60 + 19.6 / 3600, lng: 108 + 1 / 60 + 9.6 / 3600 },
-    { name: "A22", label: "Hòn Bồ Cát", lat: 21 + 11 / 60 + 29.2 / 3600, lng: 108 + 1 / 60 + 17.7 / 3600 },
-    { name: "A23", label: "Đảo Trà Cổ", lat: 21 + 28 / 60 + 14.9 / 3600, lng: 108 + 5 / 60 + 32.8 / 3600 },
-    { name: "A24", label: "Điểm số 1 Vịnh Bắc Bộ", lat: 21 + 28 / 60 + 12.5 / 3600, lng: 108 + 6 / 60 + 4.3 / 3600 }
+    { name: "A1", label: "H�n Nh?n", lat: 9 + 15.0 / 60, lng: 103 + 27.0 / 60 },
+    { name: "A2", label: "H�n D� L?", lat: 8 + 22.8 / 60, lng: 104 + 52.4 / 60 },
+    { name: "A3", label: "H�n T�i L?n", lat: 8 + 37.8 / 60, lng: 106 + 37.5 / 60 },
+    { name: "A4", label: "H�n B�ng Lang", lat: 8 + 38.9 / 60, lng: 106 + 40.3 / 60 },
+    { name: "A5", label: "H�n B?y C?nh", lat: 8 + 39.7 / 60, lng: 106 + 42.1 / 60 },
+    { name: "A6", label: "H�n H?i", lat: 9 + 58.0 / 60, lng: 109 + 5.0 / 60 },
+    { name: "A7", label: "H�n D�i", lat: 12 + 39.0 / 60, lng: 109 + 28.0 / 60 },
+    { name: "A8", label: "Mui D?i L�nh", lat: 12 + 53.8 / 60, lng: 109 + 27.2 / 60 },
+    { name: "A9", label: "H�n �ng Can", lat: 13 + 54.0 / 60, lng: 109 + 21.0 / 60 },
+    { name: "A10", label: "D?o L� Son", lat: 15 + 23.1 / 60, lng: 109 + 9.0 / 60 },
+    { name: "A11", label: "D?o C?n C?", lat: 17 + 10.0 / 60, lng: 107 + 20.6 / 60 },
+    { name: "A12", label: "H�n Gi� L?n", lat: 17 + 54 / 60 + 48.1 / 3600, lng: 106 + 40 / 60 + 25.8 / 3600 },
+    { name: "A13", label: "H�n Chim", lat: 18 + 7 / 60 + 2.5 / 3600, lng: 106 + 29 / 60 + 23.7 / 3600 },
+    { name: "A14", label: "H�n M?t Con", lat: 18 + 47 / 60 + 28.2 / 3600, lng: 105 + 59 / 60 + 20.5 / 3600 },
+    { name: "A15", label: "D?o H�n M�", lat: 19 + 22 / 60 + 36.7 / 3600, lng: 105 + 56 / 60 + 18.6 / 3600 },
+    { name: "A16", label: "D?o Long Ch�u D�ng", lat: 20 + 36 / 60 + 47.9 / 3600, lng: 107 + 12 / 60 + 32.2 / 3600 },
+    { name: "A17", label: "D?o H? Mai", lat: 20 + 42 / 60 + 58.6 / 3600, lng: 107 + 27 / 60 + 14.9 / 3600 },
+    { name: "A18", label: "D?o H? Mai", lat: 20 + 43 / 60 + 21.3 / 3600, lng: 107 + 27 / 60 + 50.2 / 3600 },
+    { name: "A19", label: "D?o Thanh Lam", lat: 20 + 59 / 60 + 2.3 / 3600, lng: 107 + 49 / 60 + 20.9 / 3600 },
+    { name: "A20", label: "D?o Thanh Lam", lat: 21 + 1 / 60 + 25.9 / 3600, lng: 107 + 51 / 60 + 46.5 / 3600 },
+    { name: "A21", label: "H�n B? C�t", lat: 21 + 11 / 60 + 19.6 / 3600, lng: 108 + 1 / 60 + 9.6 / 3600 },
+    { name: "A22", label: "H�n B? C�t", lat: 21 + 11 / 60 + 29.2 / 3600, lng: 108 + 1 / 60 + 17.7 / 3600 },
+    { name: "A23", label: "D?o Tr� C?", lat: 21 + 28 / 60 + 14.9 / 3600, lng: 108 + 5 / 60 + 32.8 / 3600 },
+    { name: "A24", label: "Di?m s? 1 V?nh B?c B?", lat: 21 + 28 / 60 + 12.5 / 3600, lng: 108 + 6 / 60 + 4.3 / 3600 }
   ];
   const vietnamBaselineMainLine = vietnamBaselinePoints.map((point) => [point.lat, point.lng]);
   const vietnamBaselineAssessmentArea = [
@@ -1060,9 +1141,9 @@
     [11.65, 111.70]
   ];
   const vietnamBaselineLines = [
-    { name: "Đường cơ sở Việt Nam A1-A24", points: vietnamBaselineMainLine },
-    { name: "Khu vực quần đảo Hoàng Sa", points: vietnamParacelLine },
-    { name: "Khu vực quần đảo Trường Sa", points: vietnamSpratlyLine }
+    { name: "Du?ng co s? Vi?t Nam A1-A24", points: vietnamBaselineMainLine },
+    { name: "Khu v?c qu?n d?o Ho�ng Sa", points: vietnamParacelLine },
+    { name: "Khu v?c qu?n d?o Tru?ng Sa", points: vietnamSpratlyLine }
   ];
   const metricUnits = {
     downlink_throughput: "Mbps",
@@ -1088,7 +1169,7 @@
 	  }
 
 	  function isGarbledText(value) {
-	    return /Ã|Â|â€|â€™|â€œ|â€\u009d/.test(value || "");
+	    return /�|�|�?|�?T|�?o|�?\u009d/.test(value || "");
 	  }
 
 	  function extractHttpStatus(value) {
@@ -1225,6 +1306,11 @@
       url.searchParams.set("search", currentSearchTerm);
     } else {
       url.searchParams.delete("search");
+    }
+    if (currentDeviceTab === "stock") {
+      url.searchParams.set("tab", "stock");
+    } else {
+      url.searchParams.delete("tab");
     }
     return url;
   }
@@ -1406,8 +1492,8 @@
     return Math.max(1, Math.ceil(totalDevices / currentPageSize));
   }
 
-  function cacheKey(page, pageSize, searchTerm = currentSearchTerm) {
-    return `${page}:${pageSize}:${encodeURIComponent(normalizeSearchTerm(searchTerm).toLowerCase())}`;
+  function cacheKey(page, pageSize, searchTerm = currentSearchTerm, tab = currentDeviceTab) {
+    return `${tab}:${page}:${pageSize}:${encodeURIComponent(normalizeSearchTerm(searchTerm).toLowerCase())}`;
   }
 
   function hydratePageCache() {
@@ -1437,8 +1523,20 @@
       deviceSearchInput.setAttribute("aria-label", text("search_aria_label"));
     }
 
-    if (clearDeviceSearchButton) {
-      clearDeviceSearchButton.hidden = !currentSearchTerm;
+    if (deviceSearchIconButton) {
+      const hasSearch = Boolean(currentSearchTerm);
+      deviceSearchIconButton.classList.toggle("is-cancel", hasSearch);
+      deviceSearchIconButton.type = hasSearch ? "button" : "submit";
+      deviceSearchIconButton.setAttribute("aria-label", hasSearch ? text("search_clear") : text("search_aria_label"));
+    }
+  }
+
+  function syncDeviceTabs() {
+    deviceTabButtons.forEach((button) => {
+      button.classList.toggle("is-active", button.dataset.deviceTab === currentDeviceTab);
+    });
+    if (syncStockDevicesButton) {
+      syncStockDevicesButton.hidden = currentDeviceTab !== "stock";
     }
   }
 
@@ -1455,6 +1553,7 @@
     setDeviceModalMode(deviceModalMode);
     syncTelemetryChartCopy();
     syncSearchUi();
+    syncDeviceTabs();
   }
 
   function getTelemetryRangeLabel(seconds) {
@@ -1631,7 +1730,7 @@
     if (canManageDataOptIn) {
       dataOptInCurrent.textContent = text("detail_data_optin_unknown");
       dataOptInAction.disabled = true;
-      dataOptInAction.textContent = "—";
+      dataOptInAction.textContent = "-";
       dataOptInAction.dataset.enabled = "";
       dataOptInMessage.textContent = text("detail_data_optin_loading");
       dataOptInHistory.innerHTML = "";
@@ -1663,8 +1762,8 @@
       const httpStatus = item.httpStatusCode ?? item.HttpStatusCode ?? "-";
       return `<article class="data-optin-history-item">
         <div class="data-optin-history-meta"><strong>${escapeHtml(item.performedBy ?? item.PerformedBy ?? "-")}</strong><span>${escapeHtml(item.performedAtDisplay ?? item.PerformedAtDisplay ?? "-")}</span></div>
-        <div class="data-optin-transition"><span>${dataOptInStatusLabel(oldStatus)}</span><b>→</b><span>${dataOptInStatusLabel(newStatus)}</span><em class="${success ? "is-success" : "is-error"}">${success ? "API OK" : "API ERROR"} · HTTP ${httpStatus}</em></div>
-        <details><summary>API response${jobId ? ` · Job ${escapeHtml(jobId)}` : ""}</summary><pre>${escapeHtml(response || "-")}</pre></details>
+        <div class="data-optin-transition"><span>${dataOptInStatusLabel(oldStatus)}</span><b>?</b><span>${dataOptInStatusLabel(newStatus)}</span><em class="${success ? "is-success" : "is-error"}">${success ? "API OK" : "API ERROR"} � HTTP ${httpStatus}</em></div>
+        <details><summary>API response${jobId ? ` � Job ${escapeHtml(jobId)}` : ""}</summary><pre>${escapeHtml(response || "-")}</pre></details>
       </article>`;
     }).join("");
   }
@@ -1763,12 +1862,53 @@
 
   function formatPrice(value) {
     const number = Number(value);
-    return Number.isFinite(number) ? `$${number.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "-";
+    if (!Number.isFinite(number)) return "-";
+    const currency = "@defaultCurrency";
+    return currency === "VND"
+      ? `${number.toLocaleString("vi-VN", { maximumFractionDigits: 0 })} VND`
+      : `${currency} ${number.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+  }
+
+  function normalizeMoneyText(value, decimals = 0) {
+    let textValue = `${value || ""}`.trim().replace(/[^\d,.-]/g, "");
+    if (!textValue) return "";
+    if (decimals <= 0) return textValue.replace(/[^\d-]/g, "");
+
+    const lastComma = textValue.lastIndexOf(",");
+    const lastDot = textValue.lastIndexOf(".");
+    const decimalIndex = Math.max(lastComma, lastDot);
+    if (decimalIndex < 0) return textValue.replace(/[^\d-]/g, "");
+
+    const integerPart = textValue.slice(0, decimalIndex).replace(/[^\d-]/g, "");
+    const decimalPart = textValue.slice(decimalIndex + 1).replace(/\D/g, "").slice(0, decimals);
+    return decimalPart ? `${integerPart}.${decimalPart}` : integerPart;
+  }
+
+  function formatMoneyText(value, decimals = 0) {
+    const normalized = normalizeMoneyText(value, decimals);
+    if (!normalized || normalized === "-") return "";
+    const number = Number(normalized);
+    if (!Number.isFinite(number)) return "";
+    return number.toLocaleString(decimals <= 0 ? "vi-VN" : "en-US", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: decimals
+    });
+  }
+
+  function formatMoneyInput(input) {
+    const decimals = Number(input.dataset.moneyDecimals || "0");
+    input.value = formatMoneyText(input.value, decimals);
+  }
+
+  function normalizeMoneyInputValue(input) {
+    const decimals = Number(input.dataset.moneyDecimals || "0");
+    return normalizeMoneyText(input.value, decimals);
   }
 
   function normalizeDecimalInput(value) {
     const number = Number(value);
-    return Number.isFinite(number) && number >= 0 ? number.toFixed(2) : "";
+    if (!Number.isFinite(number) || number < 0) return "";
+    return "@defaultCurrency" === "VND" ? number.toFixed(0) : number.toFixed(2);
   }
 
   function escapeHtml(value) {
@@ -1780,9 +1920,62 @@
       .replace(/'/g, "&#39;");
   }
 
+  function renderCopySvg() {
+    return `<svg class="copy-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7a3 3 0 0 1 3-3h6a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-1v1a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-6a3 3 0 0 1 3-3h1V7Zm3-1a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-6Zm-3 4H7a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-1h-3a3 3 0 0 1-3-3v-3Z"/></svg><svg class="check-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9.2 16.6-4.1-4.1L3.7 14l5.5 5.5L20.8 7.9l-1.4-1.4L9.2 16.6Z"/></svg>`;
+  }
+
+  function renderCopyCell(value, label, detailButton = false, deviceId = 0) {
+    const rawValue = `${value ?? ""}`.trim();
+    const displayValue = rawValue || "-";
+    const valueMarkup = detailButton
+      ? `<button type="button" class="table-code-btn js-open-detail" data-device-id="${deviceId}">${escapeHtml(displayValue)}</button>`
+      : `<span>${escapeHtml(displayValue)}</span>`;
+    const copyButton = rawValue
+      ? `<button type="button" class="table-copy-btn js-copy-table-value" data-copy-value="${escapeHtml(rawValue)}" data-copy-tooltip="Copy" aria-label="Copy ${escapeHtml(label)}">${renderCopySvg()}</button>`
+      : "";
+    return `<span class="table-copy-value">${valueMarkup}${copyButton}</span>`;
+  }
+
+  function markTableValueCopied(button) {
+    window.clearTimeout(Number(button.dataset.copyResetTimer || 0));
+    button.classList.add("is-copied");
+    button.dataset.copyTooltip = "Copied";
+    button.setAttribute("aria-label", "Copied");
+    const timer = window.setTimeout(() => {
+      button.classList.remove("is-copied");
+      button.dataset.copyTooltip = "Copy";
+      button.setAttribute("aria-label", button.dataset.copyLabel || "Copy");
+      delete button.dataset.copyResetTimer;
+    }, 2000);
+    button.dataset.copyResetTimer = `${timer}`;
+  }
+
+  async function copyTableValue(button) {
+    const value = button.dataset.copyValue || "";
+    if (!value) return;
+    button.dataset.copyLabel ||= button.getAttribute("aria-label") || "Copy";
+    try {
+      await navigator.clipboard.writeText(value);
+      markTableValueCopied(button);
+    } catch {
+      const textArea = document.createElement("textarea");
+      textArea.value = value;
+      textArea.setAttribute("readonly", "");
+      textArea.style.position = "fixed";
+      textArea.style.opacity = "0";
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand("copy");
+      textArea.remove();
+      markTableValueCopied(button);
+    }
+  }
+
   function fillDevicePlanPrices(option) {
     detailPlanFinalPrice.value = normalizeDecimalInput(option?.finalPrice ?? option?.FinalPrice);
     detailPlanFinalOverChargePrice.value = normalizeDecimalInput(option?.finalOverChargePrice ?? option?.FinalOverChargePrice);
+    formatMoneyInput(detailPlanFinalPrice);
+    formatMoneyInput(detailPlanFinalOverChargePrice);
   }
 
   function renderDevicePlanList(prices) {
@@ -1948,9 +2141,11 @@
     }
 
     const pricingPlanId = Number(detailPlanSelect.value || 0);
+    const finalPriceValue = normalizeMoneyInputValue(detailPlanFinalPrice);
+    const finalOverChargePriceValue = normalizeMoneyInputValue(detailPlanFinalOverChargePrice);
     const priceValues = [
-      detailPlanFinalPrice.value,
-      detailPlanFinalOverChargePrice.value
+      finalPriceValue,
+      finalOverChargePriceValue
     ].map(Number);
 
     if (!pricingPlanId || priceValues.some((value) => !Number.isFinite(value) || value < 0)) {
@@ -1965,8 +2160,8 @@
     if (csrfToken) formData.append("__RequestVerificationToken", csrfToken);
     formData.append("DeviceId", `${currentDetailDeviceId}`);
     formData.append("PricingPlanId", `${pricingPlanId}`);
-    formData.append("FinalPrice", detailPlanFinalPrice.value);
-    formData.append("FinalOverChargePrice", detailPlanFinalOverChargePrice.value);
+    formData.append("FinalPrice", finalPriceValue);
+    formData.append("FinalOverChargePrice", finalOverChargePriceValue);
 
     try {
       const response = await fetch(saveDevicePlanAction, { method: "POST", body: formData, headers: { "X-Requested-With": "XMLHttpRequest" } });
@@ -2266,11 +2461,12 @@
     const label = field.closest(".form-group")?.querySelector("label");
     label?.classList.toggle("is-invalid", isInvalid);
   }
-  function clearRequiredFieldValidation() { requiredDeviceFields.forEach((field) => setFieldInvalid(field, false)); }
+  function clearRequiredFieldValidation() {
+    [...requiredDeviceFields, deviceCodeInput, kitNumberInput].forEach((field) => setFieldInvalid(field, false));
+  }
   function validateRequiredDeviceFields() {
     const validations = [
       [deviceNameInput, deviceNameInput.value.trim()],
-      [deviceCodeInput, deviceCodeInput.value.trim()],
       [vesselNameInput, vesselNameInput.value.trim()],
       [tenantIdInput, tenantIdInput.value.trim()]
     ];
@@ -2282,6 +2478,12 @@
         isValid = false;
       }
     });
+    const hasTerminalOrKit = Boolean(deviceCodeInput.value.trim() || kitNumberInput.value.trim());
+    setFieldInvalid(deviceCodeInput, !hasTerminalOrKit);
+    setFieldInvalid(kitNumberInput, !hasTerminalOrKit);
+    if (!hasTerminalOrKit) {
+      isValid = false;
+    }
     return isValid;
   }
   function renderStatusHtml(value) {
@@ -2383,6 +2585,7 @@
       deviceIdInput.value = `${data.id ?? data.Id ?? 0}`;
       deviceNameInput.value = data.deviceName ?? data.DeviceName ?? "";
       deviceCodeInput.value = data.deviceCode ?? data.DeviceCode ?? "";
+      kitNumberInput.value = data.kitNumber ?? data.KitNumber ?? "";
       vesselNameInput.value = data.vesselName ?? data.VesselName ?? "";
       tenantIdInput.value = `${data.tenantId ?? data.TenantId ?? ""}`;
       modal.hidden = false;
@@ -2407,7 +2610,7 @@
     currentDetailDeviceId = 0;
     currentDetailDeviceCode = "";
     if (updateHistory) {
-      window.history.pushState({ page: currentPage, pageSize: currentPageSize, search: currentSearchTerm }, "", buildListUrl());
+      window.history.pushState({ page: currentPage, pageSize: currentPageSize, search: currentSearchTerm, tab: currentDeviceTab }, "", buildListUrl());
     }
   }
 
@@ -2459,7 +2662,7 @@
       currentDetailDeviceId = deviceId;
       currentDetailDeviceCode = data.deviceCode ?? data.DeviceCode ?? "";
       if (options.pushHistory !== false) {
-        window.history.pushState({ page: currentPage, pageSize: currentPageSize, search: currentSearchTerm, detailId: deviceId }, "", buildDetailUrl(deviceId));
+        window.history.pushState({ page: currentPage, pageSize: currentPageSize, search: currentSearchTerm, tab: currentDeviceTab, detailId: deviceId }, "", buildDetailUrl(deviceId));
       }
       setActiveTelemetryRange(900);
       if (requestId !== currentDetailRequestId) {
@@ -2557,6 +2760,15 @@
   }
 
   function bindRowActions(scope = document) {
+    scope.querySelectorAll(".js-copy-table-value").forEach((button) => {
+      if (button.dataset.boundCopy === "1") return;
+      button.dataset.boundCopy = "1";
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        copyTableValue(button);
+      });
+    });
+
     scope.querySelectorAll(".js-delete-device").forEach((button) => {
       if (button.dataset.boundDelete === "1") return;
       button.dataset.boundDelete = "1";
@@ -2584,6 +2796,8 @@
       const planName = device.planName ?? device.PlanName ?? "-";
       const deviceId = device.id ?? device.Id ?? 0;
       const deviceCode = device.deviceCode ?? device.DeviceCode ?? "";
+      const kitNumber = device.kitNumber ?? device.KitNumber ?? "";
+      const serviceLine = device.serviceLine ?? device.ServiceLine ?? "";
       const vesselName = device.vesselName ?? device.VesselName ?? "-";
       const tenantName = device.tenantName ?? device.TenantName ?? "-";
       const tokenExpiredUtc = device.tokenExpiredTimeUtcIso ?? device.TokenExpiredTimeUtcIso ?? "";
@@ -2592,11 +2806,13 @@
       const clientSynced = device.clientSynced === true || device.ClientSynced === true || device.isSyncFresh === true || device.IsSyncFresh === true ? "true" : "false";
 
 	      return `
-	        <tr data-device-id="${deviceId}" data-token-expired-utc="${tokenExpiredUtc}" data-client-synced="${clientSynced}">
-	          <td>${deviceName}</td>
+	        <tr data-device-id="${deviceId}" data-token-expired-utc="${tokenExpiredUtc}" data-client-synced="${clientSynced}" data-has-terminal="${deviceCode ? "true" : "false"}">
+	          <td><button type="button" class="table-primary-link ${canManageDevices ? "js-edit-device" : "js-open-detail"}" data-device-id="${deviceId}">${escapeHtml(deviceName)}</button></td>
 	          <td>${vesselName || "-"}</td>
 	          <td>${tenantName || "-"}</td>
-	          <td><button type="button" class="table-code-btn js-open-detail" data-device-id="${deviceId}">${deviceCode}</button></td>
+	          <td>${renderCopyCell(deviceCode, "Terminal Id", true, deviceId)}</td>
+	          <td>${renderCopyCell(kitNumber, "KIT Number")}</td>
+	          <td>${renderCopyCell(serviceLine, "Service Line")}</td>
 	          <td data-role="availability">${renderStatusHtml(availability)}</td>
 	          <td data-role="usage">${renderUsageHtml(usage, limit)}</td>
 	          <td data-role="plan-name">${planName || "-"}</td>
@@ -2664,7 +2880,7 @@
       return pageCache.get(keyName);
     }
 
-    const response = await fetch(`${devicePageDataAction}?page=${encodeURIComponent(page)}&pageSize=${encodeURIComponent(pageSize)}&search=${encodeURIComponent(normalizedSearchTerm)}`, {
+    const response = await fetch(`${devicePageDataAction}?page=${encodeURIComponent(page)}&pageSize=${encodeURIComponent(pageSize)}&search=${encodeURIComponent(normalizedSearchTerm)}&tab=${encodeURIComponent(currentDeviceTab)}`, {
       headers: { "X-Requested-With": "XMLHttpRequest" }
     });
     const rawText = await response.text();
@@ -2686,11 +2902,13 @@
     currentPageSize = pageData.pageSize ?? nextPageSize;
     totalDevices = pageData.totalDevices ?? 0;
     currentSearchTerm = normalizeSearchTerm(pageData.searchTerm ?? nextSearchTerm);
+    currentDeviceTab = pageData.tab === "stock" ? "stock" : currentDeviceTab;
     renderDeviceRows(pageData.devices ?? []);
     renderPagination();
     syncSearchUi();
+    syncDeviceTabs();
     if (pushHistory) {
-      window.history.pushState({ page: currentPage, pageSize: currentPageSize, search: currentSearchTerm }, "", buildListUrl());
+      window.history.pushState({ page: currentPage, pageSize: currentPageSize, search: currentSearchTerm, tab: currentDeviceTab }, "", buildListUrl());
     }
     await syncDeviceRowsOnLoad();
   }
@@ -2790,7 +3008,7 @@
   async function syncDeviceRowsOnLoad() {
     const csrfToken = antiForgeryToken(refreshForm);
     const rowsToSync = [...document.querySelectorAll("tr[data-device-id][data-token-expired-utc]")]
-      .filter((row) => row.dataset.clientSynced !== "true");
+      .filter((row) => row.dataset.clientSynced !== "true" && row.dataset.hasTerminal === "true");
 
     if (!csrfToken || !rowsToSync.length) {
       return;
@@ -2814,12 +3032,40 @@
     await Promise.all(Array.from({ length: concurrency }, () => worker()));
   }
 
+  async function syncStockDevices() {
+    if (!syncStockDevicesForm || !syncStockDevicesButton) return;
+    const csrfToken = antiForgeryToken(syncStockDevicesForm);
+    if (!csrfToken) return;
+    syncStockDevicesButton.disabled = true;
+    const originalText = syncStockDevicesButton.textContent;
+    syncStockDevicesButton.textContent = "Syncing...";
+    try {
+      const formData = new FormData();
+      formData.append("__RequestVerificationToken", csrfToken);
+      const response = await fetch(syncStockDevicesForm.action, { method: "POST", body: formData, headers: { "X-Requested-With": "XMLHttpRequest" } });
+      const rawText = await response.text();
+      const data = rawText ? JSON.parse(rawText) : {};
+      if (!response.ok || !(data.success ?? data.Success ?? false)) {
+        throw new Error(data.message || data.Message || data.messageEn || data.MessageEn || rawText || `${response.status} ${response.statusText}`);
+      }
+      window.alert(data.message || data.Message || data.messageEn || data.MessageEn || "Sync stock completed.");
+      pageCache.clear();
+      persistPageCache();
+      await loadPage(1, currentPageSize, true, currentSearchTerm);
+    } catch (error) {
+      window.alert(`${text("network_error_prefix")}: ${error.message || text("generic_error")}`);
+    } finally {
+      syncStockDevicesButton.disabled = false;
+      syncStockDevicesButton.textContent = originalText || "Sync stock";
+    }
+  }
+
   hydratePageCache();
   setActiveTelemetryRange(900);
   metricCards.forEach((metricCard) => { metricCard.state.dataset.stateKey = "detail_chart_loading"; });
   applyLanguage(lang);
   window.history.replaceState(
-    { page: currentPage, pageSize: currentPageSize, search: currentSearchTerm, detailId: initialSelectedDeviceId || undefined },
+    { page: currentPage, pageSize: currentPageSize, search: currentSearchTerm, tab: currentDeviceTab, detailId: initialSelectedDeviceId || undefined },
     "",
     window.location.href);
   qa(".language-btn:not(.detail-language-btn)").forEach((button) => button.addEventListener("click", () => applyLanguage(button.dataset.lang)));
@@ -2848,6 +3094,10 @@
   closeDevicePlanEditorModal.addEventListener("click", closeDevicePlanEditor);
   cancelDevicePlanEditorModal.addEventListener("click", closeDevicePlanEditor);
   detailPlanSelect.addEventListener("change", syncSelectedDevicePlanPrices);
+  [detailPlanFinalPrice, detailPlanFinalOverChargePrice].forEach((input) => {
+    input.addEventListener("input", () => formatMoneyInput(input));
+    input.addEventListener("blur", () => formatMoneyInput(input));
+  });
   detailPlanForm.addEventListener("submit", submitDevicePlan);
   dataOptInAction?.addEventListener("click", submitDataOptInChange);
   q("#openDeviceModal")?.addEventListener("click", openCreateModal);
@@ -2876,6 +3126,7 @@
   window.addEventListener("popstate", async (event) => {
     const state = event.state;
     if (state?.detailId) {
+      currentDeviceTab = state.tab === "stock" ? "stock" : "synced";
       await loadPage(Number(state.page || 1), Number(state.pageSize || currentPageSize), false, state.search || "");
       await openDetail(Number(state.detailId), { pushHistory: false });
       return;
@@ -2883,6 +3134,7 @@
 
     if (state?.page && state?.pageSize) {
       closeDetailModal(false);
+      currentDeviceTab = state.tab === "stock" ? "stock" : "synced";
       await loadPage(Number(state.page), Number(state.pageSize), false, state.search || "");
       return;
     }
@@ -2892,6 +3144,7 @@
     const page = Number(url.searchParams.get("page") || "1");
     const pageSize = Number(url.searchParams.get("pageSize") || `${currentPageSize}`);
     const searchTerm = url.searchParams.get("search") || "";
+    currentDeviceTab = url.searchParams.get("tab") === "stock" ? "stock" : "synced";
     await loadPage(page, pageSize, false, searchTerm);
   });
   form.addEventListener("submit", submitCreate);
@@ -2900,14 +3153,12 @@
     currentPage = 1;
     await loadPage(1, currentPageSize, true, deviceSearchInput?.value || "");
   });
-  clearDeviceSearchButton?.addEventListener("click", async () => {
+  deviceSearchIconButton?.addEventListener("click", async () => {
+    if (!currentSearchTerm) {
+      return;
+    }
     if (deviceSearchInput) {
       deviceSearchInput.value = "";
-    }
-
-    if (!currentSearchTerm) {
-      syncSearchUi();
-      return;
     }
 
     currentPage = 1;
@@ -2918,6 +3169,18 @@
     currentPageSize = Number(pageSizeSelect.value) || 10;
     await loadPage(currentPage, currentPageSize, true, currentSearchTerm);
   });
+  deviceTabButtons.forEach((button) => {
+    button.addEventListener("click", async () => {
+      const nextTab = button.dataset.deviceTab === "stock" ? "stock" : "synced";
+      if (nextTab === currentDeviceTab) return;
+      currentDeviceTab = nextTab;
+      currentPage = 1;
+      pageCache.clear();
+      persistPageCache();
+      await loadPage(1, currentPageSize, true, currentSearchTerm);
+    });
+  });
+  syncStockDevicesButton?.addEventListener("click", syncStockDevices);
   requiredDeviceFields.forEach((field) => {
     const eventName = field?.tagName === "SELECT" ? "change" : "input";
     field?.addEventListener(eventName, () => {
@@ -2928,6 +3191,7 @@
   });
   bindRowActions(document);
   renderPagination();
+  syncDeviceTabs();
   if (initialSelectedDeviceId) {
     openDetail(initialSelectedDeviceId, { pushHistory: false });
   }

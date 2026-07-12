@@ -6,6 +6,8 @@ using StarlinkDeviceManager.Filters;
 using StarlinkDeviceManager.Models;
 using StarlinkDeviceManager.Services;
 
+System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.InvoiceRabbitMq.json", optional: true, reloadOnChange: true);
 builder.WebHost.UseIISIntegration();
@@ -62,6 +64,7 @@ builder.Services.AddScoped<ICurrencyExchangeService, CurrencyExchangeService>();
 builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
 builder.Services.AddScoped<IPaymentTransactionService, PaymentTransactionService>();
 builder.Services.AddScoped<ITelegramNotificationService, TelegramNotificationService>();
+builder.Services.AddScoped<IKitExportService, KitExportService>();
 builder.Services.Configure<InvoiceRabbitMqOptions>(builder.Configuration.GetSection(InvoiceRabbitMqOptions.SectionName));
 builder.Services.AddSingleton<IInvoiceRabbitMqPublisher, InvoiceRabbitMqPublisher>();
 

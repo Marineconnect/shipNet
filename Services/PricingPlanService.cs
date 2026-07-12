@@ -1,10 +1,13 @@
-using System.Data;
+﻿using System.Data;
 using Microsoft.Data.SqlClient;
 using StarlinkDeviceManager.Models;
 
 namespace StarlinkDeviceManager.Services;
 
-public class PricingPlanService(IConfiguration configuration) : IPricingPlanService
+public class PricingPlanService(
+    IConfiguration configuration,
+    ICurrencyExchangeService currencyExchangeService,
+    ISystemSettingsService systemSettingsService) : IPricingPlanService
 {
     private const string CreateAuditAction = "created_pricing_plan";
     private const string UpdateAuditAction = "updated_pricing_plan";
@@ -17,6 +20,8 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
 
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")
         ?? throw new InvalidOperationException("Missing connection string: DefaultConnection");
+    private const string DefaultCurrencySettingCode = "system_default_currency";
+    private const string DefaultPricingCurrency = "USD";
 
     private bool _schemaEnsured;
 
@@ -47,6 +52,7 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
         await EnsureSchemaAsync(connection, null, cancellationToken);
+        var conversion = await GetPricingCurrencyConversionAsync(DateTime.Today, cancellationToken);
 
         int totalPlans;
         await using (var countCommand = new SqlCommand(countQuery, connection))
@@ -67,7 +73,9 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
             await using var reader = await listCommand.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
-                plans.Add(MapListItem(reader));
+                var plan = MapListItem(reader);
+                ConvertPlanToDefaultCurrency(plan, conversion);
+                plans.Add(plan);
             }
         }
 
@@ -100,13 +108,16 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
         await EnsureSchemaAsync(connection, null, cancellationToken);
+        var conversion = await GetPricingCurrencyConversionAsync(DateTime.Today, cancellationToken);
 
         var plans = new List<PricingPlanFormViewModel>();
         await using var command = new SqlCommand(query, connection);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            plans.Add(MapForm(reader));
+            var plan = MapForm(reader);
+            ConvertPlanToDefaultCurrency(plan, conversion);
+            plans.Add(plan);
         }
 
         return plans;
@@ -132,13 +143,14 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
         await EnsureSchemaAsync(connection, null, cancellationToken);
+        var conversion = await GetPricingCurrencyConversionAsync(DateTime.Today, cancellationToken);
 
         var plans = new List<PricingPlanOptionViewModel>();
         await using var command = new SqlCommand(query, connection);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            plans.Add(new PricingPlanOptionViewModel
+            var plan = new PricingPlanOptionViewModel
             {
                 Id = reader["ID"] is int id ? id : 0,
                 PlanName = reader["PlanName"]?.ToString() ?? string.Empty,
@@ -148,7 +160,9 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
                 BaseData = ReadDecimal(reader, "BaseData"),
                 ResellerOverChargePrice = ReadDecimal(reader, "ResellerOverChargePrice"),
                 FinalOverChargePrice = ReadDecimal(reader, "FinalOverChargePrice")
-            });
+            };
+            ConvertPlanOptionToDefaultCurrency(plan, conversion);
+            plans.Add(plan);
         }
 
         return plans;
@@ -174,6 +188,7 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
         await EnsureSchemaAsync(connection, null, cancellationToken);
+        var conversion = await GetPricingCurrencyConversionAsync(DateTime.Today, cancellationToken);
 
         await using var command = new SqlCommand(query, connection);
         command.Parameters.Add("@id", SqlDbType.Int).Value = id;
@@ -184,7 +199,9 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
             return null;
         }
 
-        return MapForm(reader);
+        var plan = MapForm(reader);
+        ConvertPlanToDefaultCurrency(plan, conversion);
+        return plan;
     }
 
     public async Task<bool> IsPlanCodeInUseAsync(string planCode, int? excludePlanId = null, CancellationToken cancellationToken = default)
@@ -226,9 +243,11 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
         await connection.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
         await EnsureSchemaAsync(connection, transaction, cancellationToken);
+        var conversion = await GetPricingCurrencyConversionAsync(DateTime.Today, cancellationToken);
+        var storageModel = ConvertPlanToPricingCurrency(model, conversion);
 
         await using var command = new SqlCommand(query, connection, transaction);
-        AddFormParameters(command, model);
+        AddFormParameters(command, storageModel);
         command.Parameters.Add("@createdBy", SqlDbType.NVarChar, 50).Value = username;
         command.Parameters.Add("@updatedBy", SqlDbType.NVarChar, 50).Value = username;
 
@@ -280,6 +299,8 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
         await connection.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
         await EnsureSchemaAsync(connection, transaction, cancellationToken);
+        var conversion = await GetPricingCurrencyConversionAsync(DateTime.Today, cancellationToken);
+        var storageModel = ConvertPlanToPricingCurrency(model, conversion);
 
         PricingPlanFormViewModel existingPlan;
         await using (var selectCommand = new SqlCommand(selectQuery, connection, transaction))
@@ -297,12 +318,12 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
         await using (var updateCommand = new SqlCommand(updateQuery, connection, transaction))
         {
             updateCommand.Parameters.Add("@id", SqlDbType.Int).Value = model.Id;
-            AddFormParameters(updateCommand, model);
+            AddFormParameters(updateCommand, storageModel);
             updateCommand.Parameters.Add("@updatedBy", SqlDbType.NVarChar, 50).Value = username;
             await updateCommand.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        await InsertAuditAsync(connection, transaction, userId, UpdateAuditAction, BuildUpdateAuditDetail(existingPlan, model), cancellationToken);
+        await InsertAuditAsync(connection, transaction, userId, UpdateAuditAction, BuildUpdateAuditDetail(existingPlan, storageModel), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
@@ -386,13 +407,15 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
         await connection.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
         await EnsureSchemaAsync(connection, transaction, cancellationToken);
+        var conversion = await GetPricingCurrencyConversionAsync(DateTime.Today, cancellationToken);
 
         foreach (var plan in plans)
         {
+            var storagePlan = ConvertPlanToPricingCurrency(plan, conversion);
             int? existingId;
             await using (var selectCommand = new SqlCommand(selectQuery, connection, transaction))
             {
-                selectCommand.Parameters.Add("@planCode", SqlDbType.NVarChar, 100).Value = plan.PlanCode;
+                selectCommand.Parameters.Add("@planCode", SqlDbType.NVarChar, 100).Value = storagePlan.PlanCode;
                 var scalar = await selectCommand.ExecuteScalarAsync(cancellationToken);
                 existingId = scalar is null || scalar == DBNull.Value ? null : Convert.ToInt32(scalar);
             }
@@ -401,7 +424,7 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
             {
                 await using var updateCommand = new SqlCommand(updateQuery, connection, transaction);
                 updateCommand.Parameters.Add("@id", SqlDbType.Int).Value = existingId.Value;
-                AddFormParameters(updateCommand, plan);
+                AddFormParameters(updateCommand, storagePlan);
                 updateCommand.Parameters.Add("@updatedBy", SqlDbType.NVarChar, 50).Value = username;
                 await updateCommand.ExecuteNonQueryAsync(cancellationToken);
                 result.UpdatedCount++;
@@ -409,7 +432,7 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
             else
             {
                 await using var insertCommand = new SqlCommand(insertQuery, connection, transaction);
-                AddFormParameters(insertCommand, plan);
+                AddFormParameters(insertCommand, storagePlan);
                 insertCommand.Parameters.Add("@createdBy", SqlDbType.NVarChar, 50).Value = username;
                 insertCommand.Parameters.Add("@updatedBy", SqlDbType.NVarChar, 50).Value = username;
                 await insertCommand.ExecuteNonQueryAsync(cancellationToken);
@@ -479,6 +502,7 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
         await EnsureSchemaAsync(connection, null, cancellationToken);
+        var conversion = await GetPricingCurrencyConversionAsync(DateTime.Today, cancellationToken);
 
         int totalPrices;
         await using (var countCommand = new SqlCommand(countQuery, connection))
@@ -500,7 +524,9 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
             await using var reader = await listCommand.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
-                prices.Add(MapTenantPriceListItem(reader));
+                var price = MapTenantPriceListItem(reader);
+                ConvertTenantPriceToDefaultCurrency(price, conversion);
+                prices.Add(price);
             }
         }
 
@@ -547,6 +573,7 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
         await EnsureSchemaAsync(connection, null, cancellationToken);
+        var conversion = await GetPricingCurrencyConversionAsync(DateTime.Today, cancellationToken);
 
         var prices = new List<TenantPricingListItemViewModel>();
         await using var command = new SqlCommand(query, connection);
@@ -554,7 +581,9 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            prices.Add(MapTenantPriceListItem(reader));
+            var price = MapTenantPriceListItem(reader);
+            ConvertTenantPriceToDefaultCurrency(price, conversion);
+            prices.Add(price);
         }
 
         return prices;
@@ -578,6 +607,7 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
         await EnsureSchemaAsync(connection, null, cancellationToken);
+        var conversion = await GetPricingCurrencyConversionAsync(DateTime.Today, cancellationToken);
 
         await using var command = new SqlCommand(query, connection);
         command.Parameters.Add("@id", SqlDbType.Int).Value = id;
@@ -587,7 +617,9 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
             return null;
         }
 
-        return MapTenantPriceForm(reader);
+        var price = MapTenantPriceForm(reader);
+        ConvertTenantPriceToDefaultCurrency(price, conversion);
+        return price;
     }
 
     public async Task<bool> IsTenantPlanPriceInUseAsync(int tenantId, int pricingPlanId, int? excludeTenantPriceId = null, CancellationToken cancellationToken = default)
@@ -626,9 +658,11 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
         await connection.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
         await EnsureSchemaAsync(connection, transaction, cancellationToken);
+        var conversion = await GetPricingCurrencyConversionAsync(DateTime.Today, cancellationToken);
+        var storageModel = ConvertTenantPriceToPricingCurrency(model, conversion);
 
         await using var command = new SqlCommand(query, connection, transaction);
-        AddTenantPriceParameters(command, model);
+        AddTenantPriceParameters(command, storageModel);
         command.Parameters.Add("@createdBy", SqlDbType.NVarChar, 50).Value = username;
         command.Parameters.Add("@updatedBy", SqlDbType.NVarChar, 50).Value = username;
         var tenantPriceId = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
@@ -658,10 +692,12 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
         await connection.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
         await EnsureSchemaAsync(connection, transaction, cancellationToken);
+        var conversion = await GetPricingCurrencyConversionAsync(DateTime.Today, cancellationToken);
+        var storageModel = ConvertTenantPriceToPricingCurrency(model, conversion);
 
         await using var command = new SqlCommand(updateQuery, connection, transaction);
         command.Parameters.Add("@id", SqlDbType.Int).Value = model.Id;
-        AddTenantPriceParameters(command, model);
+        AddTenantPriceParameters(command, storageModel);
         command.Parameters.Add("@updatedBy", SqlDbType.NVarChar, 50).Value = username;
         var affected = await command.ExecuteNonQueryAsync(cancellationToken);
         if (affected == 0)
@@ -694,10 +730,80 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
         await transaction.CommitAsync(cancellationToken);
     }
 
-    public async Task<TenantPricingImportResult> ImportTenantPricesAsync(IReadOnlyList<TenantPricingImportRow> prices, int? userId, string username, CancellationToken cancellationToken = default)
+    public async Task<TenantPricingDevicePreviewResult> GetTenantPricingDevicePreviewAsync(IReadOnlyList<TenantPricingImportRow> prices, CancellationToken cancellationToken = default)
     {
-        const string selectTenantQuery = "SELECT TOP 1 [ID] FROM [TblTenant] WHERE [ID] = @tenantId";
-        const string selectPlanQuery = "SELECT TOP 1 [ID] FROM [TblPricingPlan] WHERE LOWER(LTRIM(RTRIM([PlanCode]))) = LOWER(@planCode)";
+        var result = new TenantPricingDevicePreviewResult();
+        var tenantNames = prices
+            .Select(price => price.TenantName.Trim())
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct()
+            .ToList();
+
+        if (tenantNames.Count == 0)
+        {
+            return result;
+        }
+
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureDevicePricingSchemaAsync(connection, null, cancellationToken);
+
+        foreach (var importedTenantName in tenantNames)
+        {
+            var tenantMatch = await ResolveTenantByNameAsync(connection, null, importedTenantName, cancellationToken);
+            if (!tenantMatch.TenantId.HasValue)
+            {
+                result.Errors.Add($"Khong tim thay tenant '{importedTenantName}'.");
+                continue;
+            }
+
+            var tenantId = tenantMatch.TenantId.Value;
+            var tenantName = tenantMatch.TenantName;
+
+            const string devicesQuery = """
+                SELECT
+                    d.[ID],
+                    d.[DeviceName],
+                    d.[DeviceCode],
+                    d.[VesselName],
+                    COUNT(dp.[ID]) AS [ExistingPlanCount]
+                FROM [TblDevices] d
+                LEFT JOIN [TblDevicePricing] dp ON dp.[DeviceId] = d.[ID]
+                WHERE d.[TenantID] = @tenantId
+                GROUP BY d.[ID], d.[DeviceName], d.[DeviceCode], d.[VesselName]
+                ORDER BY d.[DeviceName] ASC, d.[DeviceCode] ASC
+                """;
+
+            var tenant = new TenantPricingDeviceTenantViewModel
+            {
+                TenantId = tenantId,
+                TenantName = tenantName,
+                ImportedPlanCount = prices.Count(price => string.Equals(price.TenantName.Trim(), importedTenantName, StringComparison.OrdinalIgnoreCase))
+            };
+
+            await using var devicesCommand = new SqlCommand(devicesQuery, connection);
+            devicesCommand.Parameters.Add("@tenantId", SqlDbType.Int).Value = tenantId;
+            await using var reader = await devicesCommand.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                tenant.Devices.Add(new TenantPricingDeviceItemViewModel
+                {
+                    DeviceId = reader["ID"] is int deviceId ? deviceId : 0,
+                    DeviceName = reader["DeviceName"]?.ToString() ?? string.Empty,
+                    DeviceCode = reader["DeviceCode"]?.ToString() ?? string.Empty,
+                    VesselName = reader["VesselName"]?.ToString() ?? string.Empty,
+                    ExistingPlanCount = Convert.ToInt32(reader["ExistingPlanCount"])
+                });
+            }
+
+            result.Tenants.Add(tenant);
+        }
+
+        return result;
+    }
+
+    public async Task<TenantPricingImportResult> ImportTenantPricesAsync(IReadOnlyList<TenantPricingImportRow> prices, int? userId, string username, IReadOnlyCollection<int>? deviceIds = null, CancellationToken cancellationToken = default)
+    {
         const string selectTenantPriceQuery = "SELECT TOP 1 [ID] FROM [TblTenantPricing] WHERE [TenantId] = @tenantId AND [PricingPlanId] = @pricingPlanId";
         const string insertQuery = """
             INSERT INTO [TblTenantPricing]
@@ -718,47 +824,50 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
             """;
 
         var result = new TenantPricingImportResult();
+        var selectedDeviceIds = deviceIds?
+            .Where(id => id > 0)
+            .Distinct()
+            .ToHashSet() ?? [];
+        var importedRows = new List<TenantPricingDeviceImportRow>();
 
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
         await EnsureSchemaAsync(connection, transaction, cancellationToken);
+        await EnsureDevicePricingSchemaAsync(connection, transaction, cancellationToken);
+        var conversion = await GetPricingCurrencyConversionAsync(DateTime.Today, cancellationToken);
 
         foreach (var row in prices)
         {
-            int? tenantId;
-            await using (var tenantCommand = new SqlCommand(selectTenantQuery, connection, transaction))
+            var storageRow = ConvertTenantImportRowToPricingCurrency(row, conversion);
+            var tenantMatch = await ResolveTenantByNameAsync(connection, transaction, row.TenantName, cancellationToken);
+            if (!tenantMatch.TenantId.HasValue)
             {
-                tenantCommand.Parameters.Add("@tenantId", SqlDbType.Int).Value = row.TenantId;
-                var scalar = await tenantCommand.ExecuteScalarAsync(cancellationToken);
-                tenantId = scalar is null || scalar == DBNull.Value ? null : Convert.ToInt32(scalar);
-            }
-
-            if (!tenantId.HasValue)
-            {
-                result.Errors.Add($"Không tìm thấy tenant '{row.TenantName}' trong file import.");
+                result.Errors.Add($"Khong tim thay tenant '{row.TenantName}' trong file import.");
                 continue;
             }
 
-            int? pricingPlanId;
-            await using (var planCommand = new SqlCommand(selectPlanQuery, connection, transaction))
+            storageRow.TenantId = tenantMatch.TenantId.Value;
+            row.TenantId = tenantMatch.TenantId.Value;
+
+            var planMatch = await ResolvePricingPlanByNameAndCodeAsync(connection, transaction, row.PlanName, row.PlanCode, cancellationToken);
+            if (planMatch.DuplicateCode)
             {
-                planCommand.Parameters.Add("@planCode", SqlDbType.NVarChar, 100).Value = row.PlanCode;
-                var scalar = await planCommand.ExecuteScalarAsync(cancellationToken);
-                pricingPlanId = scalar is null || scalar == DBNull.Value ? null : Convert.ToInt32(scalar);
+                result.Errors.Add($"Ma goi '{row.PlanCode}' dang bi trung trong he thong. Khong the import.");
+                continue;
             }
 
-            if (!pricingPlanId.HasValue)
+            if (!planMatch.PricingPlanId.HasValue)
             {
-                result.Errors.Add($"Không tìm thấy gói giá '{row.PlanCode}'.");
+                result.Errors.Add($"Khong tim thay goi gia '{row.PlanName}' - '{row.PlanCode}'.");
                 continue;
             }
 
             int? existingId;
             await using (var selectCommand = new SqlCommand(selectTenantPriceQuery, connection, transaction))
             {
-                selectCommand.Parameters.Add("@tenantId", SqlDbType.Int).Value = row.TenantId;
-                selectCommand.Parameters.Add("@pricingPlanId", SqlDbType.Int).Value = pricingPlanId.Value;
+                selectCommand.Parameters.Add("@tenantId", SqlDbType.Int).Value = storageRow.TenantId;
+                selectCommand.Parameters.Add("@pricingPlanId", SqlDbType.Int).Value = planMatch.PricingPlanId.Value;
                 var scalar = await selectCommand.ExecuteScalarAsync(cancellationToken);
                 existingId = scalar is null || scalar == DBNull.Value ? null : Convert.ToInt32(scalar);
             }
@@ -767,7 +876,7 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
             {
                 await using var updateCommand = new SqlCommand(updateQuery, connection, transaction);
                 updateCommand.Parameters.Add("@id", SqlDbType.Int).Value = existingId.Value;
-                AddTenantPriceImportParameters(updateCommand, row, pricingPlanId.Value);
+                AddTenantPriceImportParameters(updateCommand, storageRow, planMatch.PricingPlanId.Value);
                 updateCommand.Parameters.Add("@updatedBy", SqlDbType.NVarChar, 50).Value = username;
                 await updateCommand.ExecuteNonQueryAsync(cancellationToken);
                 result.UpdatedCount++;
@@ -775,12 +884,14 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
             else
             {
                 await using var insertCommand = new SqlCommand(insertQuery, connection, transaction);
-                AddTenantPriceImportParameters(insertCommand, row, pricingPlanId.Value);
+                AddTenantPriceImportParameters(insertCommand, storageRow, planMatch.PricingPlanId.Value);
                 insertCommand.Parameters.Add("@createdBy", SqlDbType.NVarChar, 50).Value = username;
                 insertCommand.Parameters.Add("@updatedBy", SqlDbType.NVarChar, 50).Value = username;
                 await insertCommand.ExecuteNonQueryAsync(cancellationToken);
                 result.CreatedCount++;
             }
+
+            importedRows.Add(new TenantPricingDeviceImportRow(storageRow.TenantId, planMatch.PricingPlanId.Value, storageRow, planMatch.Status));
         }
 
         result.SkippedCount = result.Errors.Count;
@@ -790,9 +901,199 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
             return result;
         }
 
-        await InsertAuditAsync(connection, transaction, userId, ImportTenantPriceAuditAction, $"Imported tenant pricing by '{username}'. Created: {result.CreatedCount}, updated: {result.UpdatedCount}.", cancellationToken);
+        if (selectedDeviceIds.Count > 0 && importedRows.Count > 0)
+        {
+            await ImportTenantDevicePricesAsync(
+                connection,
+                transaction,
+                importedRows,
+                selectedDeviceIds,
+                result,
+                userId,
+                username,
+                cancellationToken);
+        }
+
+        await InsertAuditAsync(connection, transaction, userId, ImportTenantPriceAuditAction, $"Imported tenant pricing by '{username}'. Created: {result.CreatedCount}, updated: {result.UpdatedCount}. Device created: {result.DeviceCreatedCount}, device updated: {result.DeviceUpdatedCount}, device skipped: {result.DeviceSkippedCount}.", cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return result;
+    }
+    private static async Task<(int? TenantId, string TenantName)> ResolveTenantByNameAsync(
+        SqlConnection connection,
+        SqlTransaction? transaction,
+        string tenantName,
+        CancellationToken cancellationToken)
+    {
+        const string query = """
+            SELECT TOP 1 [ID], [TenantName]
+            FROM [TblTenant]
+            WHERE LOWER(LTRIM(RTRIM([TenantName]))) = LOWER(LTRIM(RTRIM(@tenantName)))
+            ORDER BY [ID] ASC
+            """;
+
+        await using var command = new SqlCommand(query, connection, transaction);
+        command.Parameters.Add("@tenantName", SqlDbType.NVarChar, 250).Value = tenantName.Trim();
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return (null, tenantName);
+        }
+
+        var tenantId = reader["ID"] is int id ? id : Convert.ToInt32(reader["ID"]);
+        var resolvedName = reader["TenantName"]?.ToString() ?? tenantName;
+        return (tenantId, resolvedName);
+    }
+
+    private static async Task<(int? PricingPlanId, string Status, bool DuplicateCode)> ResolvePricingPlanByNameAndCodeAsync(
+        SqlConnection connection,
+        SqlTransaction? transaction,
+        string planName,
+        string planCode,
+        CancellationToken cancellationToken)
+    {
+        const string duplicateCodeQuery = """
+            SELECT COUNT(1)
+            FROM [TblPricingPlan]
+            WHERE LOWER(LTRIM(RTRIM([PlanCode]))) = LOWER(LTRIM(RTRIM(@planCode)))
+            """;
+
+        await using (var duplicateCommand = new SqlCommand(duplicateCodeQuery, connection, transaction))
+        {
+            duplicateCommand.Parameters.Add("@planCode", SqlDbType.NVarChar, 100).Value = planCode.Trim();
+            var duplicateCount = Convert.ToInt32(await duplicateCommand.ExecuteScalarAsync(cancellationToken));
+            if (duplicateCount > 1)
+            {
+                return (null, "active", true);
+            }
+        }
+
+        const string query = """
+            SELECT TOP 1 [ID], [Status]
+            FROM [TblPricingPlan]
+            WHERE LOWER(LTRIM(RTRIM([PlanCode]))) = LOWER(LTRIM(RTRIM(@planCode)))
+              AND LOWER(LTRIM(RTRIM([PlanName]))) = LOWER(LTRIM(RTRIM(@planName)))
+            """;
+
+        await using var command = new SqlCommand(query, connection, transaction);
+        command.Parameters.Add("@planCode", SqlDbType.NVarChar, 100).Value = planCode.Trim();
+        command.Parameters.Add("@planName", SqlDbType.NVarChar, 250).Value = planName.Trim();
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return (null, "active", false);
+        }
+
+        var planId = reader["ID"] is int id ? id : Convert.ToInt32(reader["ID"]);
+        var status = reader["Status"]?.ToString() ?? "active";
+        return (planId, status, false);
+    }
+
+    private static async Task ImportTenantDevicePricesAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        IReadOnlyList<TenantPricingDeviceImportRow> rows,
+        HashSet<int> selectedDeviceIds,
+        TenantPricingImportResult result,
+        int? userId,
+        string username,
+        CancellationToken cancellationToken)
+    {
+        const string devicesQuery = """
+            SELECT [ID], [TenantID]
+            FROM [TblDevices]
+            WHERE [ID] = @deviceId
+            """;
+        const string existingQuery = "SELECT TOP 1 [ID] FROM [TblDevicePricing] WHERE [DeviceId] = @deviceId AND [PricingPlanId] = @pricingPlanId";
+        const string insertQuery = """
+            INSERT INTO [TblDevicePricing]
+                ([DeviceId], [TenantId], [PricingPlanId], [ResellerPrice], [FinalPrice], [ResellerOverChargePrice], [FinalOverChargePrice], [Status], [Created_Date], [Created_By], [Updated_Date], [Updated_By])
+            VALUES
+                (@deviceId, @tenantId, @pricingPlanId, @resellerPrice, @finalPrice, @resellerOverChargePrice, @finalOverChargePrice, @status, GETDATE(), @createdBy, GETDATE(), @updatedBy)
+            """;
+        const string updateQuery = """
+            UPDATE [TblDevicePricing]
+            SET
+                [TenantId] = @tenantId,
+                [ResellerPrice] = @resellerPrice,
+                [FinalPrice] = @finalPrice,
+                [ResellerOverChargePrice] = @resellerOverChargePrice,
+                [FinalOverChargePrice] = @finalOverChargePrice,
+                [Status] = @status,
+                [Updated_Date] = GETDATE(),
+                [Updated_By] = @updatedBy
+            WHERE [ID] = @id
+            """;
+
+        var selectedDevicesByTenant = new Dictionary<int, List<int>>();
+        foreach (var deviceId in selectedDeviceIds)
+        {
+            await using var command = new SqlCommand(devicesQuery, connection, transaction);
+            command.Parameters.Add("@deviceId", SqlDbType.Int).Value = deviceId;
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                result.DeviceSkippedCount++;
+                continue;
+            }
+
+            var tenantId = reader["TenantID"] is int id ? id : 0;
+            if (tenantId <= 0)
+            {
+                result.DeviceSkippedCount++;
+                continue;
+            }
+
+            if (!selectedDevicesByTenant.TryGetValue(tenantId, out var tenantDevices))
+            {
+                tenantDevices = [];
+                selectedDevicesByTenant[tenantId] = tenantDevices;
+            }
+
+            tenantDevices.Add(deviceId);
+        }
+
+        foreach (var row in rows)
+        {
+            if (!selectedDevicesByTenant.TryGetValue(row.TenantId, out var tenantDeviceIds))
+            {
+                continue;
+            }
+
+            foreach (var deviceId in tenantDeviceIds)
+            {
+                int? existingId;
+                await using (var existingCommand = new SqlCommand(existingQuery, connection, transaction))
+                {
+                    existingCommand.Parameters.Add("@deviceId", SqlDbType.Int).Value = deviceId;
+                    existingCommand.Parameters.Add("@pricingPlanId", SqlDbType.Int).Value = row.PricingPlanId;
+                    var scalar = await existingCommand.ExecuteScalarAsync(cancellationToken);
+                    existingId = scalar is null || scalar == DBNull.Value ? null : Convert.ToInt32(scalar);
+                }
+
+                if (existingId.HasValue)
+                {
+                    await using var updateCommand = new SqlCommand(updateQuery, connection, transaction);
+                    updateCommand.Parameters.Add("@id", SqlDbType.Int).Value = existingId.Value;
+                    AddDevicePriceImportParameters(updateCommand, row, deviceId);
+                    updateCommand.Parameters.Add("@updatedBy", SqlDbType.NVarChar, 50).Value = username;
+                    await updateCommand.ExecuteNonQueryAsync(cancellationToken);
+                    result.DeviceUpdatedCount++;
+                }
+                else
+                {
+                    await using var insertCommand = new SqlCommand(insertQuery, connection, transaction);
+                    AddDevicePriceImportParameters(insertCommand, row, deviceId);
+                    insertCommand.Parameters.Add("@createdBy", SqlDbType.NVarChar, 50).Value = username;
+                    insertCommand.Parameters.Add("@updatedBy", SqlDbType.NVarChar, 50).Value = username;
+                    await insertCommand.ExecuteNonQueryAsync(cancellationToken);
+                    result.DeviceCreatedCount++;
+                }
+
+                await InsertAuditAsync(connection, transaction, userId, ImportTenantPriceAuditAction, $"Imported tenant pricing to device ID {deviceId}, plan ID {row.PricingPlanId} by '{username}'.", cancellationToken);
+            }
+        }
     }
 
     private static PricingPlanListItemViewModel MapListItem(SqlDataReader reader)
@@ -863,6 +1164,145 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
         };
     }
 
+    private async Task<PricingCurrencyConversion> GetPricingCurrencyConversionAsync(DateTime conversionDate, CancellationToken cancellationToken)
+    {
+        var pricingCurrency = (configuration["System:PricingCurrency"] ?? DefaultPricingCurrency).Trim().ToUpperInvariant();
+        var defaultCurrency = await GetSystemDefaultCurrencyAsync(cancellationToken);
+        if (string.Equals(pricingCurrency, defaultCurrency, StringComparison.OrdinalIgnoreCase))
+        {
+            return new PricingCurrencyConversion(pricingCurrency, defaultCurrency, 1m);
+        }
+
+        var conversion = await currencyExchangeService.ConvertAsync(new CurrencyConversionFormViewModel
+        {
+            Amount = 1m,
+            FromCurrency = pricingCurrency,
+            ToCurrency = defaultCurrency,
+            ConversionDate = conversionDate.Date
+        }, cancellationToken);
+
+        if (conversion is null || conversion.ConvertedAmount <= 0)
+        {
+            throw new InvalidOperationException($"Missing active {pricingCurrency} -> {defaultCurrency} exchange rate for pricing date.");
+        }
+
+        return new PricingCurrencyConversion(pricingCurrency, defaultCurrency, conversion.ConvertedAmount);
+    }
+
+    private async Task<string> GetSystemDefaultCurrencyAsync(CancellationToken cancellationToken)
+    {
+        var settings = await systemSettingsService.GetSettingsByCodesAsync([DefaultCurrencySettingCode], cancellationToken);
+        var currency = settings.GetValueOrDefault(DefaultCurrencySettingCode);
+        if (string.IsNullOrWhiteSpace(currency))
+        {
+            currency = configuration["System:DefaultCurrency"];
+        }
+
+        return string.IsNullOrWhiteSpace(currency) ? "VND" : currency.Trim().ToUpperInvariant();
+    }
+
+    private static decimal ToDefaultCurrency(decimal value, PricingCurrencyConversion conversion)
+    {
+        return Math.Round(value * conversion.RateToDefaultCurrency, 2, MidpointRounding.AwayFromZero);
+    }
+
+    private static decimal ToPricingCurrency(decimal value, PricingCurrencyConversion conversion)
+    {
+        return conversion.RateToDefaultCurrency <= 0
+            ? value
+            : Math.Round(value / conversion.RateToDefaultCurrency, 2, MidpointRounding.AwayFromZero);
+    }
+
+    private static void ConvertPlanToDefaultCurrency(PricingPlanListItemViewModel model, PricingCurrencyConversion conversion)
+    {
+        model.ResellerPrice = ToDefaultCurrency(model.ResellerPrice, conversion);
+        model.FinalPrice = ToDefaultCurrency(model.FinalPrice, conversion);
+        model.ResellerOverChargePrice = ToDefaultCurrency(model.ResellerOverChargePrice, conversion);
+        model.FinalOverChargePrice = ToDefaultCurrency(model.FinalOverChargePrice, conversion);
+    }
+
+    private static void ConvertPlanToDefaultCurrency(PricingPlanFormViewModel model, PricingCurrencyConversion conversion)
+    {
+        model.ResellerPrice = ToDefaultCurrency(model.ResellerPrice, conversion);
+        model.FinalPrice = ToDefaultCurrency(model.FinalPrice, conversion);
+        model.ResellerOverChargePrice = ToDefaultCurrency(model.ResellerOverChargePrice, conversion);
+        model.FinalOverChargePrice = ToDefaultCurrency(model.FinalOverChargePrice, conversion);
+    }
+
+    private static PricingPlanFormViewModel ConvertPlanToPricingCurrency(PricingPlanFormViewModel model, PricingCurrencyConversion conversion)
+    {
+        return new PricingPlanFormViewModel
+        {
+            Id = model.Id,
+            CurrentPage = model.CurrentPage,
+            PageSize = model.PageSize,
+            PlanName = model.PlanName,
+            PlanCode = model.PlanCode,
+            BaseData = model.BaseData,
+            Status = model.Status,
+            ResellerPrice = ToPricingCurrency(model.ResellerPrice, conversion),
+            FinalPrice = ToPricingCurrency(model.FinalPrice, conversion),
+            ResellerOverChargePrice = ToPricingCurrency(model.ResellerOverChargePrice, conversion),
+            FinalOverChargePrice = ToPricingCurrency(model.FinalOverChargePrice, conversion)
+        };
+    }
+
+    private static void ConvertPlanOptionToDefaultCurrency(PricingPlanOptionViewModel model, PricingCurrencyConversion conversion)
+    {
+        model.ResellerPrice = ToDefaultCurrency(model.ResellerPrice, conversion);
+        model.FinalPrice = ToDefaultCurrency(model.FinalPrice, conversion);
+        model.ResellerOverChargePrice = ToDefaultCurrency(model.ResellerOverChargePrice, conversion);
+        model.FinalOverChargePrice = ToDefaultCurrency(model.FinalOverChargePrice, conversion);
+    }
+
+    private static void ConvertTenantPriceToDefaultCurrency(TenantPricingListItemViewModel model, PricingCurrencyConversion conversion)
+    {
+        model.ResellerPrice = ToDefaultCurrency(model.ResellerPrice, conversion);
+        model.FinalPrice = ToDefaultCurrency(model.FinalPrice, conversion);
+        model.ResellerOverChargePrice = ToDefaultCurrency(model.ResellerOverChargePrice, conversion);
+        model.FinalOverChargePrice = ToDefaultCurrency(model.FinalOverChargePrice, conversion);
+    }
+
+    private static void ConvertTenantPriceToDefaultCurrency(TenantPricingFormViewModel model, PricingCurrencyConversion conversion)
+    {
+        model.ResellerPrice = ToDefaultCurrency(model.ResellerPrice, conversion);
+        model.FinalPrice = ToDefaultCurrency(model.FinalPrice, conversion);
+        model.ResellerOverChargePrice = ToDefaultCurrency(model.ResellerOverChargePrice, conversion);
+        model.FinalOverChargePrice = ToDefaultCurrency(model.FinalOverChargePrice, conversion);
+    }
+
+    private static TenantPricingFormViewModel ConvertTenantPriceToPricingCurrency(TenantPricingFormViewModel model, PricingCurrencyConversion conversion)
+    {
+        return new TenantPricingFormViewModel
+        {
+            Id = model.Id,
+            CurrentPage = model.CurrentPage,
+            PageSize = model.PageSize,
+            TenantId = model.TenantId,
+            PricingPlanId = model.PricingPlanId,
+            ResellerPrice = ToPricingCurrency(model.ResellerPrice, conversion),
+            FinalPrice = ToPricingCurrency(model.FinalPrice, conversion),
+            ResellerOverChargePrice = ToPricingCurrency(model.ResellerOverChargePrice, conversion),
+            FinalOverChargePrice = ToPricingCurrency(model.FinalOverChargePrice, conversion)
+        };
+    }
+
+    private static TenantPricingImportRow ConvertTenantImportRowToPricingCurrency(TenantPricingImportRow row, PricingCurrencyConversion conversion)
+    {
+        return new TenantPricingImportRow
+        {
+            TenantId = row.TenantId,
+            TenantKey = row.TenantKey,
+            TenantName = row.TenantName,
+            PlanCode = row.PlanCode,
+            PlanName = row.PlanName,
+            ResellerPrice = ToPricingCurrency(row.ResellerPrice, conversion),
+            FinalPrice = ToPricingCurrency(row.FinalPrice, conversion),
+            ResellerOverChargePrice = ToPricingCurrency(row.ResellerOverChargePrice, conversion),
+            FinalOverChargePrice = ToPricingCurrency(row.FinalOverChargePrice, conversion)
+        };
+    }
+
     private static void AddFormParameters(SqlCommand command, PricingPlanFormViewModel model)
     {
         command.Parameters.Add("@planName", SqlDbType.NVarChar, 250).Value = model.PlanName;
@@ -919,6 +1359,26 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
         command.Parameters.Add("@finalOverChargePrice", SqlDbType.Decimal).Value = row.FinalOverChargePrice;
         command.Parameters["@finalOverChargePrice"].Precision = 18;
         command.Parameters["@finalOverChargePrice"].Scale = 2;
+    }
+
+    private static void AddDevicePriceImportParameters(SqlCommand command, TenantPricingDeviceImportRow row, int deviceId)
+    {
+        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = deviceId;
+        command.Parameters.Add("@tenantId", SqlDbType.Int).Value = row.TenantId;
+        command.Parameters.Add("@pricingPlanId", SqlDbType.Int).Value = row.PricingPlanId;
+        command.Parameters.Add("@resellerPrice", SqlDbType.Decimal).Value = row.Price.ResellerPrice;
+        command.Parameters["@resellerPrice"].Precision = 18;
+        command.Parameters["@resellerPrice"].Scale = 2;
+        command.Parameters.Add("@finalPrice", SqlDbType.Decimal).Value = row.Price.FinalPrice;
+        command.Parameters["@finalPrice"].Precision = 18;
+        command.Parameters["@finalPrice"].Scale = 2;
+        command.Parameters.Add("@resellerOverChargePrice", SqlDbType.Decimal).Value = row.Price.ResellerOverChargePrice;
+        command.Parameters["@resellerOverChargePrice"].Precision = 18;
+        command.Parameters["@resellerOverChargePrice"].Scale = 2;
+        command.Parameters.Add("@finalOverChargePrice", SqlDbType.Decimal).Value = row.Price.FinalOverChargePrice;
+        command.Parameters["@finalOverChargePrice"].Precision = 18;
+        command.Parameters["@finalOverChargePrice"].Scale = 2;
+        command.Parameters.Add("@status", SqlDbType.NVarChar, 50).Value = string.IsNullOrWhiteSpace(row.Status) ? "active" : row.Status;
     }
 
     private static void AddTenantPricingFilterParameters(SqlCommand command, int? tenantId, string search)
@@ -1032,6 +1492,50 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
         _schemaEnsured = true;
     }
 
+    private static async Task EnsureDevicePricingSchemaAsync(SqlConnection connection, SqlTransaction? transaction, CancellationToken cancellationToken)
+    {
+        const string query = """
+            IF OBJECT_ID(N'[dbo].[TblDevicePricing]', N'U') IS NULL
+            BEGIN
+                CREATE TABLE [dbo].[TblDevicePricing](
+                    [ID] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_TblDevicePricing] PRIMARY KEY,
+                    [DeviceId] int NOT NULL,
+                    [TenantId] int NOT NULL,
+                    [PricingPlanId] int NOT NULL,
+                    [ResellerPrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblDevicePricing_ResellerPrice] DEFAULT(0),
+                    [FinalPrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblDevicePricing_FinalPrice] DEFAULT(0),
+                    [ResellerOverChargePrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblDevicePricing_ResellerOverChargePrice] DEFAULT(0),
+                    [FinalOverChargePrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblDevicePricing_FinalOverChargePrice] DEFAULT(0),
+                    [Status] nvarchar(50) NOT NULL CONSTRAINT [DF_TblDevicePricing_Status] DEFAULT('active'),
+                    [Created_Date] datetime NULL,
+                    [Created_By] nvarchar(50) NULL,
+                    [Updated_Date] datetime NULL,
+                    [Updated_By] nvarchar(50) NULL
+                );
+            END;
+
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.indexes
+                WHERE name = N'UX_TblDevicePricing_Device_Plan'
+                  AND object_id = OBJECT_ID(N'[dbo].[TblDevicePricing]')
+            )
+            BEGIN
+                CREATE UNIQUE INDEX [UX_TblDevicePricing_Device_Plan]
+                    ON [dbo].[TblDevicePricing]([DeviceId], [PricingPlanId]);
+            END;
+
+            IF COL_LENGTH(N'[dbo].[TblDevicePricing]', N'Status') IS NULL
+            BEGIN
+                ALTER TABLE [dbo].[TblDevicePricing]
+                ADD [Status] nvarchar(50) NOT NULL
+                    CONSTRAINT [DF_TblDevicePricing_Status] DEFAULT('active') WITH VALUES;
+            END;
+            """;
+
+        await using var command = new SqlCommand(query, connection, transaction);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     private static async Task InsertAuditAsync(
         SqlConnection connection,
         SqlTransaction transaction,
@@ -1108,4 +1612,9 @@ public class PricingPlanService(IConfiguration configuration) : IPricingPlanServ
             ? $"Updated pricing plan '{updatedPlan.PlanCode}' (ID: {updatedPlan.Id}). No field changes detected."
             : $"Updated pricing plan '{updatedPlan.PlanCode}' (ID: {updatedPlan.Id}). Changed fields: {string.Join(", ", changedFields)}.";
     }
+
+    private sealed record PricingCurrencyConversion(string PricingCurrency, string DefaultCurrency, decimal RateToDefaultCurrency);
+
+    private sealed record TenantPricingDeviceImportRow(int TenantId, int PricingPlanId, TenantPricingImportRow Price, string Status);
 }
+

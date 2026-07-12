@@ -20,6 +20,7 @@ public class DeviceDashboardViewModel
     public bool CanViewMap { get; set; } = true;
     public bool CanManageDataOptIn { get; set; }
     public int? SelectedDeviceId { get; set; }
+    public string ActiveDeviceTab { get; set; } = "synced";
 }
 
 public class DevicePageResult
@@ -286,6 +287,7 @@ public class DevicePlanOptionViewModel
     public int PricingPlanId { get; set; }
     public string PlanName { get; set; } = string.Empty;
     public string PlanCode { get; set; } = string.Empty;
+    public string Status { get; set; } = "active";
     public decimal BaseData { get; set; }
     public decimal ResellerPrice { get; set; }
     public decimal FinalPrice { get; set; }
@@ -301,6 +303,7 @@ public class DevicePlanPriceViewModel
     public int PricingPlanId { get; set; }
     public string PlanName { get; set; } = string.Empty;
     public string PlanCode { get; set; } = string.Empty;
+    public string Status { get; set; } = "active";
     public decimal BaseData { get; set; }
     public decimal ResellerPrice { get; set; }
     public decimal FinalPrice { get; set; }
@@ -318,6 +321,7 @@ public class SaveDevicePlanRequest
 {
     public int DeviceId { get; set; }
     public int PricingPlanId { get; set; }
+    public string Status { get; set; } = "active";
     public decimal ResellerPrice { get; set; }
     public decimal FinalPrice { get; set; }
     public decimal ResellerOverChargePrice { get; set; }

@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -14,23 +14,22 @@ public static class PricingPlanExcelTemplate
         "Tên gói",
         "Mã gói",
         "Dung lượng (GB)",
-        "Đơn giá đại lý ($)",
-        "Đơn giá bán ra ($)",
-        "Giá mua thêm đại lý ($)",
-        "Giá mua thêm bán ra ($)",
+        "Đơn giá đại lý",
+        "Đơn giá bán ra",
+        "Giá mua thêm đại lý",
+        "Giá mua thêm bán ra",
         "Trạng thái"
     ];
 
     private static readonly string[] TenantPricingHeaders =
     [
-        "Tenant Key",
         "Tenant",
         "Mã gói",
         "Tên gói",
-        "Đơn giá đại lý ($)",
-        "Đơn giá bán ra ($)",
-        "Giá mua thêm đại lý ($)",
-        "Giá mua thêm bán ra ($)"
+        "Đơn giá đại lý",
+        "Đơn giá bán ra",
+        "Giá mua thêm đại lý",
+        "Giá mua thêm bán ra"
     ];
 
     public static byte[] CreateTemplate(IReadOnlyList<PricingPlanFormViewModel> plans)
@@ -201,7 +200,6 @@ public static class PricingPlanExcelTemplate
         {
             var price = prices[index];
             rows.Add(BuildRow(index + 2, [
-                protectTenantId(price.TenantId),
                 price.TenantName,
                 price.PlanCode,
                 price.PlanName,
@@ -216,13 +214,12 @@ public static class PricingPlanExcelTemplate
         return $$"""
             <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
             <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-              <dimension ref="A1:H{{lastRow}}"/>
+              <dimension ref="A1:G{{lastRow}}"/>
               <sheetViews><sheetView workbookViewId="0"/></sheetViews>
               <sheetFormatPr defaultRowHeight="15"/>
               <cols>
-                <col min="1" max="1" width="12" customWidth="1"/>
-                <col min="2" max="4" width="24" customWidth="1"/>
-                <col min="5" max="8" width="22" customWidth="1"/>
+                <col min="1" max="3" width="24" customWidth="1"/>
+                <col min="4" max="7" width="22" customWidth="1"/>
               </cols>
               <sheetData>
                 {{string.Join(Environment.NewLine, rows)}}
@@ -238,7 +235,7 @@ public static class PricingPlanExcelTemplate
         var sheetEntry = archive.GetEntry("xl/worksheets/sheet1.xml");
         if (sheetEntry is null)
         {
-            result.Errors.Add("File Excel không có sheet dữ liệu hợp lệ.");
+            result.Errors.Add("File Excel khÃ´ng cÃ³ sheet dá»¯ liá»‡u há»£p lá»‡.");
             return result;
         }
 
@@ -316,25 +313,25 @@ public static class PricingPlanExcelTemplate
 
         if (string.IsNullOrWhiteSpace(planName))
         {
-            result.Errors.Add($"Dòng {rowIndex}: tên gói không được để trống.");
+            result.Errors.Add($"DÃ²ng {rowIndex}: tÃªn gÃ³i khÃ´ng Ä‘Æ°á»£c Ä‘á»ƒ trá»‘ng.");
             return;
         }
 
         if (string.IsNullOrWhiteSpace(planCode))
         {
-            result.Errors.Add($"Dòng {rowIndex}: mã gói không được để trống.");
+            result.Errors.Add($"DÃ²ng {rowIndex}: mÃ£ gÃ³i khÃ´ng Ä‘Æ°á»£c Ä‘á»ƒ trá»‘ng.");
             return;
         }
 
         if (!Regex.IsMatch(planCode, @"^[A-Za-z0-9._-]+$"))
         {
-            result.Errors.Add($"Dòng {rowIndex}: mã gói chỉ gồm chữ, số, dấu chấm, gạch ngang hoặc gạch dưới.");
+            result.Errors.Add($"DÃ²ng {rowIndex}: mÃ£ gÃ³i chá»‰ gá»“m chá»¯, sá»‘, dáº¥u cháº¥m, gáº¡ch ngang hoáº·c gáº¡ch dÆ°á»›i.");
             return;
         }
 
         if (!seenCodes.Add(planCode))
         {
-            result.Errors.Add($"Dòng {rowIndex}: mã gói '{planCode}' bị trùng trong file import.");
+            result.Errors.Add($"DÃ²ng {rowIndex}: mÃ£ gÃ³i '{planCode}' bá»‹ trÃ¹ng trong file import.");
             return;
         }
 
@@ -344,7 +341,7 @@ public static class PricingPlanExcelTemplate
             !TryParseDecimal(Get(values, 5), out var resellerOverChargePrice) ||
             !TryParseDecimal(Get(values, 6), out var finalOverChargePrice))
         {
-            result.Errors.Add($"Dòng {rowIndex}: các cột dung lượng và đơn giá phải là số hợp lệ.");
+            result.Errors.Add($"DÃ²ng {rowIndex}: cÃ¡c cá»™t dung lÆ°á»£ng vÃ  Ä‘Æ¡n giÃ¡ pháº£i lÃ  sá»‘ há»£p lá»‡.");
             return;
         }
 
@@ -431,50 +428,54 @@ public static class PricingPlanExcelTemplate
         TenantPricingImportResult result,
         Func<string, int?> unprotectTenantId)
     {
-        var tenantKey = Get(values, 0).Trim();
-        var tenantId = unprotectTenantId(tenantKey);
-        if (!tenantId.HasValue || tenantId.Value <= 0)
+        var tenantName = Get(values, 0).Trim();
+        if (string.IsNullOrWhiteSpace(tenantName))
         {
-            result.Errors.Add($"Dòng {rowIndex}: Tenant Key không hợp lệ.");
+            result.Errors.Add($"Dong {rowIndex}: ten tenant khong duoc de trong.");
             return;
         }
 
-        var planCode = Get(values, 2).Trim();
+        var planCode = Get(values, 1).Trim();
         if (string.IsNullOrWhiteSpace(planCode))
         {
-            result.Errors.Add($"Dòng {rowIndex}: mã gói không được để trống.");
+            result.Errors.Add($"Dong {rowIndex}: ma goi khong duoc de trong.");
             return;
         }
 
-        var key = $"{tenantId.Value}:{planCode}";
+        var planName = Get(values, 2).Trim();
+        if (string.IsNullOrWhiteSpace(planName))
+        {
+            result.Errors.Add($"Dong {rowIndex}: ten goi khong duoc de trong.");
+            return;
+        }
+
+        var key = $"{tenantName}:{planCode}";
         if (!seenKeys.Add(key))
         {
-            result.Errors.Add($"Dòng {rowIndex}: tenant và mã gói bị trùng trong file import.");
+            result.Errors.Add($"Dong {rowIndex}: tenant '{tenantName}' va ma goi '{planCode}' bi trung trong file import.");
             return;
         }
 
-        if (!TryParseDecimal(Get(values, 4), out var resellerPrice) ||
-            !TryParseDecimal(Get(values, 5), out var finalPrice) ||
-            !TryParseDecimal(Get(values, 6), out var resellerOverChargePrice) ||
-            !TryParseDecimal(Get(values, 7), out var finalOverChargePrice))
+        if (!TryParseDecimal(Get(values, 3), out var resellerPrice) ||
+            !TryParseDecimal(Get(values, 4), out var finalPrice) ||
+            !TryParseDecimal(Get(values, 5), out var resellerOverChargePrice) ||
+            !TryParseDecimal(Get(values, 6), out var finalOverChargePrice))
         {
-            result.Errors.Add($"Dòng {rowIndex}: các cột đơn giá phải là số hợp lệ.");
+            result.Errors.Add($"Dong {rowIndex}: cac cot don gia phai la so hop le.");
             return;
         }
 
         parsedRows.Add(new TenantPricingImportRow
         {
-            TenantId = tenantId.Value,
-            TenantKey = tenantKey,
-            TenantName = Get(values, 1).Trim(),
+            TenantName = tenantName,
             PlanCode = planCode,
+            PlanName = planName,
             ResellerPrice = resellerPrice,
             FinalPrice = finalPrice,
             ResellerOverChargePrice = resellerOverChargePrice,
             FinalOverChargePrice = finalOverChargePrice
         });
     }
-
     private static Dictionary<int, string> ReadSharedStrings(ZipArchive archive)
     {
         var entry = archive.GetEntry("xl/sharedStrings.xml");
@@ -636,3 +637,4 @@ public static class PricingPlanExcelTemplate
         return values;
     }
 }
+

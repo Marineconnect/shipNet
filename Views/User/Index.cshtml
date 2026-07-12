@@ -172,7 +172,22 @@
                       }
                     </div>
                   </td>
-                  <td>@user.Username</td>
+                  <td>
+                    @if (Model.CanManageUsers)
+                    {
+                      <a asp-controller="User"
+                         asp-action="Edit"
+                         asp-route-id="@user.Id"
+                         asp-route-group="@Model.ActiveUserGroup"
+                         asp-route-page="@Model.CurrentPage"
+                         asp-route-pageSize="@Model.PageSize"
+                         class="table-primary-link">@user.Username</a>
+                    }
+                    else
+                    {
+                      @user.Username
+                    }
+                  </td>
                   <td>@user.DisplayNameOrUsername</td>
                   <td>@user.UserGroupDisplay</td>
                   <td>@user.TenantDisplay</td>

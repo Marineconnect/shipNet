@@ -263,7 +263,7 @@ public class MonthlySubscriptionController(
 
     private static bool CanViewQrSessions(AuthUserRecord? user)
     {
-        return string.Equals(user?.UserType?.Trim(), ManagedUserType.Admin, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(user?.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
     }
 
     private (int? UserId, string Username) GetCurrentAuditContext()

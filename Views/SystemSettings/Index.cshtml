@@ -29,6 +29,36 @@
       <div class="tenant-feedback is-error" role="alert">@errorMessage</div>
     }
 
+    <section class="device-card system-settings-card kit-export-card">
+      <div class="device-card-head">
+        <div>
+          <h2>Xuất thông tin KIT</h2>
+          <p>Tải file mẫu, import danh sách Terminal ID và xuất lại file có KIT number, Service Line, Status.</p>
+        </div>
+      </div>
+      <div class="kit-export-actions">
+        <a asp-controller="SystemSettings" asp-action="DownloadSlkTemplate" class="btn-secondary kit-export-download">Tải file mẫu SLK_Template.xls</a>
+        <form asp-controller="SystemSettings" asp-action="ImportSlkTemplate" method="post" enctype="multipart/form-data" id="slkImportForm" class="kit-export-form">
+          @Html.AntiForgeryToken()
+          <label class="kit-export-file">
+            <span>File import</span>
+            <input type="file" name="importFile" id="slkImportFile" accept=".xls,.xlsx" />
+          </label>
+          <button type="submit" class="btn-primary" id="slkImportSubmit">Import và xử lý</button>
+        </form>
+      </div>
+      <div class="kit-export-progress" id="slkImportProgress" hidden>
+        <div class="kit-export-progress-ring" id="slkImportProgressRing" style="--progress:3.6deg">
+          <span id="slkImportProgressText">1%</span>
+        </div>
+        <div>
+          <div class="kit-export-progress-title" id="slkImportProgressTitle">Đang xử lý file...</div>
+          <div class="tenant-meta" id="slkImportProgressNote">Hệ thống sẽ retry tối đa 3 lần cho từng Terminal ID và ghi kết quả vào cột Status.</div>
+        </div>
+      </div>
+      <div class="tenant-feedback kit-export-result" id="slkImportResult" hidden></div>
+    </section>
+
     @foreach (var group in Model.Settings.GroupBy(setting => setting.Category))
     {
       <section class="device-card system-settings-card">
@@ -116,6 +146,95 @@
       if (editModal && !editModal.hidden) document.body.style.overflow = "hidden";
       document.getElementById("closeSystemSettingEditModal")?.addEventListener("click", closeEditModal);
       document.getElementById("cancelSystemSettingEditModal")?.addEventListener("click", closeEditModal);
+    })();
+
+    (() => {
+      const form = document.getElementById("slkImportForm");
+      const fileInput = document.getElementById("slkImportFile");
+      const submitButton = document.getElementById("slkImportSubmit");
+      const progress = document.getElementById("slkImportProgress");
+      const ring = document.getElementById("slkImportProgressRing");
+      const progressText = document.getElementById("slkImportProgressText");
+      const progressTitle = document.getElementById("slkImportProgressTitle");
+      const result = document.getElementById("slkImportResult");
+      let timer = null;
+
+      function setProgress(value, title) {
+        const percent = Math.max(1, Math.min(100, Math.round(value)));
+        if (ring) ring.style.setProperty("--progress", `${percent * 3.6}deg`);
+        if (progressText) progressText.textContent = `${percent}%`;
+        if (progressTitle && title) progressTitle.textContent = title;
+      }
+
+      function setResult(message, isError) {
+        if (!result) return;
+        result.hidden = false;
+        result.textContent = message;
+        result.classList.toggle("is-error", Boolean(isError));
+        result.classList.toggle("is-success", !isError);
+      }
+
+      function getDownloadFileName(response) {
+        const disposition = response.headers.get("content-disposition") || "";
+        const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+        if (utf8Match) return decodeURIComponent(utf8Match[1].replace(/"/g, ""));
+
+        const match = disposition.match(/filename="?([^";]+)"?/i);
+        return match ? match[1] : `SLK_Template_result_${Date.now()}.xls`;
+      }
+
+      form?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!fileInput?.files?.length) {
+          setResult("Vui lòng chọn file SLK_Template.xls trước khi import.", true);
+          return;
+        }
+
+        const data = new FormData(form);
+        if (result) result.hidden = true;
+        if (progress) progress.hidden = false;
+        submitButton?.setAttribute("disabled", "disabled");
+        setProgress(1, "Đang gửi file...");
+
+        let current = 1;
+        window.clearInterval(timer);
+        timer = window.setInterval(() => {
+          current = Math.min(95, current + (current < 45 ? 4 : current < 80 ? 2 : 1));
+          setProgress(current, current >= 95 ? "Đang chờ server xuất file kết quả..." : "Đang xử lý từng Terminal ID...");
+        }, 600);
+
+        try {
+          const response = await fetch(form.action, {
+            method: "POST",
+            body: data,
+            credentials: "same-origin"
+          });
+
+          if (!response.ok) {
+            throw new Error(await response.text() || `Import failed: HTTP ${response.status}`);
+          }
+
+          const blob = await response.blob();
+          const fileName = getDownloadFileName(response);
+          const url = window.URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = fileName;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          window.URL.revokeObjectURL(url);
+
+          setProgress(100, "Hoàn tất xử lý file.");
+          setResult(`Đã xuất file kết quả: ${fileName}`, false);
+        } catch (error) {
+          setResult(error?.message || "Không thể import file.", true);
+          setProgress(100, "Xử lý lỗi.");
+        } finally {
+          window.clearInterval(timer);
+          submitButton?.removeAttribute("disabled");
+        }
+      });
     })();
   </script>
 }

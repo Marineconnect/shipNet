@@ -20,6 +20,8 @@ public class PaymentTransactionService(
 {
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")
         ?? throw new InvalidOperationException("Missing connection string: DefaultConnection");
+    private const string DefaultCurrencySettingCode = "system_default_currency";
+    private const string PaymentCurrency = "VND";
 
     private bool _schemaEnsured;
 
@@ -59,13 +61,14 @@ public class PaymentTransactionService(
         }
 
         var paymentDate = DateTime.Today;
+        var defaultCurrency = await GetSystemDefaultCurrencyAsync(cancellationToken);
         var conversion = await currencyExchangeService.ConvertAsync(new CurrencyConversionFormViewModel
         {
             Amount = invoice.Amount,
-            FromCurrency = "USD",
-            ToCurrency = "VND",
+            FromCurrency = defaultCurrency,
+            ToCurrency = PaymentCurrency,
             ConversionDate = paymentDate
-        }, cancellationToken) ?? throw new InvalidOperationException("Missing active USD -> VND exchange rate for payment date.");
+        }, cancellationToken) ?? throw new InvalidOperationException($"Missing active {defaultCurrency} -> {PaymentCurrency} exchange rate for payment date.");
 
         var settings = await systemSettingsService.GetSettingsByCodesAsync(["ninepay_transaction_fee_vnd"], cancellationToken);
         var transactionFeeVnd = TryParseDecimal(settings.GetValueOrDefault("ninepay_transaction_fee_vnd"), 0);
@@ -102,7 +105,7 @@ public class PaymentTransactionService(
             amountVnd,
             transactionFeeVnd,
             totalToPayVnd,
-            "VND",
+            PaymentCurrency,
             paymentMethod,
             paymentUrl,
             directPayment.ProviderPaymentId,
@@ -120,7 +123,7 @@ public class PaymentTransactionService(
             AmountVnd = amountVnd,
             TransactionFeeVnd = transactionFeeVnd,
             TotalToPayVnd = totalToPayVnd,
-            Currency = "VND",
+            Currency = PaymentCurrency,
             PaymentDate = paymentDate,
             PaymentMethod = paymentMethod,
             PaymentUrl = paymentUrl,
@@ -162,14 +165,15 @@ public class PaymentTransactionService(
         }
 
         var paymentDate = DateTime.Today;
+        var defaultCurrency = await GetSystemDefaultCurrencyAsync(cancellationToken);
         var totalUsd = invoices.Sum(item => item.Amount);
         var conversion = await currencyExchangeService.ConvertAsync(new CurrencyConversionFormViewModel
         {
             Amount = totalUsd,
-            FromCurrency = "USD",
-            ToCurrency = "VND",
+            FromCurrency = defaultCurrency,
+            ToCurrency = PaymentCurrency,
             ConversionDate = paymentDate
-        }, cancellationToken) ?? throw new InvalidOperationException("Missing active USD -> VND exchange rate for payment date.");
+        }, cancellationToken) ?? throw new InvalidOperationException($"Missing active {defaultCurrency} -> {PaymentCurrency} exchange rate for payment date.");
 
         var settings = await systemSettingsService.GetSettingsByCodesAsync(["ninepay_transaction_fee_vnd"], cancellationToken);
         var transactionFeeVnd = TryParseDecimal(settings.GetValueOrDefault("ninepay_transaction_fee_vnd"), 0);
@@ -216,7 +220,7 @@ public class PaymentTransactionService(
                 Math.Round(invoice.Amount * conversion.Rate, 0, MidpointRounding.AwayFromZero),
                 0,
                 Math.Round(invoice.Amount * conversion.Rate, 0, MidpointRounding.AwayFromZero),
-                "VND",
+                PaymentCurrency,
                 paymentMethod,
                 string.Empty,
                 directPayment.ProviderPaymentId,
@@ -235,7 +239,7 @@ public class PaymentTransactionService(
             AmountVnd = amountVnd,
             TransactionFeeVnd = transactionFeeVnd,
             TotalToPayVnd = totalToPayVnd,
-            Currency = "VND",
+            Currency = PaymentCurrency,
             PaymentDate = paymentDate,
             PaymentMethod = paymentMethod,
             PaymentUrl = directPayment.PaymentUrl,
@@ -3143,6 +3147,19 @@ public class PaymentTransactionService(
     private static decimal TryParseDecimal(string? value, decimal fallback)
     {
         return decimal.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var number) ? number : fallback;
+    }
+
+    private async Task<string> GetSystemDefaultCurrencyAsync(CancellationToken cancellationToken)
+    {
+        var settings = await systemSettingsService.GetSettingsByCodesAsync([DefaultCurrencySettingCode], cancellationToken);
+        var configuredCurrency = FirstNotEmpty(
+            settings.GetValueOrDefault(DefaultCurrencySettingCode),
+            configuration["System:DefaultCurrency"],
+            configuration["Billing:DefaultCurrency"],
+            PaymentCurrency);
+
+        configuredCurrency = configuredCurrency.Trim().ToUpperInvariant();
+        return string.IsNullOrWhiteSpace(configuredCurrency) ? PaymentCurrency : configuredCurrency;
     }
 
     private static void AddDecimal(SqlCommand command, string name, decimal value, byte scale = 2)

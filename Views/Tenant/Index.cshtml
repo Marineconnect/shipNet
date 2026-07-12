@@ -142,7 +142,21 @@
                       }
                     </div>
                   </td>
-                  <td>@tenant.TenantName</td>
+                  <td>
+                    @if (Model.CanManageTenant)
+                    {
+                      <a asp-controller="Tenant"
+                         asp-action="Edit"
+                         asp-route-id="@tenant.Id"
+                         asp-route-page="@Model.CurrentPage"
+                         asp-route-pageSize="@Model.PageSize"
+                         class="table-primary-link">@tenant.TenantName</a>
+                    }
+                    else
+                    {
+                      @tenant.TenantName
+                    }
+                  </td>
                   <td>@(string.IsNullOrWhiteSpace(tenant.Email) ? "-" : tenant.Email)</td>
                   <td>@(string.IsNullOrWhiteSpace(tenant.Phone) ? "-" : tenant.Phone)</td>
                   <td class="tenant-cell-wrap">@(string.IsNullOrWhiteSpace(tenant.Address) ? "-" : tenant.Address)</td>
@@ -153,6 +167,8 @@
                   </td>
                   <td>
                     <div class="table-actions">
+                      @if (Model.CanManageTenant)
+                      {
                       <a asp-controller="Tenant"
                          asp-action="Edit"
                          asp-route-id="@tenant.Id"
@@ -161,6 +177,7 @@
                          class="table-action-btn">
                         <span>Sửa / Edit</span>
                       </a>
+                      }
                       @if (Model.CanDeleteTenant)
                       {
                         <form asp-controller="Tenant"

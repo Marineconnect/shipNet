@@ -1,9 +1,15 @@
 @model (string Prefix, PricingPlanFormViewModel Form)
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 
 @{
     var prefix = Model.Prefix;
     var form = Model.Form;
+    var defaultCurrency = (Configuration["System:DefaultCurrency"] ?? "VND").Trim().ToUpperInvariant();
     string NumberInput(decimal value) => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+    string MoneyInput(decimal value) => string.Equals(defaultCurrency, "VND", StringComparison.OrdinalIgnoreCase)
+        ? value.ToString("#,##0", new System.Globalization.CultureInfo("vi-VN"))
+        : value.ToString("#,##0.##", System.Globalization.CultureInfo.InvariantCulture);
+    var moneyDecimals = string.Equals(defaultCurrency, "VND", StringComparison.OrdinalIgnoreCase) ? "0" : "2";
 }
 
 <div class="tenant-form-grid">
@@ -35,26 +41,26 @@
   </div>
 
   <div class="form-group">
-    <label for="@(prefix)_ResellerPrice">Đơn giá đại lý ($) / Reseller Price ($)</label>
-    <input id="@(prefix)_ResellerPrice" name="@(prefix).ResellerPrice" value="@NumberInput(form.ResellerPrice)" class="input" type="number" min="0" step="0.01" />
+    <label for="@(prefix)_ResellerPrice">Đơn giá đại lý (@defaultCurrency) / Reseller Price (@defaultCurrency)</label>
+    <input id="@(prefix)_ResellerPrice" name="@(prefix).ResellerPrice" value="@MoneyInput(form.ResellerPrice)" class="input" type="text" inputmode="decimal" data-money-input data-money-decimals="@moneyDecimals" />
     <span data-valmsg-for="@(prefix).ResellerPrice" data-valmsg-replace="true" class="field-error"></span>
   </div>
 
   <div class="form-group">
-    <label for="@(prefix)_FinalPrice">Đơn giá bán ra ($) / Sale Price ($)</label>
-    <input id="@(prefix)_FinalPrice" name="@(prefix).FinalPrice" value="@NumberInput(form.FinalPrice)" class="input" type="number" min="0" step="0.01" />
+    <label for="@(prefix)_FinalPrice">Đơn giá bán ra (@defaultCurrency) / Sale Price (@defaultCurrency)</label>
+    <input id="@(prefix)_FinalPrice" name="@(prefix).FinalPrice" value="@MoneyInput(form.FinalPrice)" class="input" type="text" inputmode="decimal" data-money-input data-money-decimals="@moneyDecimals" />
     <span data-valmsg-for="@(prefix).FinalPrice" data-valmsg-replace="true" class="field-error"></span>
   </div>
 
   <div class="form-group">
-    <label for="@(prefix)_ResellerOverChargePrice">Giá mua thêm đại lý ($) / Reseller Overcharge Price ($)</label>
-    <input id="@(prefix)_ResellerOverChargePrice" name="@(prefix).ResellerOverChargePrice" value="@NumberInput(form.ResellerOverChargePrice)" class="input" type="number" min="0" step="0.01" />
+    <label for="@(prefix)_ResellerOverChargePrice">Giá mua thêm đại lý (@defaultCurrency) / Reseller Overcharge Price (@defaultCurrency)</label>
+    <input id="@(prefix)_ResellerOverChargePrice" name="@(prefix).ResellerOverChargePrice" value="@MoneyInput(form.ResellerOverChargePrice)" class="input" type="text" inputmode="decimal" data-money-input data-money-decimals="@moneyDecimals" />
     <span data-valmsg-for="@(prefix).ResellerOverChargePrice" data-valmsg-replace="true" class="field-error"></span>
   </div>
 
   <div class="form-group">
-    <label for="@(prefix)_FinalOverChargePrice">Giá mua thêm bán ra ($) / Sale Overcharge Price ($)</label>
-    <input id="@(prefix)_FinalOverChargePrice" name="@(prefix).FinalOverChargePrice" value="@NumberInput(form.FinalOverChargePrice)" class="input" type="number" min="0" step="0.01" />
+    <label for="@(prefix)_FinalOverChargePrice">Giá mua thêm bán ra (@defaultCurrency) / Sale Overcharge Price (@defaultCurrency)</label>
+    <input id="@(prefix)_FinalOverChargePrice" name="@(prefix).FinalOverChargePrice" value="@MoneyInput(form.FinalOverChargePrice)" class="input" type="text" inputmode="decimal" data-money-input data-money-decimals="@moneyDecimals" />
     <span data-valmsg-for="@(prefix).FinalOverChargePrice" data-valmsg-replace="true" class="field-error"></span>
   </div>
 </div>

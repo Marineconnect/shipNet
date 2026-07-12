@@ -13,6 +13,7 @@ public class SystemSettingsService(IConfiguration configuration) : ISystemSettin
 
     private static readonly SystemSettingSeed[] SeedSettings =
     [
+        new("System", "system_default_currency", "System default currency", "VND", false, "Default reference currency used by billing and payment calculations."),
         new("9Pay", "ninepay_transaction_fee_vnd", "9Pay transaction fee (VND)", "4400", false, "Transaction fee added to the QR payment total.")
     ];
 
@@ -21,7 +22,7 @@ public class SystemSettingsService(IConfiguration configuration) : ISystemSettin
         const string query = """
             SELECT [ID], [Category], [SettingCode], [DisplayName], [SettingValue], [IsSecret], [Description], [Updated_Date], [Updated_By]
             FROM [dbo].[TblSystemSetting]
-            WHERE [SettingCode] = N'ninepay_transaction_fee_vnd'
+            WHERE [SettingCode] IN (N'ninepay_transaction_fee_vnd', N'system_default_currency')
             ORDER BY [Category] ASC, [DisplayOrder] ASC, [ID] ASC
             """;
 
@@ -46,7 +47,7 @@ public class SystemSettingsService(IConfiguration configuration) : ISystemSettin
             SELECT TOP 1 [ID], [Category], [SettingCode], [DisplayName], [SettingValue], [IsSecret]
             FROM [dbo].[TblSystemSetting]
             WHERE [ID] = @id
-              AND [SettingCode] = N'ninepay_transaction_fee_vnd'
+              AND [SettingCode] IN (N'ninepay_transaction_fee_vnd', N'system_default_currency')
             """;
 
         await using var connection = new SqlConnection(_connectionString);
@@ -80,7 +81,7 @@ public class SystemSettingsService(IConfiguration configuration) : ISystemSettin
                 [Updated_Date] = GETDATE(),
                 [Updated_By] = @updatedBy
             WHERE [ID] = @id
-              AND [SettingCode] = N'ninepay_transaction_fee_vnd'
+              AND [SettingCode] IN (N'ninepay_transaction_fee_vnd', N'system_default_currency')
             """;
 
         await using var connection = new SqlConnection(_connectionString);

@@ -20,5 +20,6 @@ public interface IPricingPlanService
     Task<int> CreateTenantPriceAsync(TenantPricingFormViewModel model, int? userId, string username, CancellationToken cancellationToken = default);
     Task UpdateTenantPriceAsync(TenantPricingFormViewModel model, int? userId, string username, CancellationToken cancellationToken = default);
     Task DeleteTenantPriceAsync(int id, int? userId, string username, CancellationToken cancellationToken = default);
-    Task<TenantPricingImportResult> ImportTenantPricesAsync(IReadOnlyList<TenantPricingImportRow> prices, int? userId, string username, CancellationToken cancellationToken = default);
+    Task<TenantPricingDevicePreviewResult> GetTenantPricingDevicePreviewAsync(IReadOnlyList<TenantPricingImportRow> prices, CancellationToken cancellationToken = default);
+    Task<TenantPricingImportResult> ImportTenantPricesAsync(IReadOnlyList<TenantPricingImportRow> prices, int? userId, string username, IReadOnlyCollection<int>? deviceIds = null, CancellationToken cancellationToken = default);
 }
