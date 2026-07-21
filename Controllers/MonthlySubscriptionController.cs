@@ -97,16 +97,21 @@ public class MonthlySubscriptionController(
         NormalizeCreateModel(model);
         if (!ValidateCreateModel(model))
         {
-            TempData["SubscriptionError"] = "Vui lòng nhập đầy đủ thông tin subscription hợp lệ. Ngày bắt đầu/kết thúc phải cùng tháng.";
+            TempData["SubscriptionError"] = "Vui lòng nhập đầy đủ thông tin subscription hợp lệ.";
             return RedirectToAction(nameof(Index));
         }
 
         try
         {
             var (userId, username) = GetCurrentAuditContext();
-            var subscriptionId = await subscriptionService.CreateSubscriptionAsync(model, userId, username, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
-            TempData["SubscriptionSuccess"] = $"Tạo subscription #{subscriptionId} thành công.";
-            return RedirectToAction(nameof(Details), new { id = subscriptionId });
+            var subscriptionIds = await subscriptionService.CreateSubscriptionAsync(model, userId, username, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            var firstSubscriptionId = subscriptionIds.FirstOrDefault();
+            TempData["SubscriptionSuccess"] = subscriptionIds.Count == 1
+                ? $"Tạo subscription #{firstSubscriptionId} thành công."
+                : $"Tạo {subscriptionIds.Count} subscription theo từng chu kỳ thành công.";
+            return firstSubscriptionId > 0
+                ? RedirectToAction(nameof(Details), new { id = firstSubscriptionId })
+                : RedirectToAction(nameof(Index));
         }
         catch (Exception exception)
         {
@@ -292,8 +297,6 @@ public class MonthlySubscriptionController(
             && model.StartDate != default
             && model.EndDate != default
             && model.NextBillingDate != default
-            && model.StartDate <= model.EndDate
-            && model.StartDate.Year == model.EndDate.Year
-            && model.StartDate.Month == model.EndDate.Month;
+            && model.StartDate <= model.EndDate;
     }
 }

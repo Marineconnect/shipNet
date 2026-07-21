@@ -427,6 +427,14 @@
     return `${number.toLocaleString("vi-VN", { maximumFractionDigits: 0 })} VND`;
   }
 
+  function moneyInput(value) {
+    const number = Number(value || 0);
+    const currency = "@defaultCurrency";
+    return currency === "VND"
+      ? number.toLocaleString("vi-VN", { maximumFractionDigits: 0 })
+      : number.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  }
+
   function field(source, pascalName, fallback = "") {
     if (!source) return fallback;
     const camelName = pascalName.charAt(0).toLowerCase() + pascalName.slice(1);
@@ -444,6 +452,17 @@
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, "0");
     return `${year}-${month}`;
+  }
+
+  function firstDayOfNextMonth(date) {
+    return new Date(date.getFullYear(), date.getMonth() + 1, 1);
+  }
+
+  function updateNextBillingDateFromEnd() {
+    if (!nextBillingDate || !endDate?.value) return;
+    const end = new Date(endDate.value);
+    if (Number.isNaN(end.getTime())) return;
+    nextBillingDate.value = toDateInput(firstDayOfNextMonth(end));
   }
 
   function selectedDevice() {
@@ -526,10 +545,10 @@
     const start = startDate?.value ? new Date(startDate.value) : null;
     const end = endDate?.value ? new Date(endDate.value) : null;
     if (overchargePrice) {
-      overchargePrice.value = plan ? Number(plan.FinalOverChargePrice ?? plan.finalOverChargePrice ?? 0).toFixed(2) : "0.00";
+      overchargePrice.value = plan ? moneyInput(plan.FinalOverChargePrice ?? plan.finalOverChargePrice ?? 0) : moneyInput(0);
     }
     if (finalPriceInput) {
-      finalPriceInput.value = plan ? Number(plan.FinalPrice ?? plan.finalPrice ?? 0).toFixed(2) : "0.00";
+      finalPriceInput.value = plan ? moneyInput(plan.FinalPrice ?? plan.finalPrice ?? 0) : moneyInput(0);
     }
     if (!plan || !start || !end || end < start) {
       if (calculation) calculation.textContent = "Chọn tàu, gói và ngày sử dụng để tính giá / Select vessel, plan, and usage dates to calculate pricing.";
@@ -547,10 +566,9 @@
     if (!year || !month) return;
     const start = new Date(year, month - 1, 1);
     const end = new Date(year, month, 0);
-    const next = new Date(year, month, 1);
     if (startDate && !startDate.value) startDate.value = toDateInput(start);
     if (endDate && !endDate.value) endDate.value = toDateInput(end);
-    if (nextBillingDate && !nextBillingDate.value) nextBillingDate.value = toDateInput(next);
+    updateNextBillingDateFromEnd();
     updateCalculation();
   }
 
@@ -748,7 +766,12 @@
   createPlan?.addEventListener("change", updateCalculation);
   usageMonth?.addEventListener("change", applyMonthDefaults);
   startDate?.addEventListener("change", updateCalculation);
-  endDate?.addEventListener("change", updateCalculation);
+  const handleEndDateChanged = () => {
+    updateNextBillingDateFromEnd();
+    updateCalculation();
+  };
+  endDate?.addEventListener("input", handleEndDateChanged);
+  endDate?.addEventListener("change", handleEndDateChanged);
 })();
 </script>
 }

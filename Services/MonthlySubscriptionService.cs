@@ -1,4 +1,4 @@
-using System.Data;
+﻿using System.Data;
 using System.Globalization;
 using Microsoft.Data.SqlClient;
 using StarlinkDeviceManager.Models;
@@ -251,6 +251,8 @@ public class MonthlySubscriptionService(
             INNER JOIN [dbo].[TblPricingPlan] pp ON pp.[ID] = dp.[PricingPlanId]
             WHERE (@tenantId IS NULL OR d.[TenantID] = @tenantId)
               AND (@deviceId IS NULL OR d.[ID] = @deviceId)
+              AND LOWER(ISNULL(dp.[Status], N'')) = N'active'
+              AND LOWER(ISNULL(pp.[Status], N'')) = N'active'
             ORDER BY pp.[PlanName], pp.[PlanCode]
             """;
 
@@ -285,7 +287,7 @@ public class MonthlySubscriptionService(
         return plans;
     }
 
-    public async Task<int> CreateSubscriptionAsync(CreateMonthlySubscriptionViewModel model, int? userId, string username, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<int>> CreateSubscriptionAsync(CreateMonthlySubscriptionViewModel model, int? userId, string username, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
     {
         if (tenantId.HasValue && model.TenantId != tenantId.Value)
         {
@@ -297,9 +299,9 @@ public class MonthlySubscriptionService(
             throw new InvalidOperationException("Device is outside the current user scope.");
         }
 
-        if (model.StartDate.Date > model.EndDate.Date || model.StartDate.Month != model.EndDate.Month || model.StartDate.Year != model.EndDate.Year)
+        if (model.StartDate.Date > model.EndDate.Date)
         {
-            throw new InvalidOperationException("Start date and end date must be in the same month.");
+            throw new InvalidOperationException("Start date must be before or equal to end date.");
         }
 
         await using var connection = new SqlConnection(_connectionString);
@@ -307,20 +309,18 @@ public class MonthlySubscriptionService(
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
         await EnsureSchemaAsync(connection, transaction, cancellationToken);
 
+        var segments = BuildMonthlySubscriptionSegments(model.StartDate.Date, model.EndDate.Date);
+        var unpaidCycle = await FindUnpaidBillingCycleAsync(connection, transaction, model.DeviceId, segments, cancellationToken);
+        if (unpaidCycle.HasValue)
+        {
+            throw new InvalidOperationException($"Đang có billing chưa thanh toán cho chu kỳ tháng {unpaidCycle.Value:MM/yyyy}");
+        }
+
         var context = await GetCreateContextAsync(connection, transaction, model, cancellationToken);
         if (context is null)
         {
             throw new InvalidOperationException("The selected vessel and plan do not match an active device plan.");
         }
-
-        var usageMonth = new DateTime(model.UsageMonth.Year, model.UsageMonth.Month, 1);
-        var days = (model.EndDate.Date - model.StartDate.Date).Days + 1;
-        var finalPrice = await ConvertPricingAmountAsync(context.FinalPrice, model.StartDate, cancellationToken);
-        var resellerPrice = await ConvertPricingAmountAsync(context.ResellerPrice, model.StartDate, cancellationToken);
-        var finalOverChargePrice = await ConvertPricingAmountAsync(context.FinalOverChargePrice, model.StartDate, cancellationToken);
-        var subscriptionPrice = Math.Round(finalPrice * days / 30m, 2, MidpointRounding.AwayFromZero);
-        var buyPrice = Math.Round(resellerPrice * days / 30m, 2, MidpointRounding.AwayFromZero);
-        var invoiceNumber = await BuildInvoiceNumberAsync(connection, transaction, cancellationToken);
 
         const string insertSubscriptionQuery = """
             INSERT INTO [dbo].[TblMonthlySubscription]
@@ -336,36 +336,51 @@ public class MonthlySubscriptionService(
                  0, @subscriptionPrice, 0, N'pending_payment', GETDATE(), @createdBy, GETDATE(), @updatedBy)
             """;
 
-        int subscriptionId;
-        await using (var command = new SqlCommand(insertSubscriptionQuery, connection, transaction))
+        var subscriptionIds = new List<int>();
+        foreach (var segment in segments)
         {
-            command.Parameters.Add("@tenantId", SqlDbType.Int).Value = model.TenantId;
-            command.Parameters.Add("@deviceId", SqlDbType.Int).Value = model.DeviceId;
-            command.Parameters.Add("@pricingPlanId", SqlDbType.Int).Value = model.PricingPlanId;
-            command.Parameters.Add("@tenantName", SqlDbType.NVarChar, 250).Value = context.TenantName;
-            command.Parameters.Add("@vesselName", SqlDbType.NVarChar, 250).Value = context.VesselName;
-            command.Parameters.Add("@kitId", SqlDbType.NVarChar, 250).Value = (object?)context.KitId ?? DBNull.Value;
-            command.Parameters.Add("@planName", SqlDbType.NVarChar, 250).Value = context.PlanName;
-            command.Parameters.Add("@planCode", SqlDbType.NVarChar, 100).Value = context.PlanCode;
-            command.Parameters.Add("@subscriptionType", SqlDbType.NVarChar, 50).Value = model.SubscriptionType.Trim();
-            command.Parameters.Add("@usageMonth", SqlDbType.Date).Value = usageMonth;
-            command.Parameters.Add("@startDate", SqlDbType.Date).Value = model.StartDate.Date;
-            command.Parameters.Add("@endDate", SqlDbType.Date).Value = model.EndDate.Date;
-            command.Parameters.Add("@nextBillingDate", SqlDbType.Date).Value = model.NextBillingDate.Date;
-            AddDecimal(command, "@dataLimitGb", context.DataLimitGb);
-            AddDecimal(command, "@basePlanPrice", finalPrice);
-            command.Parameters.Add("@subscriptionDays", SqlDbType.Int).Value = days;
-            AddDecimal(command, "@subscriptionPrice", subscriptionPrice);
-            AddDecimal(command, "@overChargePrice", finalOverChargePrice);
-            command.Parameters.Add("@createdBy", SqlDbType.NVarChar, 50).Value = username;
-            command.Parameters.Add("@updatedBy", SqlDbType.NVarChar, 50).Value = username;
-            subscriptionId = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
+            var usageMonth = new DateTime(segment.StartDate.Year, segment.StartDate.Month, 1);
+            var days = (segment.EndDate - segment.StartDate).Days + 1;
+            var finalPrice = await ConvertPricingAmountAsync(context.FinalPrice, segment.StartDate, cancellationToken);
+            var resellerPrice = await ConvertPricingAmountAsync(context.ResellerPrice, segment.StartDate, cancellationToken);
+            var finalOverChargePrice = await ConvertPricingAmountAsync(context.FinalOverChargePrice, segment.StartDate, cancellationToken);
+            var subscriptionPrice = Math.Round(finalPrice * days / 30m, 2, MidpointRounding.AwayFromZero);
+            var buyPrice = Math.Round(resellerPrice * days / 30m, 2, MidpointRounding.AwayFromZero);
+            var invoiceNumber = await BuildInvoiceNumberAsync(connection, transaction, cancellationToken);
+
+            int subscriptionId;
+            await using (var command = new SqlCommand(insertSubscriptionQuery, connection, transaction))
+            {
+                command.Parameters.Add("@tenantId", SqlDbType.Int).Value = model.TenantId;
+                command.Parameters.Add("@deviceId", SqlDbType.Int).Value = model.DeviceId;
+                command.Parameters.Add("@pricingPlanId", SqlDbType.Int).Value = model.PricingPlanId;
+                command.Parameters.Add("@tenantName", SqlDbType.NVarChar, 250).Value = context.TenantName;
+                command.Parameters.Add("@vesselName", SqlDbType.NVarChar, 250).Value = context.VesselName;
+                command.Parameters.Add("@kitId", SqlDbType.NVarChar, 250).Value = (object?)context.KitId ?? DBNull.Value;
+                command.Parameters.Add("@planName", SqlDbType.NVarChar, 250).Value = context.PlanName;
+                command.Parameters.Add("@planCode", SqlDbType.NVarChar, 100).Value = context.PlanCode;
+                command.Parameters.Add("@subscriptionType", SqlDbType.NVarChar, 50).Value = model.SubscriptionType.Trim();
+                command.Parameters.Add("@usageMonth", SqlDbType.Date).Value = usageMonth;
+                command.Parameters.Add("@startDate", SqlDbType.Date).Value = segment.StartDate;
+                command.Parameters.Add("@endDate", SqlDbType.Date).Value = segment.EndDate;
+                command.Parameters.Add("@nextBillingDate", SqlDbType.Date).Value = segment.NextBillingDate;
+                AddDecimal(command, "@dataLimitGb", context.DataLimitGb);
+                AddDecimal(command, "@basePlanPrice", finalPrice);
+                command.Parameters.Add("@subscriptionDays", SqlDbType.Int).Value = days;
+                AddDecimal(command, "@subscriptionPrice", subscriptionPrice);
+                AddDecimal(command, "@overChargePrice", finalOverChargePrice);
+                command.Parameters.Add("@createdBy", SqlDbType.NVarChar, 50).Value = username;
+                command.Parameters.Add("@updatedBy", SqlDbType.NVarChar, 50).Value = username;
+                subscriptionId = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
+            }
+
+            await InsertInvoiceAsync(connection, transaction, subscriptionId, invoiceNumber, "SUBSCRIPTION", "Monthly subscription", context.DataLimitGb, buyPrice, subscriptionPrice, subscriptionPrice, username, cancellationToken);
+            await InsertAuditAsync(connection, transaction, userId, subscriptionId, $"Created monthly subscription #{subscriptionId} for {segment.StartDate:yyyy-MM-dd} to {segment.EndDate:yyyy-MM-dd} by '{username}'.", cancellationToken);
+            subscriptionIds.Add(subscriptionId);
         }
 
-        await InsertInvoiceAsync(connection, transaction, subscriptionId, invoiceNumber, "SUBSCRIPTION", "Monthly subscription", context.DataLimitGb, buyPrice, subscriptionPrice, subscriptionPrice, username, cancellationToken);
-        await InsertAuditAsync(connection, transaction, userId, subscriptionId, $"Created monthly subscription #{subscriptionId} by '{username}'.", cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-        return subscriptionId;
+        return subscriptionIds;
     }
 
     public async Task<int> CreateInvoiceAsync(CreateSubscriptionInvoiceViewModel model, int? userId, string username, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
@@ -933,6 +948,8 @@ public class MonthlySubscriptionService(
             INNER JOIN [dbo].[TblPricingPlan] pp ON pp.[ID] = dp.[PricingPlanId]
             WHERE d.[ID] = @deviceId
               AND d.[TenantID] = @tenantId
+              AND LOWER(ISNULL(dp.[Status], N'')) = N'active'
+              AND LOWER(ISNULL(pp.[Status], N'')) = N'active'
             """;
         await using var command = new SqlCommand(query, connection, transaction);
         command.Parameters.Add("@tenantId", SqlDbType.Int).Value = model.TenantId;
@@ -1370,6 +1387,58 @@ public class MonthlySubscriptionService(
         };
     }
 
+    private static List<MonthlySubscriptionSegment> BuildMonthlySubscriptionSegments(DateTime startDate, DateTime endDate)
+    {
+        var segments = new List<MonthlySubscriptionSegment>();
+        var currentStart = startDate.Date;
+        var finalEnd = endDate.Date;
+
+        while (currentStart <= finalEnd)
+        {
+            var monthEnd = new DateTime(currentStart.Year, currentStart.Month, DateTime.DaysInMonth(currentStart.Year, currentStart.Month));
+            var segmentEnd = monthEnd < finalEnd ? monthEnd : finalEnd;
+            var nextBillingDate = new DateTime(segmentEnd.Year, segmentEnd.Month, 1).AddMonths(1);
+
+            segments.Add(new MonthlySubscriptionSegment(currentStart, segmentEnd, nextBillingDate));
+            currentStart = segmentEnd.AddDays(1);
+        }
+
+        return segments;
+    }
+
+    private static async Task<DateTime?> FindUnpaidBillingCycleAsync(SqlConnection connection, SqlTransaction transaction, int deviceId, IReadOnlyList<MonthlySubscriptionSegment> segments, CancellationToken cancellationToken)
+    {
+        const string query = """
+            SELECT TOP 1 1
+            FROM [dbo].[TblMonthlySubscription] s
+            INNER JOIN [dbo].[TblSubscriptionInvoice] i ON i.[SubscriptionId] = s.[ID]
+            WHERE s.[DeviceId] = @deviceId
+              AND (
+                    s.[UsageMonth] = @cycleStart
+                    OR (s.[StartDate] <= @cycleEnd AND s.[EndDate] >= @cycleStart)
+                  )
+              AND LOWER(ISNULL(i.[Status], N'')) NOT IN (N'paid', N'refunded', N'void')
+              AND ISNULL(i.[PaidAmount], 0) < ISNULL(i.[Amount], 0)
+            """;
+
+        foreach (var segment in segments)
+        {
+            var cycleStart = new DateTime(segment.StartDate.Year, segment.StartDate.Month, 1);
+            var cycleEnd = cycleStart.AddMonths(1).AddDays(-1);
+            await using var command = new SqlCommand(query, connection, transaction);
+            command.Parameters.Add("@deviceId", SqlDbType.Int).Value = deviceId;
+            command.Parameters.Add("@cycleStart", SqlDbType.Date).Value = cycleStart;
+            command.Parameters.Add("@cycleEnd", SqlDbType.Date).Value = cycleEnd;
+            var scalar = await command.ExecuteScalarAsync(cancellationToken);
+            if (scalar is not null && scalar != DBNull.Value)
+            {
+                return cycleStart;
+            }
+        }
+
+        return null;
+    }
+
     private static string NormalizeInvoiceStatus(string? status)
     {
         var normalized = string.IsNullOrWhiteSpace(status) ? "pending" : status.Trim().ToLowerInvariant();
@@ -1481,5 +1550,8 @@ public class MonthlySubscriptionService(
         decimal ResellerOverChargePrice,
         decimal FinalOverChargePrice);
 
+    private sealed record MonthlySubscriptionSegment(DateTime StartDate, DateTime EndDate, DateTime NextBillingDate);
+
     private sealed record EditableSubscriptionInvoice(int Id, string Status, decimal PaidAmount);
 }
+

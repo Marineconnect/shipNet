@@ -3395,9 +3395,9 @@ body.is-map-fullscreen{
 .subscription-calculation{
   display:flex;
   align-items:flex-start;
-  gap:4px;
+  gap:6px;
   flex-direction:column;
-  padding:12px;
+  padding:14px 16px;
   border:1px solid rgba(52,198,255,.28);
   border-radius:12px;
   background:rgba(52,198,255,.08);
@@ -3405,18 +3405,30 @@ body.is-map-fullscreen{
   font-size:13px;
   line-height:1.45;
   white-space:normal;
-  overflow-wrap:anywhere;
+  overflow-wrap:break-word;
   min-height:auto;
+  width:100%;
+  box-sizing:border-box;
+}
+.subscription-calculation-label{
+  color:#93abd0;
+  font-size:12px;
+  font-weight:800;
+  letter-spacing:.08em;
+  text-transform:uppercase;
 }
 .subscription-calculation strong{
   color:#f4fbff;
+  font-size:17px;
+  line-height:1.25;
 }
-.subscription-calculation span{
+.subscription-calculation-formula{
   display:block;
   min-width:0;
   max-width:100%;
   white-space:normal;
-  overflow-wrap:anywhere;
+  overflow-wrap:break-word;
+  color:#cdefff;
 }
 .subscription-summary-card{
   margin-bottom:12px;

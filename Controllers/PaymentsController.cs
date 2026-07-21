@@ -1,6 +1,10 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.Runtime.Versioning;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using StarlinkDeviceManager.Models;
@@ -9,9 +13,11 @@ using StarlinkDeviceManager.Services;
 namespace StarlinkDeviceManager.Controllers;
 
 [AllowAnonymous]
+[SupportedOSPlatform("windows")]
 public class PaymentsController(
     IConfiguration configuration,
     IPaymentTransactionService paymentTransactionService,
+    IHttpClientFactory httpClientFactory,
     ILogger<PaymentsController> logger) : Controller
 {
     [Authorize]
@@ -129,6 +135,38 @@ public class PaymentsController(
         {
             logger.LogError(exception, "Failed to test invoice RabbitMQ publish for invoice {InvoiceId}.", invoiceId);
             return BadRequest(new { success = false, message = exception.GetBaseException().Message });
+        }
+    }
+
+    [Authorize]
+    [HttpGet]
+    public async Task<IActionResult> DownloadNinePayQrCard(
+        string qrUrl,
+        string bankName = "",
+        string accountNo = "",
+        string accountName = "",
+        string amount = "",
+        string remark = "")
+    {
+        if (string.IsNullOrWhiteSpace(qrUrl) || !Uri.TryCreate(qrUrl, UriKind.Absolute, out var qrUri))
+        {
+            return BadRequest("Missing QR image URL.");
+        }
+
+        try
+        {
+            var client = httpClientFactory.CreateClient();
+            await using var qrStream = await client.GetStreamAsync(qrUri, HttpContext.RequestAborted);
+            using var qrImage = Image.FromStream(qrStream);
+            await using var output = new MemoryStream();
+            using var card = BuildNinePayQrCard(qrImage, bankName, accountNo, accountName, amount, remark);
+            card.Save(output, ImageFormat.Png);
+            return File(output.ToArray(), "image/png", $"shipnet-9pay-qr-{DateTime.Now:yyyyMMddHHmmss}.png");
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Failed to build 9Pay QR download card.");
+            return BadRequest("Cannot download QR image.");
         }
     }
 
@@ -477,5 +515,73 @@ public class PaymentsController(
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
         return Convert.ToHexString(bytes).ToUpperInvariant();
+    }
+
+    private static Bitmap BuildNinePayQrCard(Image qrImage, string bankName, string accountNo, string accountName, string amount, string remark)
+    {
+        const int width = 620;
+        const int padding = 28;
+        const int qrSize = 360;
+        const int rowHeight = 58;
+        const int tableRows = 5;
+        var height = padding + qrSize + 22 + (rowHeight * tableRows) + padding;
+        var bitmap = new Bitmap(width, height);
+
+        using var graphics = Graphics.FromImage(bitmap);
+        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        graphics.InterpolationMode = InterpolationMode.NearestNeighbor;
+        graphics.Clear(Color.White);
+
+        var qrX = (width - qrSize) / 2;
+        using var qrBack = new SolidBrush(Color.White);
+        graphics.FillRectangle(qrBack, qrX - 10, padding - 10, qrSize + 20, qrSize + 20);
+        graphics.DrawImage(qrImage, new Rectangle(qrX, padding, qrSize, qrSize));
+
+        var tableTop = padding + qrSize + 22;
+        var labelWidth = 220;
+        using var borderPen = new Pen(Color.FromArgb(210, 220, 230));
+        using var labelBrush = new SolidBrush(Color.FromArgb(245, 248, 252));
+        using var textBrush = new SolidBrush(Color.FromArgb(20, 32, 52));
+        using var mutedBrush = new SolidBrush(Color.FromArgb(86, 102, 128));
+        using var labelFont = new Font("Arial", 12, FontStyle.Bold);
+        using var valueFont = new Font("Arial", 12, FontStyle.Regular);
+
+        var rows = new[]
+        {
+            ("Ngân hàng", CleanQrCardText(bankName)),
+            ("Số tài khoản", CleanQrCardText(accountNo)),
+            ("Tên tài khoản", CleanQrCardText(accountName)),
+            ("Số tiền", CleanQrCardText(amount)),
+            ("Nội dung", CleanQrCardText(remark))
+        };
+
+        for (var i = 0; i < rows.Length; i++)
+        {
+            var y = tableTop + (i * rowHeight);
+            graphics.FillRectangle(labelBrush, padding, y, labelWidth, rowHeight);
+            graphics.DrawRectangle(borderPen, padding, y, width - (padding * 2), rowHeight);
+            graphics.DrawLine(borderPen, padding + labelWidth, y, padding + labelWidth, y + rowHeight);
+            DrawQrCardText(graphics, rows[i].Item1, labelFont, mutedBrush, new RectangleF(padding + 14, y + 8, labelWidth - 24, rowHeight - 16));
+            DrawQrCardText(graphics, rows[i].Item2, valueFont, textBrush, new RectangleF(padding + labelWidth + 14, y + 8, width - (padding * 2) - labelWidth - 24, rowHeight - 16));
+        }
+
+        return bitmap;
+    }
+
+    private static string CleanQrCardText(string value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? "-" : value.Trim();
+    }
+
+    private static void DrawQrCardText(Graphics graphics, string text, Font font, Brush brush, RectangleF rectangle)
+    {
+        using var format = new StringFormat
+        {
+            Alignment = StringAlignment.Near,
+            LineAlignment = StringAlignment.Center,
+            Trimming = StringTrimming.EllipsisWord,
+            FormatFlags = StringFormatFlags.LineLimit
+        };
+        graphics.DrawString(text, font, brush, rectangle, format);
     }
 }

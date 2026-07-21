@@ -70,8 +70,9 @@ public class PaymentTransactionService(
             ConversionDate = paymentDate
         }, cancellationToken) ?? throw new InvalidOperationException($"Missing active {defaultCurrency} -> {PaymentCurrency} exchange rate for payment date.");
 
-        var settings = await systemSettingsService.GetSettingsByCodesAsync(["ninepay_transaction_fee_vnd"], cancellationToken);
+        var settings = await systemSettingsService.GetSettingsByCodesAsync(["ninepay_transaction_fee_vnd", "ninepay_qr_expire_hours"], cancellationToken);
         var transactionFeeVnd = TryParseDecimal(settings.GetValueOrDefault("ninepay_transaction_fee_vnd"), 0);
+        var qrExpireHours = ResolveQrExpireHours(settings.GetValueOrDefault("ninepay_qr_expire_hours"));
         var amountVnd = Math.Round(conversion.ConvertedAmount, 0, MidpointRounding.AwayFromZero);
         var totalToPayVnd = amountVnd + transactionFeeVnd;
         var paymentMethod = configuration["NinePay:DirectBankTransfer:PaymentMethod"] ?? configuration["NinePay:PaymentMethod"] ?? "COLLECTION";
@@ -88,6 +89,7 @@ public class PaymentTransactionService(
                 paymentMethod,
                 clientIp,
                 createdBy,
+                qrExpireHours,
                 cancellationToken);
         if (!string.IsNullOrWhiteSpace(directPayment.PaymentUrl))
         {
@@ -175,8 +177,9 @@ public class PaymentTransactionService(
             ConversionDate = paymentDate
         }, cancellationToken) ?? throw new InvalidOperationException($"Missing active {defaultCurrency} -> {PaymentCurrency} exchange rate for payment date.");
 
-        var settings = await systemSettingsService.GetSettingsByCodesAsync(["ninepay_transaction_fee_vnd"], cancellationToken);
+        var settings = await systemSettingsService.GetSettingsByCodesAsync(["ninepay_transaction_fee_vnd", "ninepay_qr_expire_hours"], cancellationToken);
         var transactionFeeVnd = TryParseDecimal(settings.GetValueOrDefault("ninepay_transaction_fee_vnd"), 0);
+        var qrExpireHours = ResolveQrExpireHours(settings.GetValueOrDefault("ninepay_qr_expire_hours"));
         var amountVnd = Math.Round(conversion.ConvertedAmount, 0, MidpointRounding.AwayFromZero);
         var totalToPayVnd = amountVnd + transactionFeeVnd;
         var paymentMethod = configuration["NinePay:DirectBankTransfer:PaymentMethod"] ?? configuration["NinePay:PaymentMethod"] ?? "COLLECTION";
@@ -204,6 +207,7 @@ public class PaymentTransactionService(
             paymentMethod,
             clientIp,
             createdBy,
+            qrExpireHours,
             cancellationToken,
             qrInvoices);
 
@@ -645,9 +649,11 @@ public class PaymentTransactionService(
             : context.TransactionAmountVnd;
         var generatedInvoiceCode = BuildShipNetInvoiceCode(context);
         var resolvedEmail = FirstNotEmpty(context.TenantEmail, configuration["InvoicePdf:CustomerEmail"], configuration["InvoicePdf:DefaultEmail"]);
+        var invoiceSettings = await systemSettingsService.GetSettingsByCodesAsync(["invoice_po_number"], cancellationToken);
+        var poNumber = FirstNotEmpty(invoiceSettings.GetValueOrDefault("invoice_po_number"), configuration["InvoicePdf:PONumber"], configuration["InvoicePdf:PO_Number"]);
 
         AddLog($"STEP 2 - Build invoice PDF JSON. Invoice={context.InvoiceNumber}; InvoiceCode={generatedInvoiceCode}; Email={FirstNotEmpty(resolvedEmail, "-")}; Company={InvoicePdfSetting("CompanyName", "MLTECH MARINE CONNECT PTE LTD")}; TransactionCode={resolvedTransactionCode}; KitNumber={kitNumber}; AmountVnd={amountVnd:#,##0.##}.");
-        var payload = BuildInvoicePdfPayloadJson(context, bank, resolvedTransactionCode, resolvedPaymentTime, resolvedOperatorName, kitNumber, amountVnd);
+        var payload = BuildInvoicePdfPayloadJson(context, bank, resolvedTransactionCode, resolvedPaymentTime, resolvedOperatorName, kitNumber, amountVnd, poNumber);
         AddLog($"STEP 3 - Payload built. Size={Encoding.UTF8.GetByteCount(payload)} bytes.");
 
         var publishResult = await invoiceRabbitMqPublisher.PublishInvoiceAsync(new InvoiceRabbitMqPublishRequest
@@ -822,7 +828,8 @@ public class PaymentTransactionService(
         DateTime paymentTime,
         string operatorName,
         string kitNumber,
-        decimal amountVnd)
+        decimal amountVnd,
+        string poNumber)
     {
         var startDate = context.StartDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? string.Empty;
         var endDate = context.EndDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? string.Empty;
@@ -863,6 +870,7 @@ public class PaymentTransactionService(
                     vesselId = context.DeviceId > 0 ? context.DeviceId.ToString(CultureInfo.InvariantCulture) : context.SubscriptionId.ToString(CultureInfo.InvariantCulture),
                     vesselName = context.VesselName,
                     kit_id = kitNumber,
+                    PO_Number = EmptyToNull(poNumber),
                     subscriptions = new[]
                     {
                         new
@@ -2419,6 +2427,7 @@ public class PaymentTransactionService(
         string method,
         string clientIp,
         string createdBy,
+        int qrExpireHours,
         CancellationToken cancellationToken,
         IReadOnlyList<QrInvoiceItem>? qrInvoices = null)
     {
@@ -2456,7 +2465,7 @@ public class PaymentTransactionService(
                 new("method", section["PaymentMethod"] ?? method),
                 new("description", transferDescription),
                 new("return_url", returnUrl),
-                new("expires_time", "72")
+                new("expires_time", qrExpireHours.ToString(CultureInfo.InvariantCulture))
             };
 
             if (section.GetValue("IncludeIpnUrlInCreateRequest", false))
@@ -2555,7 +2564,8 @@ public class PaymentTransactionService(
             }
 
             using var json = JsonDocument.Parse(responseText);
-            var directResult = ParseDirectBankTransferResult(json.RootElement, section.GetValue("ExpireMinutes", 4320));
+            var fallbackExpireMinutes = qrExpireHours * 60;
+            var directResult = ParseDirectBankTransferResult(json.RootElement, fallbackExpireMinutes);
             debug.AppendLine($"ParsedPaymentNo: {directResult.ProviderPaymentId}");
             debug.AppendLine($"ParsedStatus: {directResult.ProviderStatus}");
             debug.AppendLine($"ParsedBankCount: {directResult.Banks.Count}");
@@ -2579,7 +2589,7 @@ public class PaymentTransactionService(
             }
 
             var qrStartedAt = DateTime.UtcNow;
-            var qrExpiresAt = directResult.ExpiresAt ?? qrStartedAt.AddMinutes(section.GetValue("ExpireMinutes", 4320));
+            var qrExpiresAt = directResult.ExpiresAt ?? qrStartedAt.AddHours(qrExpireHours);
             var resultWithDebug = directResult with
             {
                 ProviderOrderRef = string.IsNullOrWhiteSpace(directResult.ProviderOrderRef) ? providerInvoiceNo : directResult.ProviderOrderRef,
@@ -3147,6 +3157,16 @@ public class PaymentTransactionService(
     private static decimal TryParseDecimal(string? value, decimal fallback)
     {
         return decimal.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var number) ? number : fallback;
+    }
+
+    private static int ResolveQrExpireHours(string? value)
+    {
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var hours))
+        {
+            return 72;
+        }
+
+        return Math.Clamp(hours, 1, 720);
     }
 
     private async Task<string> GetSystemDefaultCurrencyAsync(CancellationToken cancellationToken)

@@ -720,6 +720,18 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             };
         }
 
+        if (await DevicePlanHasInvoicesAsync(connection, transaction, request.DeviceId, request.PricingPlanId, cancellationToken))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return new DeleteDevicePlanResult
+            {
+                Success = false,
+                ErrorCode = "device_plan_has_invoice",
+                Message = "Khong the xoa goi cuoc thiet bi da co invoice duoc tao.",
+                MessageEn = "Cannot delete a device plan that already has invoices."
+            };
+        }
+
         const string query = """
             DELETE FROM [TblDevicePricing]
             WHERE [DeviceId] = @deviceId
@@ -1223,6 +1235,18 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             };
         }
 
+        if (await DeviceHasPaidInvoicesAsync(connection, transaction, id, cancellationToken))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return new DeleteDeviceResult
+            {
+                Success = false,
+                ErrorCode = "device_has_paid_invoice",
+                Message = "Khong the xoa thiet bi da co invoice duoc thanh toan.",
+                MessageEn = "Cannot delete a device that has paid invoices."
+            };
+        }
+
         const string deleteQuery = "DELETE FROM [TblDevices] WHERE [ID] = @id";
         await using (var deleteCommand = new SqlCommand(deleteQuery, connection, transaction))
         {
@@ -1247,6 +1271,54 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             Message = "X\u00f3a KIT th\u00e0nh c\u00f4ng",
             MessageEn = "Terminal id deleted successfully"
         };
+    }
+
+    private static async Task<bool> DeviceHasPaidInvoicesAsync(SqlConnection connection, SqlTransaction transaction, int deviceId, CancellationToken cancellationToken)
+    {
+        const string query = """
+            IF OBJECT_ID(N'[dbo].[TblMonthlySubscription]', N'U') IS NULL
+               OR OBJECT_ID(N'[dbo].[TblSubscriptionInvoice]', N'U') IS NULL
+                SELECT CAST(0 AS bit);
+            ELSE
+                SELECT CASE WHEN EXISTS (
+                    SELECT 1
+                    FROM [dbo].[TblMonthlySubscription] s
+                    INNER JOIN [dbo].[TblSubscriptionInvoice] i ON i.[SubscriptionId] = s.[ID]
+                    WHERE s.[DeviceId] = @deviceId
+                      AND (
+                            LOWER(ISNULL(i.[Status], N'')) = N'paid'
+                            OR ISNULL(i.[PaidAmount], 0) > 0
+                          )
+                ) THEN CAST(1 AS bit) ELSE CAST(0 AS bit) END;
+            """;
+
+        await using var command = new SqlCommand(query, connection, transaction);
+        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = deviceId;
+        var scalar = await command.ExecuteScalarAsync(cancellationToken);
+        return scalar is bool value && value;
+    }
+
+    private static async Task<bool> DevicePlanHasInvoicesAsync(SqlConnection connection, SqlTransaction transaction, int deviceId, int pricingPlanId, CancellationToken cancellationToken)
+    {
+        const string query = """
+            IF OBJECT_ID(N'[dbo].[TblMonthlySubscription]', N'U') IS NULL
+               OR OBJECT_ID(N'[dbo].[TblSubscriptionInvoice]', N'U') IS NULL
+                SELECT CAST(0 AS bit);
+            ELSE
+                SELECT CASE WHEN EXISTS (
+                    SELECT 1
+                    FROM [dbo].[TblMonthlySubscription] s
+                    INNER JOIN [dbo].[TblSubscriptionInvoice] i ON i.[SubscriptionId] = s.[ID]
+                    WHERE s.[DeviceId] = @deviceId
+                      AND s.[PricingPlanId] = @pricingPlanId
+                ) THEN CAST(1 AS bit) ELSE CAST(0 AS bit) END;
+            """;
+
+        await using var command = new SqlCommand(query, connection, transaction);
+        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = deviceId;
+        command.Parameters.Add("@pricingPlanId", SqlDbType.Int).Value = pricingPlanId;
+        var scalar = await command.ExecuteScalarAsync(cancellationToken);
+        return scalar is bool value && value;
     }
 
     private async Task<bool> DeviceCodeExistsAsync(SqlConnection connection, SqlTransaction transaction, string deviceCode, CancellationToken cancellationToken, int? excludeId = null)
@@ -2064,6 +2136,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             FROM [TblTenantPricing] tp
             INNER JOIN [TblPricingPlan] pp ON pp.[ID] = tp.[PricingPlanId]
             WHERE tp.[TenantId] = @tenantId
+              AND LOWER(ISNULL(pp.[Status], N'')) = N'active'
             ORDER BY pp.[PlanName] ASC, pp.[PlanCode] ASC
             """;
 
@@ -2097,6 +2170,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             INNER JOIN [TblPricingPlan] pp ON pp.[ID] = tp.[PricingPlanId]
             WHERE tp.[TenantId] = @tenantId
               AND tp.[PricingPlanId] = @pricingPlanId
+              AND LOWER(ISNULL(pp.[Status], N'')) = N'active'
             """;
 
         await using var command = new SqlCommand(query, connection, transaction);

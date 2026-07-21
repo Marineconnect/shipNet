@@ -338,7 +338,7 @@ public class DashboardController(
                 var statusCode = result.ErrorCode switch
                 {
                     "device_not_found" or "plan_not_found" => StatusCodes.Status404NotFound,
-                    "validation_required" => StatusCodes.Status400BadRequest,
+                    "validation_required" or "device_plan_has_invoice" => StatusCodes.Status400BadRequest,
                     _ => StatusCodes.Status500InternalServerError
                 };
 
@@ -553,6 +553,18 @@ public class DashboardController(
             var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
             int? userId = int.TryParse(userIdValue, out var parsedUserId) ? parsedUserId : null;
             var result = await deviceService.DeleteDeviceAsync(id, userId, HttpContext.RequestAborted);
+            if (!result.Success)
+            {
+                var statusCode = result.ErrorCode switch
+                {
+                    "device_not_found" => StatusCodes.Status404NotFound,
+                    "device_has_paid_invoice" => StatusCodes.Status400BadRequest,
+                    _ => StatusCodes.Status500InternalServerError
+                };
+
+                return StatusCode(statusCode, result);
+            }
+
             return Json(result);
         }
         catch (Exception ex)
