@@ -31,7 +31,8 @@ public class MonthlySubscriptionController(
         DateTime? nextBillingFrom = null,
         DateTime? nextBillingTo = null,
         DateTime? invoicePaidFrom = null,
-        DateTime? invoicePaidTo = null)
+        DateTime? invoicePaidTo = null,
+        bool openCreate = false)
     {
         var currentUser = await GetCurrentUserAsync();
         var allowedTenantId = GetAllowedTenantId(currentUser);
@@ -66,6 +67,16 @@ public class MonthlySubscriptionController(
         var tenants = await tenantService.GetTenantOptionsAsync(allowedTenantId, HttpContext.RequestAborted);
         var devices = await subscriptionService.GetDeviceOptionsAsync(allowedTenantId, allowedDeviceId, HttpContext.RequestAborted);
         var plans = await subscriptionService.GetPlanOptionsAsync(allowedTenantId, allowedDeviceId, HttpContext.RequestAborted);
+        var createForm = new CreateMonthlySubscriptionViewModel();
+        if (openCreate && filter.DeviceId.HasValue)
+        {
+            var selectedDevice = devices.FirstOrDefault(device => device.Id == filter.DeviceId.Value);
+            if (selectedDevice is not null)
+            {
+                createForm.TenantId = selectedDevice.TenantId;
+                createForm.DeviceId = selectedDevice.Id;
+            }
+        }
 
         return View(IndexViewPath, new MonthlySubscriptionIndexViewModel
         {
@@ -74,12 +85,14 @@ public class MonthlySubscriptionController(
             Tenants = tenants,
             Devices = devices,
             Plans = plans,
+            CreateForm = createForm,
             Filter = filter,
             CurrentPage = pageResult.CurrentPage,
             PageSize = pageResult.PageSize,
             TotalItems = pageResult.TotalItems,
             IsTenantScoped = allowedTenantId.HasValue,
-            CanManageSubscriptions = CanManageSubscriptions(currentUser)
+            CanManageSubscriptions = CanManageSubscriptions(currentUser),
+            OpenCreateModal = openCreate && CanManageSubscriptions(currentUser)
         });
     }
 

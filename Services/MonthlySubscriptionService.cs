@@ -265,11 +265,6 @@ public class MonthlySubscriptionService(
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            var resellerPrice = await ConvertPricingAmountAsync(ReadDecimal(reader, "ResellerPrice"), DateTime.Today, cancellationToken);
-            var finalPrice = await ConvertPricingAmountAsync(ReadDecimal(reader, "FinalPrice"), DateTime.Today, cancellationToken);
-            var resellerOverChargePrice = await ConvertPricingAmountAsync(ReadDecimal(reader, "ResellerOverChargePrice"), DateTime.Today, cancellationToken);
-            var finalOverChargePrice = await ConvertPricingAmountAsync(ReadDecimal(reader, "FinalOverChargePrice"), DateTime.Today, cancellationToken);
-
             plans.Add(new SubscriptionPlanOptionViewModel
             {
                 DeviceId = ReadInt(reader, "DeviceId"),
@@ -277,10 +272,10 @@ public class MonthlySubscriptionService(
                 PlanName = reader["PlanName"]?.ToString() ?? string.Empty,
                 PlanCode = reader["PlanCode"]?.ToString() ?? string.Empty,
                 DataLimitGb = ReadDecimal(reader, "BaseData"),
-                ResellerPrice = resellerPrice,
-                FinalPrice = finalPrice,
-                ResellerOverChargePrice = resellerOverChargePrice,
-                FinalOverChargePrice = finalOverChargePrice
+                ResellerPrice = ReadDecimal(reader, "ResellerPrice"),
+                FinalPrice = ReadDecimal(reader, "FinalPrice"),
+                ResellerOverChargePrice = ReadDecimal(reader, "ResellerOverChargePrice"),
+                FinalOverChargePrice = ReadDecimal(reader, "FinalOverChargePrice")
             });
         }
 
@@ -341,9 +336,9 @@ public class MonthlySubscriptionService(
         {
             var usageMonth = new DateTime(segment.StartDate.Year, segment.StartDate.Month, 1);
             var days = (segment.EndDate - segment.StartDate).Days + 1;
-            var finalPrice = await ConvertPricingAmountAsync(context.FinalPrice, segment.StartDate, cancellationToken);
-            var resellerPrice = await ConvertPricingAmountAsync(context.ResellerPrice, segment.StartDate, cancellationToken);
-            var finalOverChargePrice = await ConvertPricingAmountAsync(context.FinalOverChargePrice, segment.StartDate, cancellationToken);
+            var finalPrice = context.FinalPrice;
+            var resellerPrice = context.ResellerPrice;
+            var finalOverChargePrice = context.FinalOverChargePrice;
             var subscriptionPrice = Math.Round(finalPrice * days / 30m, 2, MidpointRounding.AwayFromZero);
             var buyPrice = Math.Round(resellerPrice * days / 30m, 2, MidpointRounding.AwayFromZero);
             var invoiceNumber = await BuildInvoiceNumberAsync(connection, transaction, cancellationToken);
@@ -1002,11 +997,11 @@ public class MonthlySubscriptionService(
             return null;
         }
 
-        var resellerOverChargePrice = await ConvertPricingAmountAsync(ReadDecimal(reader, "ResellerOverChargePrice"), DateTime.Today, cancellationToken);
+        var resellerOverChargePrice = ReadDecimal(reader, "ResellerOverChargePrice");
         var finalOverChargePrice = ReadDecimal(reader, "OverChargePrice");
         if (finalOverChargePrice <= 0)
         {
-            finalOverChargePrice = await ConvertPricingAmountAsync(ReadDecimal(reader, "FinalOverChargePrice"), DateTime.Today, cancellationToken);
+            finalOverChargePrice = ReadDecimal(reader, "FinalOverChargePrice");
         }
 
         return new SubscriptionPriceContext(

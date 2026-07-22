@@ -1,6 +1,7 @@
 {
   "transactionCode": "test PO",
   "invoiceCode": "MMC-INV-2026-123321",
+  PONumber"",
   "source": "SHIPNET",
   "paymentTime": "2026-01-05T00:56:15.000Z",
   "operatorName": "Thang Nguyen",
@@ -29,10 +30,10 @@
         {
           "type": "subscription",
           "title": "25GB Mobile Priority (01/03/2026 - 31/03/2026)",
-		  "PO_Number":"PO01922818238",
           "subTitles": [
             "Terminal ID: 50108e95-01c2151c-185b8264",
-            "KIT Code: KIT4M013065428MN"
+            "KIT Code: KIT4M013065428MN",
+			 "PO Number":"PO01922818238"
           ],
           "price": 5886000,
           "start_time": "01/03/2026",

@@ -9,6 +9,7 @@ namespace StarlinkDeviceManager.Controllers;
 [Authorize]
 public class DashboardController(
     IDeviceService deviceService,
+    IKvhCommandService kvhCommandService,
     ITenantService tenantService,
     ISqlAuthService authService) : Controller
 {
@@ -163,13 +164,16 @@ public class DashboardController(
         try
         {
             var currentUser = await GetCurrentUserAsync();
-            var result = await deviceService.UpdateDeviceWifiAsync(request, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            var userId = GetCurrentUserId();
+            var requestedBy = User.FindFirstValue("DisplayName") ?? User.Identity?.Name ?? "system";
+            var submit = await kvhCommandService.SubmitWifiUpdateAsync(request, userId, requestedBy, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            var result = MapCommandSubmitResult(submit, "Da gui lenh cap nhat WiFi. He thong dang theo doi KVH Job.", "WiFi update command was submitted. The KVH job is being monitored.");
             if (!result.Success)
             {
                 var statusCode = result.ErrorCode switch
                 {
                     "device_not_found" => StatusCodes.Status404NotFound,
-                    "missing_wifi_identifiers" or "router_device_not_found" or "wifi_validation_required" => StatusCodes.Status400BadRequest,
+                    "missing_wifi_identifiers" or "router_device_not_found" or "wifi_validation_required" or KvhErrorCodes.TerminalCommandCooldown => StatusCodes.Status400BadRequest,
                     "missing_api_credentials" => StatusCodes.Status500InternalServerError,
                     "missing_access_token" => StatusCodes.Status502BadGateway,
                     _ => StatusCodes.Status502BadGateway
@@ -262,7 +266,7 @@ public class DashboardController(
                 var statusCode = result.ErrorCode switch
                 {
                     "device_not_found" => StatusCodes.Status404NotFound,
-                    "validation_required" or "status_unchanged" => StatusCodes.Status400BadRequest,
+                    "validation_required" or "status_unchanged" or KvhErrorCodes.TerminalCommandCooldown => StatusCodes.Status400BadRequest,
                     _ => StatusCodes.Status502BadGateway
                 };
                 return StatusCode(statusCode, result);
@@ -366,13 +370,16 @@ public class DashboardController(
         try
         {
             var currentUser = await GetCurrentUserAsync();
-            var result = await deviceService.RebootDeviceRouterAsync(id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            var userId = GetCurrentUserId();
+            var requestedBy = User.FindFirstValue("DisplayName") ?? User.Identity?.Name ?? "system";
+            var submit = await kvhCommandService.SubmitRebootAsync(id, userId, requestedBy, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            var result = MapCommandSubmitResult(submit, "Da gui lenh reboot router. He thong dang theo doi KVH Job.", "Router reboot command was submitted. The KVH job is being monitored.");
             if (!result.Success)
             {
                 var statusCode = result.ErrorCode switch
                 {
                     "device_not_found" => StatusCodes.Status404NotFound,
-                    "missing_wifi_identifiers" or "router_device_not_found" => StatusCodes.Status400BadRequest,
+                    "missing_wifi_identifiers" or "router_device_not_found" or KvhErrorCodes.TerminalCommandCooldown => StatusCodes.Status400BadRequest,
                     "missing_api_credentials" => StatusCodes.Status500InternalServerError,
                     "missing_access_token" => StatusCodes.Status502BadGateway,
                     _ => StatusCodes.Status502BadGateway
@@ -418,6 +425,7 @@ public class DashboardController(
                 return StatusCode(StatusCodes.Status502BadGateway, new
                 {
                     success = false,
+                    errorCode = result.ErrorCode,
                     message = result.Message,
                     messageEn = result.MessageEn,
                     rawResponse = result.RawResponse,
@@ -449,6 +457,27 @@ public class DashboardController(
                 detail = ex.ToString()
             });
         }
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetKvhCommandStatus(long id)
+    {
+        var currentUser = await GetCurrentUserAsync();
+        var command = await kvhCommandService.GetCommandStatusAsync(id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+        if (command is null)
+        {
+            return AjaxError(StatusCodes.Status404NotFound, "command_not_found", "Khong tim thay command hoac ban khong co quyen truy cap.", "The command was not found or you do not have access.");
+        }
+
+        return Json(new { success = true, command });
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetRecentKvhCommands(int deviceId)
+    {
+        var currentUser = await GetCurrentUserAsync();
+        var commands = await kvhCommandService.GetRecentCommandsAsync(deviceId, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+        return Json(new { success = true, commands });
     }
 
     [HttpPost]
@@ -686,6 +715,12 @@ public class DashboardController(
         return await authService.GetUserByIdAsync(userId, HttpContext.RequestAborted);
     }
 
+    private int? GetCurrentUserId()
+    {
+        var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        return int.TryParse(userIdValue, out var userId) ? userId : null;
+    }
+
     private static int? GetAllowedTenantId(AuthUserRecord? user)
     {
         return user?.IsTenantUser == true || user?.IsShipAdmin == true || user?.IsCrew == true
@@ -746,6 +781,25 @@ public class DashboardController(
     private bool IsAjaxRequest()
     {
         return string.Equals(Request.Headers["X-Requested-With"], "XMLHttpRequest", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static DeviceCommandResult MapCommandSubmitResult(KvhCommandSubmitResult submit, string successMessage, string successMessageEn)
+    {
+        return new DeviceCommandResult
+        {
+            Success = submit.Success,
+            ErrorCode = submit.ErrorCode,
+            Message = submit.Success ? successMessage : submit.Message,
+            MessageEn = submit.Success ? successMessageEn : submit.MessageEn,
+            RawResponse = submit.RawResponse,
+            TerminalId = submit.TerminalId,
+            DeviceId = submit.KvhDeviceId,
+            JobId = submit.JobId,
+            HttpStatusCode = submit.HttpStatusCode,
+            CommandId = submit.CommandId,
+            RemainingSeconds = submit.RemainingSeconds,
+            NextAllowedAtUtc = submit.NextAllowedAtUtc
+        };
     }
 }
 

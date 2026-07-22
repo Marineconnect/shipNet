@@ -185,20 +185,30 @@
                 <td data-role="last-sync">@device.LastSysnTimeVietnam</td>
                 <td>
 	                  <div class="table-actions">
-	                    <button type="button" class="table-action-btn js-open-detail" data-device-id="@device.Id">
+	                    <button type="button" class="table-action-menu-toggle js-action-menu-toggle" aria-label="Mo tac vu" aria-expanded="false">
+	                      <span aria-hidden="true">...</span>
+	                    </button>
+                      <div class="table-action-menu" hidden>
+	                    <button type="button" class="table-action-menu-item js-open-detail" data-device-id="@device.Id">
 	                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5c5.23 0 9.27 4.11 10.57 6-.85 1.23-2.98 3.64-6.06 5.08C15.1 16.75 13.57 17 12 17c-5.23 0-9.27-4.11-10.57-6C2.73 9.11 6.77 5 12 5Zm0 2c-3.73 0-6.93 2.46-8.43 4 1.5 1.54 4.7 4 8.43 4s6.93-2.46 8.43-4C18.93 9.46 15.73 7 12 7Zm0 1.5A2.5 2.5 0 1 1 9.5 11 2.5 2.5 0 0 1 12 8.5Zm0 2A.5.5 0 1 0 12.5 11 .5.5 0 0 0 12 10.5Z"/></svg>
 	                      <span data-i18n="view_action">Chi ti?t</span>
 	                    </button>
                     @if (Model.CanManageDevices)
                     {
-                      <button type="button" class="table-action-btn js-edit-device" data-device-id="@device.Id">
+                      <a class="table-action-menu-item" href="@Url.Action("Index", "MonthlySubscription", new { openCreate = true, deviceId = device.Id })">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z"/></svg>
+                        <span>Tạo sub</span>
+                      </a>
+                      <button type="button" class="table-action-menu-item js-edit-device" data-device-id="@device.Id">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.86 3.59a2 2 0 0 1 2.83 0l.72.72a2 2 0 0 1 0 2.83L8.75 18.8 4 20l1.2-4.75L16.86 3.59Zm1.41 1.41L7 16.27 6.55 17.45 7.73 17 19 5.73 18.27 5Z"/></svg>
                         <span data-i18n="edit_action">S?a</span>
                       </button>
-                      <button type="button" class="table-action-btn is-danger js-delete-device" data-device-id="@device.Id" data-device-code="@device.DeviceCode">
+                      <button type="button" class="table-action-menu-item is-danger js-delete-device" data-device-id="@device.Id" data-device-code="@device.DeviceCode">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h2v8H7V9Zm4 0h2v8h-2V9Zm4 0h2v8h-2V9ZM6 21a2 2 0 0 1-2-2V8h16v11a2 2 0 0 1-2 2H6Z"/></svg>
                         <span data-i18n="delete_action">X�a</span>
                       </button>
                     }
+                      </div>
                   </div>
                 </td>
               </tr>
@@ -1032,10 +1042,13 @@
   const deleteDevicePlanAction = "@Url.Action("DeleteDevicePlan", "Dashboard")";
   const deviceDataOptInDataAction = "@Url.Action("DeviceDataOptInData", "Dashboard")";
   const updateDeviceDataOptInAction = "@Url.Action("UpdateDeviceDataOptIn", "Dashboard")";
+  const kvhCommandStatusAction = "@Url.Action("GetKvhCommandStatus", "Dashboard")";
+  const recentKvhCommandsAction = "@Url.Action("GetRecentKvhCommands", "Dashboard")";
   const telemetryTimelineAction = "@Url.Action("TelemetryTimeline", "Dashboard")";
   const devicePageDataAction = "@Url.Action("DevicePageData", "Dashboard")";
   const dashboardIndexAction = "@Url.Action("Index", "Dashboard")";
   const deviceDetailsUrlTemplate = "@Url.Action("Details", "Dashboard", new { id = "__DEVICE_ID__" })";
+  const createSubscriptionUrlTemplate = "@Html.Raw(Url.Action("Index", "MonthlySubscription", new { openCreate = true, deviceId = "__DEVICE_ID__" }))";
   const detailWifiForm = q("#detailWifiForm");
   const detailWifiSsidInput = q("#detailWifiSsidInput");
   const detailWifiPasswordInput = q("#detailWifiPasswordInput");
@@ -1074,6 +1087,8 @@
   let currentDetailDeviceId = 0;
   let currentDetailDeviceCode = "";
   let currentTelemetryByMetric = new Map();
+  let kvhCommandPollTimer = null;
+  let openActionMenu = null;
   let currentDevicePlanOptions = [];
   let currentDevicePlanPrices = [];
   let devicePlanEditorMode = "create";
@@ -1322,6 +1337,45 @@
   function buildDetailUrl(deviceId) {
     const detailPath = deviceDetailsUrlTemplate.replace("__DEVICE_ID__", encodeURIComponent(deviceId));
     return applyPageParams(new URL(detailPath, window.location.origin));
+  }
+
+  function buildCreateSubscriptionUrl(deviceId) {
+    const targetPath = createSubscriptionUrlTemplate.replace("__DEVICE_ID__", encodeURIComponent(deviceId));
+    return new URL(targetPath, window.location.origin).toString();
+  }
+
+  function closeActionMenu() {
+    if (!openActionMenu) return;
+    openActionMenu.menu.hidden = true;
+    openActionMenu.button.setAttribute("aria-expanded", "false");
+    openActionMenu = null;
+  }
+
+  function positionActionMenu(button, menu) {
+    const rect = button.getBoundingClientRect();
+    const margin = 8;
+    menu.hidden = false;
+    const width = menu.offsetWidth || 150;
+    const height = menu.offsetHeight || 160;
+    const left = Math.max(margin, Math.min(rect.right - width, window.innerWidth - width - margin));
+    const top = rect.bottom + height + margin > window.innerHeight
+      ? Math.max(margin, rect.top - height - margin)
+      : rect.bottom + margin;
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+  }
+
+  function toggleActionMenu(button) {
+    const menu = button.closest(".table-actions")?.querySelector(".table-action-menu");
+    if (!menu) return;
+    if (openActionMenu?.menu === menu) {
+      closeActionMenu();
+      return;
+    }
+    closeActionMenu();
+    positionActionMenu(button, menu);
+    button.setAttribute("aria-expanded", "true");
+    openActionMenu = { button, menu };
   }
 
   function parseCoordinate(value) {
@@ -1748,6 +1802,52 @@
     return value === true ? text("detail_data_optin_in") : value === false ? text("detail_data_optin_out") : text("detail_data_optin_unknown");
   }
 
+  function isFinalKvhCommandStatus(status) {
+    return ["FAILED", "TIMEOUT", "VERIFIED", "VERIFICATION_MISMATCH", "VERIFICATION_TIMEOUT"].includes(`${status || ""}`.toUpperCase());
+  }
+
+  function formatKvhCommandLabel(command) {
+    if (!command) return "";
+    const commandStatus = command.commandStatus ?? command.CommandStatus ?? "-";
+    const jobStatus = command.jobStatus ?? command.JobStatus ?? "";
+    const verificationStatus = command.verificationStatus ?? command.VerificationStatus ?? "";
+    const jobId = command.jobId ?? command.JobId ?? "";
+    const parts = [`Command ${commandStatus}`];
+    if (jobStatus) parts.push(`Job ${jobStatus}`);
+    if (verificationStatus) parts.push(`Verify ${verificationStatus}`);
+    if (jobId) parts.push(`Job ID ${jobId}`);
+    return parts.join(" | ");
+  }
+
+  function stopKvhCommandPolling() {
+    if (kvhCommandPollTimer) {
+      window.clearTimeout(kvhCommandPollTimer);
+      kvhCommandPollTimer = null;
+    }
+  }
+
+  async function pollKvhCommand(commandId, messageElement, requestId = currentDetailRequestId, remainingAttempts = 60) {
+    if (!commandId || requestId !== currentDetailRequestId || remainingAttempts <= 0) return;
+    stopKvhCommandPolling();
+    kvhCommandPollTimer = window.setTimeout(async () => {
+      try {
+        const response = await fetch(`${kvhCommandStatusAction}?id=${encodeURIComponent(commandId)}`, { headers: { "X-Requested-With": "XMLHttpRequest" } });
+        const { rawText, data, isJson } = await readApiResponse(response);
+        if (!isJson || !response.ok || !(data.success ?? data.Success)) throw new Error(resolveServerErrorMessage(response, data, rawText));
+        const command = data.command ?? data.Command;
+        if (messageElement) messageElement.textContent = formatKvhCommandLabel(command);
+        const status = command?.commandStatus ?? command?.CommandStatus;
+        if (!isFinalKvhCommandStatus(status)) {
+          pollKvhCommand(commandId, messageElement, requestId, remainingAttempts - 1);
+        } else if (canManageDataOptIn) {
+          loadDataOptInData(requestId);
+        }
+      } catch (error) {
+        if (messageElement) messageElement.textContent = error.message || text("generic_error");
+      }
+    }, 5000);
+  }
+
   function renderDataOptInHistory(items) {
     if (!items?.length) {
       dataOptInHistory.innerHTML = `<div class="data-optin-empty">${text("detail_data_optin_empty")}</div>`;
@@ -1760,9 +1860,13 @@
       const response = item.apiResponse ?? item.ApiResponse ?? "";
       const jobId = item.jobId ?? item.JobId ?? "";
       const httpStatus = item.httpStatusCode ?? item.HttpStatusCode ?? "-";
+      const commandStatus = item.commandStatus ?? item.CommandStatus ?? (success ? "SUBMITTED" : "FAILED");
+      const jobStatus = item.jobStatus ?? item.JobStatus ?? "";
+      const verificationStatus = item.verificationStatus ?? item.VerificationStatus ?? "";
+      const statusText = [commandStatus, jobStatus, verificationStatus].filter(Boolean).join(" / ");
       return `<article class="data-optin-history-item">
         <div class="data-optin-history-meta"><strong>${escapeHtml(item.performedBy ?? item.PerformedBy ?? "-")}</strong><span>${escapeHtml(item.performedAtDisplay ?? item.PerformedAtDisplay ?? "-")}</span></div>
-        <div class="data-optin-transition"><span>${dataOptInStatusLabel(oldStatus)}</span><b>?</b><span>${dataOptInStatusLabel(newStatus)}</span><em class="${success ? "is-success" : "is-error"}">${success ? "API OK" : "API ERROR"} � HTTP ${httpStatus}</em></div>
+        <div class="data-optin-transition"><span>${dataOptInStatusLabel(oldStatus)}</span><b>?</b><span>${dataOptInStatusLabel(newStatus)}</span><em class="${isFinalKvhCommandStatus(commandStatus) && commandStatus !== "VERIFIED" ? "is-error" : "is-success"}">${escapeHtml(statusText || "-")} | HTTP ${httpStatus}</em></div>
         <details><summary>API response${jobId ? ` � Job ${escapeHtml(jobId)}` : ""}</summary><pre>${escapeHtml(response || "-")}</pre></details>
       </article>`;
     }).join("");
@@ -1810,6 +1914,8 @@
       const { rawText, data, isJson } = await readApiResponse(response);
       if (!isJson || !response.ok || !(data.success ?? data.Success)) throw new Error(resolveServerErrorMessage(response, data, rawText));
       dataOptInMessage.textContent = text("detail_data_optin_submitted");
+      const commandId = data.commandId ?? data.CommandId;
+      if (commandId) pollKvhCommand(commandId, dataOptInMessage);
       await loadDataOptInData();
     } catch (error) {
       dataOptInMessage.textContent = error.message || text("generic_error");
@@ -2247,9 +2353,11 @@
       }
 
       q("#detailWifiSsid").textContent = ssid;
-      q("#detailWifiPassword").textContent = password;
+      q("#detailWifiPassword").textContent = "***";
       q("#detailWifiEnabled").textContent = detailWifiEnabledInput.checked ? "True" : "False";
       detailNetworkStatus.textContent = formatCommandStatus("detail_wifi_saved", data);
+      const commandId = data.commandId ?? data.CommandId;
+      if (commandId) pollKvhCommand(commandId, detailNetworkStatus);
     } catch (error) {
       detailNetworkStatus.textContent = `${text("detail_network_error")}: ${error.message || text("generic_error")}`;
     } finally {
@@ -2277,6 +2385,8 @@
       }
 
       detailNetworkStatus.textContent = formatCommandStatus("detail_reboot_submitted", data);
+      const commandId = data.commandId ?? data.CommandId;
+      if (commandId) pollKvhCommand(commandId, detailNetworkStatus);
     } catch (error) {
       detailNetworkStatus.textContent = `${text("detail_network_error")}: ${error.message || text("generic_error")}`;
     } finally {
@@ -2503,19 +2613,29 @@
   function renderActionHtml(deviceId, deviceCode) {
     return `
       <div class="table-actions">
-        <button type="button" class="table-action-btn js-open-detail" data-device-id="${deviceId}">
+        <button type="button" class="table-action-menu-toggle js-action-menu-toggle" aria-label="Mo tac vu" aria-expanded="false">
+          <span aria-hidden="true">...</span>
+        </button>
+        <div class="table-action-menu" hidden>
+        <button type="button" class="table-action-menu-item js-open-detail" data-device-id="${deviceId}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5c5.23 0 9.27 4.11 10.57 6-.85 1.23-2.98 3.64-6.06 5.08C15.1 16.75 13.57 17 12 17c-5.23 0-9.27-4.11-10.57-6C2.73 9.11 6.77 5 12 5Zm0 2c-3.73 0-6.93 2.46-8.43 4 1.5 1.54 4.7 4 8.43 4s6.93-2.46 8.43-4C18.93 9.46 15.73 7 12 7Zm0 1.5A2.5 2.5 0 1 1 9.5 11 2.5 2.5 0 0 1 12 8.5Zm0 2A.5.5 0 1 0 12.5 11 .5.5 0 0 0 12 10.5Z"/></svg>
           <span data-i18n="view_action">${text("view_action")}</span>
         </button>
         ${canManageDevices ? `
-        <button type="button" class="table-action-btn js-edit-device" data-device-id="${deviceId}">
+        <a class="table-action-menu-item" href="${buildCreateSubscriptionUrl(deviceId)}">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z"/></svg>
+          <span>Tạo sub</span>
+        </a>
+        <button type="button" class="table-action-menu-item js-edit-device" data-device-id="${deviceId}">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.86 3.59a2 2 0 0 1 2.83 0l.72.72a2 2 0 0 1 0 2.83L8.75 18.8 4 20l1.2-4.75L16.86 3.59Zm1.41 1.41L7 16.27 6.55 17.45 7.73 17 19 5.73 18.27 5Z"/></svg>
           <span data-i18n="edit_action">${text("edit_action")}</span>
         </button>
-        <button type="button" class="table-action-btn is-danger js-delete-device" data-device-id="${deviceId}" data-device-code="${deviceCode || ""}">
+        <button type="button" class="table-action-menu-item is-danger js-delete-device" data-device-id="${deviceId}" data-device-code="${deviceCode || ""}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h2v8H7V9Zm4 0h2v8h-2V9Zm4 0h2v8h-2V9ZM6 21a2 2 0 0 1-2-2V8h16v11a2 2 0 0 1-2 2H6Z"/></svg>
           <span data-i18n="delete_action">${text("delete_action")}</span>
         </button>
         ` : ""}
+        </div>
       </div>`;
   }
   function setDetailProcessing(isProcessing, sourceButton) {
@@ -2601,6 +2721,7 @@
 
   function closeCreateModal() { modal.hidden = true; document.body.style.overflow = detail.hidden ? "" : "hidden"; setProcessing(false); }
   function closeDetailModal(updateHistory = false) {
+    stopKvhCommandPolling();
     if (detailMapFullscreen) {
       setMapFullscreen(false);
     }
@@ -2624,6 +2745,7 @@
     applyLanguage(lang);
     setActiveDetailTab("information");
     resetDetailView();
+    stopKvhCommandPolling();
     detail.hidden = false;
     document.body.style.overflow = "hidden";
     const requestId = ++currentDetailRequestId;
@@ -2760,6 +2882,25 @@
   }
 
   function bindRowActions(scope = document) {
+    scope.querySelectorAll(".js-action-menu-toggle").forEach((button) => {
+      if (button.dataset.boundActionMenu === "1") return;
+      button.dataset.boundActionMenu = "1";
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        toggleActionMenu(button);
+      });
+    });
+
+    scope.querySelectorAll(".table-action-menu").forEach((menu) => {
+      if (menu.dataset.boundActionMenuItems === "1") return;
+      menu.dataset.boundActionMenuItems = "1";
+      menu.addEventListener("click", (event) => {
+        if (event.target instanceof Element && event.target.closest(".table-action-menu-item")) {
+          closeActionMenu();
+        }
+      });
+    });
+
     scope.querySelectorAll(".js-copy-table-value").forEach((button) => {
       if (button.dataset.boundCopy === "1") return;
       button.dataset.boundCopy = "1";
@@ -3109,8 +3250,12 @@
     if (event.key === "Escape") closeDevicePlanEditor();
     if (event.key === "Escape") closePortalAccountMenu();
     if (event.key === "Escape") closePortalNavMenu();
+    if (event.key === "Escape") closeActionMenu();
   });
   document.addEventListener("click", (event) => {
+    if (openActionMenu && event.target instanceof Node && !openActionMenu.menu.contains(event.target) && !openActionMenu.button.contains(event.target)) {
+      closeActionMenu();
+    }
     if (portalNavPanel?.classList.contains("is-open")) {
       if (event.target instanceof Node && !portalNavPanel.contains(event.target) && !portalNavToggle?.contains(event.target)) {
         closePortalNavMenu();
@@ -3123,6 +3268,8 @@
       closePortalAccountMenu();
     }
   });
+  window.addEventListener("scroll", closeActionMenu, true);
+  window.addEventListener("resize", closeActionMenu);
   window.addEventListener("popstate", async (event) => {
     const state = event.state;
     if (state?.detailId) {

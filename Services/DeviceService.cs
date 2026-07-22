@@ -8,7 +8,7 @@ using StarlinkDeviceManager.Models;
 
 namespace StarlinkDeviceManager.Services;
 
-public class DeviceService(IConfiguration configuration, IHttpClientFactory httpClientFactory) : IDeviceService
+public class DeviceService(IConfiguration configuration, IHttpClientFactory httpClientFactory, IKvhCommandService kvhCommandService) : IDeviceService
 {
     private const string CreateDeviceAuditAction = "created_Device";
     private const string UpdateDeviceAuditAction = "updated_Device";
@@ -300,7 +300,8 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
     public async Task<TelemetryTimelineResult> GetTelemetryTimelineAsync(int id, long start, long end, string metric, CancellationToken cancellationToken = default)
     {
         metric = string.IsNullOrWhiteSpace(metric) ? "uplink_throughput" : metric.Trim();
-        if (start <= 0 || end <= 0 || start >= end)
+        var maxRangeSeconds = Math.Max(60, configuration.GetValue<int?>("KvhJobMonitor:TelemetryMaxRangeSeconds") ?? 86400);
+        if (start <= 0 || end <= 0 || start >= end || end - start > maxRangeSeconds)
         {
             return new TelemetryTimelineResult
             {
@@ -382,7 +383,22 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             };
         }
 
-        return await RequestTelemetryTimelineAsync(device.DeviceCode, accessToken, start, end, metric, cancellationToken);
+        var telemetry = await RequestTelemetryTimelineWithRetryAsync(device.DeviceCode, accessToken, start, end, metric, cancellationToken);
+        if (telemetry.Success || !string.Equals(telemetry.ErrorCode, "telemetry_unauthorized", StringComparison.OrdinalIgnoreCase))
+        {
+            return telemetry;
+        }
+
+        var refreshSettings = await GetApiCredentialsAsync(connection, null, cancellationToken);
+        var refresh = await RequestDeviceTokenAsync(refreshSettings.ClientId, refreshSettings.ClientSecret, device.DeviceCode, cancellationToken);
+        if (!refresh.Success || string.IsNullOrWhiteSpace(refresh.AccessToken))
+        {
+            telemetry.ErrorCode = KvhErrorCodes.TokenRefreshFailed;
+            return telemetry;
+        }
+
+        await UpdateDeviceTokenAsync(connection, id, refresh.AccessToken, refresh.ExpiredTime, cancellationToken);
+        return await RequestTelemetryTimelineWithRetryAsync(device.DeviceCode, refresh.AccessToken, start, end, metric, cancellationToken);
     }
 
     public async Task<DeviceWifiResult> GetDeviceWifiAsync(int id, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
@@ -514,13 +530,8 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             };
         }
 
-        var context = await GetDeviceCommandContextAsync(request.Id, tenantId, deviceId, useRouterDevice: true, cancellationToken);
-        if (!context.Success)
-        {
-            return context;
-        }
-
-        return await RequestUpdateDeviceWifiAsync(context.TerminalId, context.DeviceId, context.AccessToken, request.Ssid, request.Password, request.Enabled, cancellationToken);
+        var submit = await kvhCommandService.SubmitWifiUpdateAsync(request, null, "system", tenantId, deviceId, cancellationToken);
+        return MapCommandSubmitResult(submit, "Da gui lenh cap nhat WiFi. He thong dang theo doi KVH Job.", "WiFi update command was submitted. The KVH job is being monitored.");
     }
 
     public async Task<DevicePlanManagementResult> GetDevicePlanManagementAsync(int id, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
@@ -734,7 +745,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
 
         const string query = """
             DELETE FROM [TblDevicePricing]
-            WHERE [DeviceId] = @deviceId
+            WHERE h.[DeviceId] = @deviceId
               AND [PricingPlanId] = @pricingPlanId
             """;
         await using var command = new SqlCommand(query, connection, transaction);
@@ -767,13 +778,8 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
 
     public async Task<DeviceCommandResult> RebootDeviceRouterAsync(int id, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
     {
-        var context = await GetDeviceCommandContextAsync(id, tenantId, deviceId, useRouterDevice: false, cancellationToken);
-        if (!context.Success)
-        {
-            return context;
-        }
-
-        return await RequestRebootDeviceAsync(context.TerminalId, context.DeviceId, context.AccessToken, cancellationToken);
+        var submit = await kvhCommandService.SubmitRebootAsync(id, null, "system", tenantId, deviceId, cancellationToken);
+        return MapCommandSubmitResult(submit, "Da gui lenh reboot router. He thong dang theo doi KVH Job.", "Router reboot command was submitted. The KVH job is being monitored.");
     }
 
     public async Task<DeviceDataOptInManagementResult> GetDeviceDataOptInAsync(int id, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
@@ -798,7 +804,6 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         var history = await GetDeviceDataOptInHistoryAsync(connection, id, cancellationToken);
         var usage = await RequestTerminalUsageAsync(context.TerminalId, context.AccessToken, cancellationToken);
         var currentEnabled = usage.Success ? usage.DataOptInEnabled : null;
-        currentEnabled ??= history.FirstOrDefault(item => item.ApiSuccess)?.NewStatus;
 
         return new DeviceDataOptInManagementResult
         {
@@ -813,10 +818,44 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
 
     public async Task<DeviceDataOptInChangeResult> UpdateDeviceDataOptInAsync(UpdateDeviceDataOptInRequest request, int? userId, string performedBy, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
     {
-        var context = await GetDeviceCommandContextAsync(request.Id, tenantId, deviceId, false, cancellationToken);
-        return !context.Success
-            ? MapDataOptInContextError(request, context)
-            : await UpdateDeviceDataOptInCoreAsync(request, userId, performedBy, context, cancellationToken);
+        var submit = await kvhCommandService.SubmitDataOptInAsync(request, userId, performedBy, tenantId, deviceId, cancellationToken);
+        if (!submit.Success)
+        {
+            return new DeviceDataOptInChangeResult
+            {
+                Success = false,
+                ErrorCode = submit.ErrorCode,
+                Message = submit.Message,
+                MessageEn = submit.MessageEn,
+                DeviceId = request.Id,
+                TerminalId = submit.TerminalId,
+                OldStatus = submit.OldDataOptInStatus,
+                NewStatus = request.Enabled,
+                HttpStatusCode = submit.HttpStatusCode,
+                ApiResponse = submit.RawResponse,
+                JobId = submit.JobId,
+                CommandId = submit.CommandId,
+                RemainingSeconds = submit.RemainingSeconds,
+                NextAllowedAtUtc = submit.NextAllowedAtUtc
+            };
+        }
+
+        var historyItem = await SaveDeviceDataOptInCommandAsync(request, userId, performedBy, submit, cancellationToken);
+        return new DeviceDataOptInChangeResult
+        {
+            Success = true,
+            Message = submit.Message,
+            MessageEn = submit.MessageEn,
+            DeviceId = request.Id,
+            TerminalId = submit.TerminalId,
+            OldStatus = submit.OldDataOptInStatus,
+            NewStatus = request.Enabled,
+            HttpStatusCode = submit.HttpStatusCode,
+            ApiResponse = submit.RawResponse,
+            JobId = submit.JobId,
+            CommandId = submit.CommandId,
+            HistoryItem = historyItem
+        };
     }
 
     public Task<RefreshDeviceResult> RefreshExpiredDeviceAsync(int id, CancellationToken cancellationToken = default)
@@ -1354,6 +1393,25 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
     private static DeviceDataOptInChangeResult MapDataOptInContextError(UpdateDeviceDataOptInRequest request, DeviceCommandContext context)
     {
         return new DeviceDataOptInChangeResult { ErrorCode = request.Id <= 0 ? "validation_required" : context.ErrorCode, Message = context.Message, MessageEn = context.MessageEn, DeviceId = request.Id, TerminalId = context.TerminalId, NewStatus = request.Enabled, ApiResponse = context.RawResponse };
+    }
+
+    private static DeviceCommandResult MapCommandSubmitResult(KvhCommandSubmitResult submit, string successMessage, string successMessageEn)
+    {
+        return new DeviceCommandResult
+        {
+            Success = submit.Success,
+            ErrorCode = submit.ErrorCode,
+            Message = submit.Success ? successMessage : submit.Message,
+            MessageEn = submit.Success ? successMessageEn : submit.MessageEn,
+            RawResponse = submit.RawResponse,
+            TerminalId = submit.TerminalId,
+            DeviceId = submit.KvhDeviceId,
+            JobId = submit.JobId,
+            HttpStatusCode = submit.HttpStatusCode,
+            CommandId = submit.CommandId,
+            RemainingSeconds = submit.RemainingSeconds,
+            NextAllowedAtUtc = submit.NextAllowedAtUtc
+        };
     }
 
     private async Task<DeviceCommandContext> GetDeviceCommandContextAsync(
@@ -2007,15 +2065,37 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         var command = new SqlCommand(DeviceDataOptInHistorySchemaSql, connection, transaction);
         await command.ExecuteNonQueryAsync(cancellationToken);
         await command.DisposeAsync();
+
+        const string extensionSql = """
+            IF COL_LENGTH(N'[dbo].[TblDeviceDataOptInHistory]', N'KvhCommandId') IS NULL
+                ALTER TABLE [dbo].[TblDeviceDataOptInHistory] ADD [KvhCommandId] bigint NULL;
+            IF COL_LENGTH(N'[dbo].[TblDeviceDataOptInHistory]', N'JobStatus') IS NULL
+                ALTER TABLE [dbo].[TblDeviceDataOptInHistory] ADD [JobStatus] nvarchar(30) NULL;
+            IF COL_LENGTH(N'[dbo].[TblDeviceDataOptInHistory]', N'VerificationStatus') IS NULL
+                ALTER TABLE [dbo].[TblDeviceDataOptInHistory] ADD [VerificationStatus] nvarchar(30) NULL;
+            IF COL_LENGTH(N'[dbo].[TblDeviceDataOptInHistory]', N'CompletedAtUtc') IS NULL
+                ALTER TABLE [dbo].[TblDeviceDataOptInHistory] ADD [CompletedAtUtc] datetime2 NULL;
+            IF COL_LENGTH(N'[dbo].[TblDeviceDataOptInHistory]', N'VerifiedAtUtc') IS NULL
+                ALTER TABLE [dbo].[TblDeviceDataOptInHistory] ADD [VerifiedAtUtc] datetime2 NULL;
+            """;
+        await using var extensionCommand = new SqlCommand(extensionSql, connection, transaction);
+        await extensionCommand.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task<List<DeviceDataOptInHistoryItem>> GetDeviceDataOptInHistoryAsync(SqlConnection connection, int deviceId, CancellationToken cancellationToken)
     {
         const string query = """
-            SELECT TOP 100 [ID], [DeviceId], [UserId], [PerformedBy], [PerformedAtUtc], [OldStatus], [NewStatus], [ApiSuccess], [HttpStatusCode], [ApiResponse], [JobId]
-            FROM [dbo].[TblDeviceDataOptInHistory]
+            SELECT TOP 100 h.[ID], h.[DeviceId], h.[UserId], h.[PerformedBy], h.[PerformedAtUtc], h.[OldStatus], h.[NewStatus], h.[ApiSuccess], h.[HttpStatusCode], h.[ApiResponse], h.[JobId],
+                   h.[KvhCommandId],
+                   COALESCE(c.[CommandStatus], h.[JobStatus]) AS [CommandStatus],
+                   COALESCE(c.[JobStatus], h.[JobStatus]) AS [JobStatus],
+                   COALESCE(c.[VerificationStatus], h.[VerificationStatus]) AS [VerificationStatus],
+                   COALESCE(c.[CompletedAtUtc], h.[CompletedAtUtc]) AS [CompletedAtUtc],
+                   COALESCE(c.[VerifiedAtUtc], h.[VerifiedAtUtc]) AS [VerifiedAtUtc]
+            FROM [dbo].[TblDeviceDataOptInHistory] h
+            LEFT JOIN [dbo].[TblKvhCommand] c ON c.[ID] = h.[KvhCommandId]
             WHERE [DeviceId] = @deviceId
-            ORDER BY [PerformedAtUtc] DESC, [ID] DESC
+            ORDER BY h.[PerformedAtUtc] DESC, h.[ID] DESC
             """;
         var items = new List<DeviceDataOptInHistoryItem>();
         await using var command = new SqlCommand(query, connection);
@@ -2042,7 +2122,62 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             ApiSuccess = Convert.ToBoolean(reader["ApiSuccess"]),
             HttpStatusCode = reader["HttpStatusCode"] == DBNull.Value ? null : Convert.ToInt32(reader["HttpStatusCode"]),
             ApiResponse = reader["ApiResponse"]?.ToString() ?? string.Empty,
-            JobId = reader["JobId"]?.ToString() ?? string.Empty
+            JobId = reader["JobId"]?.ToString() ?? string.Empty,
+            KvhCommandId = reader["KvhCommandId"] == DBNull.Value ? null : Convert.ToInt64(reader["KvhCommandId"]),
+            CommandStatus = reader["CommandStatus"]?.ToString() ?? string.Empty,
+            JobStatus = reader["JobStatus"]?.ToString() ?? string.Empty,
+            VerificationStatus = reader["VerificationStatus"]?.ToString() ?? string.Empty,
+            CompletedAtUtc = reader["CompletedAtUtc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["CompletedAtUtc"]), DateTimeKind.Utc),
+            VerifiedAtUtc = reader["VerifiedAtUtc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["VerifiedAtUtc"]), DateTimeKind.Utc)
+        };
+    }
+
+    private async Task<DeviceDataOptInHistoryItem> SaveDeviceDataOptInCommandAsync(UpdateDeviceDataOptInRequest request, int? userId, string performedBy, KvhCommandSubmitResult submit, CancellationToken cancellationToken)
+    {
+        const string insertQuery = """
+            INSERT INTO [dbo].[TblDeviceDataOptInHistory]
+                ([DeviceId], [UserId], [PerformedBy], [PerformedAtUtc], [OldStatus], [NewStatus], [ApiSuccess], [HttpStatusCode], [ApiResponse], [JobId],
+                 [KvhCommandId], [JobStatus], [VerificationStatus])
+            OUTPUT INSERTED.[ID]
+            VALUES
+                (@deviceId, @userId, @performedBy, @performedAtUtc, @oldStatus, @newStatus, @apiSuccess, @httpStatusCode, @apiResponse, @jobId,
+                 @kvhCommandId, @jobStatus, @verificationStatus)
+            """;
+        var performedAtUtc = DateTime.UtcNow;
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureDeviceDataOptInHistorySchemaAsync(connection, null, cancellationToken);
+        await using var command = new SqlCommand(insertQuery, connection);
+        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = request.Id;
+        command.Parameters.Add("@userId", SqlDbType.Int).Value = (object?)userId ?? DBNull.Value;
+        command.Parameters.Add("@performedBy", SqlDbType.NVarChar, 250).Value = string.IsNullOrWhiteSpace(performedBy) ? "system" : performedBy.Trim();
+        command.Parameters.Add("@performedAtUtc", SqlDbType.DateTime2).Value = performedAtUtc;
+        command.Parameters.Add("@oldStatus", SqlDbType.Bit).Value = (object?)submit.OldDataOptInStatus ?? DBNull.Value;
+        command.Parameters.Add("@newStatus", SqlDbType.Bit).Value = request.Enabled;
+        command.Parameters.Add("@apiSuccess", SqlDbType.Bit).Value = submit.Success;
+        command.Parameters.Add("@httpStatusCode", SqlDbType.Int).Value = (object?)submit.HttpStatusCode ?? DBNull.Value;
+        command.Parameters.Add("@apiResponse", SqlDbType.NVarChar, -1).Value = submit.RawResponse ?? string.Empty;
+        command.Parameters.Add("@jobId", SqlDbType.NVarChar, 200).Value = submit.JobId ?? string.Empty;
+        command.Parameters.Add("@kvhCommandId", SqlDbType.BigInt).Value = (object?)submit.CommandId ?? DBNull.Value;
+        command.Parameters.Add("@jobStatus", SqlDbType.NVarChar, 30).Value = KvhJobStatuses.Submitted;
+        command.Parameters.Add("@verificationStatus", SqlDbType.NVarChar, 30).Value = DBNull.Value;
+        var historyId = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
+        return new DeviceDataOptInHistoryItem
+        {
+            Id = historyId,
+            DeviceId = request.Id,
+            UserId = userId,
+            PerformedBy = performedBy,
+            PerformedAtUtc = performedAtUtc,
+            OldStatus = submit.OldDataOptInStatus,
+            NewStatus = request.Enabled,
+            ApiSuccess = submit.Success,
+            HttpStatusCode = submit.HttpStatusCode,
+            ApiResponse = submit.RawResponse,
+            JobId = submit.JobId,
+            KvhCommandId = submit.CommandId,
+            CommandStatus = KvhCommandStatuses.Submitted,
+            JobStatus = KvhJobStatuses.Submitted
         };
     }
 
@@ -3020,6 +3155,124 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                 MessageEn = "The terminal devices API returned invalid JSON.",
                 RawResponse = rawResponse,
                 TerminalId = terminalId
+            };
+        }
+    }
+
+    private async Task<TelemetryTimelineResult> RequestTelemetryTimelineWithRetryAsync(
+        string terminalId,
+        string accessToken,
+        long start,
+        long end,
+        string metric,
+        CancellationToken cancellationToken)
+    {
+        var requestUri = $"https://api.mykvh.com/v3/terminals/{Uri.EscapeDataString(terminalId)}/telemetry/timeline?start={start}&end={end}&metric={Uri.EscapeDataString(metric)}";
+        var timeoutSeconds = Math.Max(5, configuration.GetValue<int?>("KvhJobMonitor:TelemetryTimeoutSeconds") ?? 20);
+        var retryableStatusCodes = new[] { HttpStatusCode.TooManyRequests, HttpStatusCode.BadGateway, HttpStatusCode.ServiceUnavailable, HttpStatusCode.GatewayTimeout };
+        HttpResponseMessage? response = null;
+        var rawResponse = string.Empty;
+
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+            var client = httpClientFactory.CreateClient();
+            using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+            try
+            {
+                response = await client.SendAsync(request, timeoutCts.Token);
+                rawResponse = await response.Content.ReadAsStringAsync(cancellationToken);
+            }
+            catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                if (attempt >= 3)
+                {
+                    return new TelemetryTimelineResult
+                    {
+                        Success = false,
+                        ErrorCode = KvhErrorCodes.TelemetryTimeout,
+                        Message = "Telemetry API qua thoi gian cho.",
+                        MessageEn = "Telemetry API request timed out.",
+                        TerminalId = terminalId,
+                        Metric = metric,
+                        Start = start,
+                        End = end
+                    };
+                }
+
+                await Task.Delay(TimeSpan.FromMilliseconds(250 * Math.Pow(2, attempt - 1)), cancellationToken);
+                continue;
+            }
+
+            if (!retryableStatusCodes.Contains(response.StatusCode) || attempt >= 3)
+            {
+                break;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(300 * Math.Pow(2, attempt - 1)), cancellationToken);
+        }
+
+        if (response is null || response.StatusCode != HttpStatusCode.OK)
+        {
+            var statusCode = response is null ? 0 : (int)response.StatusCode;
+            var errorCode = response?.StatusCode switch
+            {
+                HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => "telemetry_unauthorized",
+                HttpStatusCode.TooManyRequests => KvhErrorCodes.TelemetryRateLimited,
+                _ => KvhErrorCodes.TelemetryApiError
+            };
+
+            return new TelemetryTimelineResult
+            {
+                Success = false,
+                ErrorCode = errorCode,
+                Message = $"Telemetry API tra ve loi {statusCode}",
+                MessageEn = $"Telemetry API returned error {statusCode}",
+                RawResponse = rawResponse,
+                TerminalId = terminalId,
+                Metric = metric,
+                Start = start,
+                End = end
+            };
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(rawResponse);
+            var root = document.RootElement;
+            var points = ExtractTelemetryPoints(root);
+
+            return new TelemetryTimelineResult
+            {
+                Success = true,
+                RawResponse = rawResponse,
+                TerminalId = terminalId,
+                Metric = metric,
+                Unit = root.TryGetProperty("unit", out var unitElement) ? unitElement.GetString() ?? string.Empty : string.Empty,
+                Start = start,
+                End = end,
+                Points = points,
+                Message = points.Count == 0 ? "Khong co du lieu telemetry trong khoang thoi gian da chon." : string.Empty,
+                MessageEn = points.Count == 0 ? "No telemetry data in selected range" : string.Empty
+            };
+        }
+        catch (JsonException)
+        {
+            return new TelemetryTimelineResult
+            {
+                Success = false,
+                ErrorCode = "telemetry_invalid_json",
+                Message = "Du lieu telemetry khong hop le.",
+                MessageEn = "Telemetry response JSON is invalid",
+                RawResponse = rawResponse,
+                TerminalId = terminalId,
+                Metric = metric,
+                Start = start,
+                End = end
             };
         }
     }

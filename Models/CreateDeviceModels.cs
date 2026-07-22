@@ -82,6 +82,9 @@ public class DeviceCommandResult
     public string DeviceId { get; set; } = string.Empty;
     public string JobId { get; set; } = string.Empty;
     public int? HttpStatusCode { get; set; }
+    public long? CommandId { get; set; }
+    public int? RemainingSeconds { get; set; }
+    public DateTime? NextAllowedAtUtc { get; set; }
 }
 
 public class RefreshDeviceResult

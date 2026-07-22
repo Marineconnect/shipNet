@@ -203,6 +203,12 @@ public class DeviceDataOptInHistoryItem
     public int? HttpStatusCode { get; set; }
     public string ApiResponse { get; set; } = string.Empty;
     public string JobId { get; set; } = string.Empty;
+    public long? KvhCommandId { get; set; }
+    public string CommandStatus { get; set; } = string.Empty;
+    public string JobStatus { get; set; } = string.Empty;
+    public string VerificationStatus { get; set; } = string.Empty;
+    public DateTime? CompletedAtUtc { get; set; }
+    public DateTime? VerifiedAtUtc { get; set; }
     public string PerformedAtDisplay => TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(PerformedAtUtc, DateTimeKind.Utc), TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")).ToString("yyyy-MM-dd HH:mm:ss");
 }
 
@@ -225,6 +231,9 @@ public class DeviceDataOptInChangeResult
     public int? HttpStatusCode { get; set; }
     public string ApiResponse { get; set; } = string.Empty;
     public string JobId { get; set; } = string.Empty;
+    public long? CommandId { get; set; }
+    public int? RemainingSeconds { get; set; }
+    public DateTime? NextAllowedAtUtc { get; set; }
     public DeviceDataOptInHistoryItem? HistoryItem { get; set; }
 }
 
@@ -243,6 +252,7 @@ public class TelemetryTimelinePoint
 public class TelemetryTimelineResult
 {
     public bool Success { get; set; }
+    public string ErrorCode { get; set; } = string.Empty;
     public string Message { get; set; } = string.Empty;
     public string MessageEn { get; set; } = string.Empty;
     public string RawResponse { get; set; } = string.Empty;

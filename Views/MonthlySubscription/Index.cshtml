@@ -30,7 +30,7 @@
         <div class="device-actions">
           <button type="button" class="btn-primary add-device-btn" id="openSubscriptionModal">
             <span class="add-device-icon">+</span>
-            <span>Tạo subscription / Create Subscription</span>
+            <span>Tạo gói cước</span>
           </button>
         </div>
       }
@@ -254,12 +254,12 @@
 
 @if (Model.CanManageSubscriptions)
 {
-  <div class="modal-backdrop" id="subscriptionModal" hidden>
+  <div class="modal-backdrop" id="subscriptionModal" @(Model.OpenCreateModal ? null : "hidden")>
     <div class="device-modal subscription-modal" role="dialog" aria-modal="true" aria-labelledby="subscriptionModalTitle">
       <div class="device-modal-head">
         <div>
-          <h2 id="subscriptionModalTitle">Tạo subscription / Create Subscription Plan</h2>
-          <p>Tạo subscription hàng tháng và invoice chính / Create a monthly subscription and primary invoice.</p>
+          <h2 id="subscriptionModalTitle">Tạo gói cước</h2>
+          <p>Tạo gói cước hàng tháng và invoice chính.</p>
         </div>
         <button type="button" class="modal-close" id="closeSubscriptionModal" aria-label="Đóng / Close">×</button>
       </div>
@@ -386,6 +386,9 @@
 (() => {
   const devices = @Html.Raw(devicesJson);
   const plans = @Html.Raw(plansJson);
+  const initialTenantId = @Model.CreateForm.TenantId;
+  const initialDeviceId = @Model.CreateForm.DeviceId;
+  const shouldOpenCreateModal = @Html.Raw(JsonSerializer.Serialize(Model.OpenCreateModal && Model.CanManageSubscriptions));
   const modal = document.querySelector("#subscriptionModal");
   const createTenant = document.querySelector("#createTenant");
   const createDevice = document.querySelector("#createDevice");
@@ -507,7 +510,7 @@
     updateCalculation();
   }
 
-  function updateDevices() {
+  function updateDevices(selectedDeviceId = "") {
     if (!createDevice) return;
     const tenantId = Number(createTenant.value || 0);
     createDevice.innerHTML = '<option value="">Tìm tàu / Search Vessel</option>';
@@ -517,6 +520,9 @@
         const name = device.DisplayName ?? device.displayName ?? device.VesselName ?? device.vesselName ?? device.DeviceName ?? device.deviceName;
         createDevice.insertAdjacentHTML("beforeend", `<option value="${id}">${name}</option>`);
       });
+    if (selectedDeviceId) {
+      createDevice.value = `${selectedDeviceId}`;
+    }
     updatePlans();
   }
 
@@ -738,6 +744,7 @@
 
   document.querySelector("#openSubscriptionModal")?.addEventListener("click", () => {
     clearDateDefaults();
+    updateDevices(createDevice?.value || "");
     updateCalculation();
     modal.hidden = false;
   });
@@ -757,7 +764,7 @@
   });
   createTenant?.addEventListener("change", () => {
     clearDateDefaults();
-    updateDevices();
+    updateDevices("");
   });
   createDevice?.addEventListener("change", () => {
     updatePlans();
@@ -772,6 +779,14 @@
   };
   endDate?.addEventListener("input", handleEndDateChanged);
   endDate?.addEventListener("change", handleEndDateChanged);
+  if (createTenant && initialTenantId) {
+    createTenant.value = `${initialTenantId}`;
+  }
+  updateDevices(initialDeviceId ? `${initialDeviceId}` : "");
+  if (shouldOpenCreateModal && modal) {
+    applyCurrentMonthDefaultsIfAllowed();
+    modal.hidden = false;
+  }
 })();
 </script>
 }
