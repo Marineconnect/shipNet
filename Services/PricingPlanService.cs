@@ -21,7 +21,7 @@ public class PricingPlanService(
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")
         ?? throw new InvalidOperationException("Missing connection string: DefaultConnection");
     private const string DefaultCurrencySettingCode = "system_default_currency";
-    private const string DefaultPricingCurrency = "USD";
+    private const string DefaultPricingCurrency = "VND";
 
     private bool _schemaEnsured;
 
@@ -1166,8 +1166,13 @@ public class PricingPlanService(
 
     private async Task<PricingCurrencyConversion> GetPricingCurrencyConversionAsync(DateTime conversionDate, CancellationToken cancellationToken)
     {
-        var pricingCurrency = (configuration["System:PricingCurrency"] ?? DefaultPricingCurrency).Trim().ToUpperInvariant();
         var defaultCurrency = await GetSystemDefaultCurrencyAsync(cancellationToken);
+        if (string.Equals(defaultCurrency, "VND", StringComparison.OrdinalIgnoreCase))
+        {
+            return new PricingCurrencyConversion(defaultCurrency, defaultCurrency, 1m);
+        }
+
+        var pricingCurrency = (configuration["System:PricingCurrency"] ?? DefaultPricingCurrency).Trim().ToUpperInvariant();
         if (string.Equals(pricingCurrency, defaultCurrency, StringComparison.OrdinalIgnoreCase))
         {
             return new PricingCurrencyConversion(pricingCurrency, defaultCurrency, 1m);

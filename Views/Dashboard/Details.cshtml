@@ -31,8 +31,12 @@
                     <div class="detail-value">@Model.DeviceName</div>
                 </div>
                 <div class="detail-item">
-                    <div class="detail-label">Mã KIT / Device Code</div>
+                    <div class="detail-label">Ma thiet bi / Device Code</div>
                     <div class="detail-value">@Model.DeviceCode</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">KIT Number</div>
+                    <div class="detail-value">@(string.IsNullOrWhiteSpace(Model.KitNumber) ? "-" : Model.KitNumber)</div>
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">KITID</div>

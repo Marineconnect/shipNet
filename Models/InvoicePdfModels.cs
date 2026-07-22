@@ -36,6 +36,7 @@ public sealed class InvoicePdfUploadRequest
 public sealed class InvoicePdfUploadResult
 {
     public bool Success { get; set; } = true;
+    public int InvoiceId { get; set; }
     public string InvoiceCode { get; set; } = string.Empty;
     public string FileName { get; set; } = string.Empty;
     public long FileSize { get; set; }
@@ -100,4 +101,65 @@ public sealed class InvoicePdfError(string errorCode, string message, string mes
     public string ErrorCode { get; } = errorCode;
     public string MessageEn { get; } = messageEn;
     public int StatusCode { get; } = statusCode;
+}
+
+public sealed class InvoiceIntegrationLogOptions
+{
+    public const string SectionName = "InvoiceIntegrationLog";
+
+    public int RetentionDays { get; set; } = 180;
+    public int MaxPayloadDisplayLength { get; set; } = 200000;
+}
+
+public sealed class InvoiceIntegrationLogEntry
+{
+    public long Id { get; set; }
+    public int? InvoiceId { get; set; }
+    public string InvoiceCode { get; set; } = string.Empty;
+    public string TransactionCode { get; set; } = string.Empty;
+    public string EventType { get; set; } = string.Empty;
+    public string Direction { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public string SourceSystem { get; set; } = string.Empty;
+    public string TargetSystem { get; set; } = string.Empty;
+    public string RabbitExchange { get; set; } = string.Empty;
+    public string RabbitRoutingKey { get; set; } = string.Empty;
+    public string RabbitQueue { get; set; } = string.Empty;
+    public string MessageId { get; set; } = string.Empty;
+    public string CorrelationId { get; set; } = string.Empty;
+    public string PayloadJson { get; set; } = string.Empty;
+    public string FileOriginalName { get; set; } = string.Empty;
+    public string FileStoredName { get; set; } = string.Empty;
+    public long? FileSize { get; set; }
+    public int? FileVersion { get; set; }
+    public int? HttpStatusCode { get; set; }
+    public string ErrorCode { get; set; } = string.Empty;
+    public string ErrorMessage { get; set; } = string.Empty;
+    public DateTime StartedAtUtc { get; set; }
+    public DateTime? CompletedAtUtc { get; set; }
+    public long? DurationMs { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+    public string CreatedBy { get; set; } = string.Empty;
+}
+
+public sealed class InvoiceIntegrationLogListItem
+{
+    public long Id { get; set; }
+    public string InvoiceCode { get; set; } = string.Empty;
+    public string TransactionCode { get; set; } = string.Empty;
+    public string EventType { get; set; } = string.Empty;
+    public string Direction { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public string SourceSystem { get; set; } = string.Empty;
+    public string TargetSystem { get; set; } = string.Empty;
+    public string MessageId { get; set; } = string.Empty;
+    public string CorrelationId { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    public string FileSizeDisplay { get; set; } = string.Empty;
+    public int? FileVersion { get; set; }
+    public string ErrorCode { get; set; } = string.Empty;
+    public string ErrorMessage { get; set; } = string.Empty;
+    public DateTime CreatedAtUtc { get; set; }
+    public string CreatedAtDisplay => CreatedAtUtc == DateTime.MinValue ? "-" : CreatedAtUtc.ToString("dd/MM/yyyy HH:mm:ss");
+    public bool HasPayload { get; set; }
 }

@@ -16,7 +16,8 @@ public class SystemSettingsService(IConfiguration configuration) : ISystemSettin
         new("System", "system_default_currency", "System default currency", "VND", false, "Default reference currency used by billing and payment calculations."),
         new("9Pay", "ninepay_transaction_fee_vnd", "9Pay transaction fee (VND)", "4400", false, "Transaction fee added to the QR payment total."),
         new("9Pay", "ninepay_qr_expire_hours", "9Pay QR expiry hours", "72", false, "Number of hours a generated 9Pay QR remains valid."),
-        new("Invoice", "invoice_po_number", "Invoice PO number", "", false, "Optional PO number included in invoice messages sent to RabbitMQ.")
+        new("Invoice", "invoice_po_number", "Invoice PO number", "", false, "Optional PO number included in invoice messages sent to RabbitMQ."),
+        new("Invoice", "invoice_sequence_start", "Invoice sequence start", "00236", false, "Starting number for invoice codes. The sequence is padded to 5 digits.")
     ];
 
     public async Task<List<SystemSettingViewModel>> GetSettingsAsync(CancellationToken cancellationToken = default)
@@ -24,7 +25,7 @@ public class SystemSettingsService(IConfiguration configuration) : ISystemSettin
         const string query = """
             SELECT [ID], [Category], [SettingCode], [DisplayName], [SettingValue], [IsSecret], [Description], [Updated_Date], [Updated_By]
             FROM [dbo].[TblSystemSetting]
-            WHERE [SettingCode] IN (N'ninepay_transaction_fee_vnd', N'system_default_currency', N'ninepay_qr_expire_hours', N'invoice_po_number')
+            WHERE [SettingCode] IN (N'ninepay_transaction_fee_vnd', N'system_default_currency', N'ninepay_qr_expire_hours', N'invoice_po_number', N'invoice_sequence_start')
             ORDER BY [Category] ASC, [DisplayOrder] ASC, [ID] ASC
             """;
 
@@ -49,7 +50,7 @@ public class SystemSettingsService(IConfiguration configuration) : ISystemSettin
             SELECT TOP 1 [ID], [Category], [SettingCode], [DisplayName], [SettingValue], [IsSecret]
             FROM [dbo].[TblSystemSetting]
             WHERE [ID] = @id
-              AND [SettingCode] IN (N'ninepay_transaction_fee_vnd', N'system_default_currency', N'ninepay_qr_expire_hours', N'invoice_po_number')
+              AND [SettingCode] IN (N'ninepay_transaction_fee_vnd', N'system_default_currency', N'ninepay_qr_expire_hours', N'invoice_po_number', N'invoice_sequence_start')
             """;
 
         await using var connection = new SqlConnection(_connectionString);
@@ -83,7 +84,7 @@ public class SystemSettingsService(IConfiguration configuration) : ISystemSettin
                 [Updated_Date] = GETDATE(),
                 [Updated_By] = @updatedBy
             WHERE [ID] = @id
-              AND [SettingCode] IN (N'ninepay_transaction_fee_vnd', N'system_default_currency', N'ninepay_qr_expire_hours', N'invoice_po_number')
+              AND [SettingCode] IN (N'ninepay_transaction_fee_vnd', N'system_default_currency', N'ninepay_qr_expire_hours', N'invoice_po_number', N'invoice_sequence_start')
             """;
 
         await using var connection = new SqlConnection(_connectionString);

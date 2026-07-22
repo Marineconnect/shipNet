@@ -15,7 +15,8 @@ public class MonthlySubscriptionService(
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")
         ?? throw new InvalidOperationException("Missing connection string: DefaultConnection");
     private const string DefaultCurrencySettingCode = "system_default_currency";
-    private const string DefaultPricingCurrency = "USD";
+    private const string InvoiceSequenceStartSettingCode = "invoice_sequence_start";
+    private const string DefaultPricingCurrency = "VND";
 
     public async Task<MonthlySubscriptionPageResult> GetSubscriptionsAsync(MonthlySubscriptionFilterViewModel filter, int page, int pageSize, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
     {
@@ -29,10 +30,11 @@ public class MonthlySubscriptionService(
         var offset = (normalizedPage - 1) * normalizedPageSize;
         var where = BuildFilterWhereClause(filter, tenantId, deviceId);
 
-        var countQuery = $"SELECT COUNT(1) FROM [dbo].[TblMonthlySubscription] s {where}";
+        var countQuery = $"SELECT COUNT(1) FROM [dbo].[TblMonthlySubscription] s LEFT JOIN [dbo].[TblDevices] d ON d.[ID] = s.[DeviceId] {where}";
         var listQuery = $"""
             SELECT
-                s.[ID], s.[TenantId], s.[DeviceId], s.[PricingPlanId], s.[TenantName], s.[VesselName], s.[KitId],
+                s.[ID], s.[TenantId], s.[DeviceId], s.[PricingPlanId], s.[TenantName], s.[VesselName],
+                COALESCE(NULLIF(d.[KITNumber], N''), NULLIF(s.[KitId], N''), d.[KITID], N'') AS [KitId],
                 s.[PlanName], s.[SubscriptionType], s.[DataLimitGb], s.[BasePlanPrice], s.[SubscriptionDays],
                 s.[SubscriptionPrice], s.[OverChargePrice], s.[TotalTopUpGb], s.[Status],
                 s.[StartDate], s.[EndDate], s.[NextBillingDate], s.[TotalInvoiceAmount], s.[TotalPaid],
@@ -43,6 +45,7 @@ public class MonthlySubscriptionService(
                     ORDER BY CASE WHEN i.[InvoiceType] = N'SUBSCRIPTION' THEN 0 ELSE 1 END, i.[ID]
                 ), N'pending') AS [InvoiceStatus]
             FROM [dbo].[TblMonthlySubscription] s
+            LEFT JOIN [dbo].[TblDevices] d ON d.[ID] = s.[DeviceId]
             {where}
             ORDER BY s.[StartDate] DESC, s.[ID] DESC
             OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
@@ -54,6 +57,7 @@ public class MonthlySubscriptionService(
                 COALESCE(SUM(s.[TotalInvoiceAmount]), 0) AS [TotalInvoiceAmount],
                 COALESCE(SUM(s.[TotalPaid]), 0) AS [TotalPaid]
             FROM [dbo].[TblMonthlySubscription] s
+            LEFT JOIN [dbo].[TblDevices] d ON d.[ID] = s.[DeviceId]
             {where}
             """;
 
@@ -113,7 +117,8 @@ public class MonthlySubscriptionService(
 
         var query = """
             SELECT
-                s.[ID], s.[TenantId], s.[DeviceId], s.[PricingPlanId], s.[TenantName], s.[VesselName], s.[KitId],
+                s.[ID], s.[TenantId], s.[DeviceId], s.[PricingPlanId], s.[TenantName], s.[VesselName],
+                COALESCE(NULLIF(d.[KITNumber], N''), NULLIF(s.[KitId], N''), d.[KITID], N'') AS [KitId],
                 s.[PlanName], s.[SubscriptionType], s.[DataLimitGb], s.[BasePlanPrice], s.[SubscriptionDays],
                 s.[SubscriptionPrice], s.[OverChargePrice], s.[TotalTopUpGb], s.[Status],
                 s.[StartDate], s.[EndDate], s.[NextBillingDate], s.[TotalInvoiceAmount], s.[TotalPaid],
@@ -124,6 +129,7 @@ public class MonthlySubscriptionService(
                     ORDER BY CASE WHEN i.[InvoiceType] = N'SUBSCRIPTION' THEN 0 ELSE 1 END, i.[ID]
                 ), N'pending') AS [InvoiceStatus]
             FROM [dbo].[TblMonthlySubscription] s
+            LEFT JOIN [dbo].[TblDevices] d ON d.[ID] = s.[DeviceId]
             WHERE s.[ID] = @id
               AND (@tenantId IS NULL OR s.[TenantId] = @tenantId)
               AND (@deviceId IS NULL OR s.[DeviceId] = @deviceId)
@@ -194,7 +200,7 @@ public class MonthlySubscriptionService(
                 d.[TenantID],
                 d.[DeviceName],
                 d.[VesselName],
-                d.[KitId],
+                COALESCE(NULLIF(d.[KITNumber], N''), d.[KITID], N'') AS [KitId],
                 cms.[Status] AS [CurrentMonthSubscriptionStatus]
             FROM [dbo].[TblDevices] d
             OUTER APPLY (
@@ -339,8 +345,8 @@ public class MonthlySubscriptionService(
             var finalPrice = context.FinalPrice;
             var resellerPrice = context.ResellerPrice;
             var finalOverChargePrice = context.FinalOverChargePrice;
-            var subscriptionPrice = Math.Round(finalPrice * days / 30m, 2, MidpointRounding.AwayFromZero);
-            var buyPrice = Math.Round(resellerPrice * days / 30m, 2, MidpointRounding.AwayFromZero);
+            var subscriptionPrice = CalculateSubscriptionPrice(finalPrice, segment.StartDate, segment.EndDate);
+            var buyPrice = CalculateSubscriptionPrice(resellerPrice, segment.StartDate, segment.EndDate);
             var invoiceNumber = await BuildInvoiceNumberAsync(connection, transaction, cancellationToken);
 
             int subscriptionId;
@@ -499,7 +505,7 @@ public class MonthlySubscriptionService(
         var basePlanPrice = Math.Round(Math.Max(0, model.BasePlanPrice), 2, MidpointRounding.AwayFromZero);
         var overChargePrice = Math.Round(Math.Max(0, model.OverChargePrice), 2, MidpointRounding.AwayFromZero);
         var subscriptionDays = (endDate - startDate).Days + 1;
-        var subscriptionPrice = Math.Round(basePlanPrice * subscriptionDays / 30m, 2, MidpointRounding.AwayFromZero);
+        var subscriptionPrice = CalculateSubscriptionPrice(basePlanPrice, startDate, endDate);
 
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -733,7 +739,12 @@ public class MonthlySubscriptionService(
               AND (@tenantFilter IS NULL OR s.[TenantId] = @tenantFilter)
               AND (@deviceFilter IS NULL OR s.[DeviceId] = @deviceFilter)
               AND (@planFilter IS NULL OR s.[PricingPlanId] = @planFilter)
-              AND (@kitId IS NULL OR s.[KitId] LIKE @kitPattern)
+              AND (
+                    @kitId IS NULL
+                    OR s.[KitId] LIKE @kitPattern
+                    OR d.[KITNumber] LIKE @kitPattern
+                    OR d.[KITID] LIKE @kitPattern
+                  )
               AND (@status IS NULL OR s.[Status] = @status)
               AND (@monthFrom IS NULL OR s.[StartDate] >= @monthFrom)
               AND (@monthTo IS NULL OR s.[StartDate] < DATEADD(day, 1, @monthTo))
@@ -929,7 +940,7 @@ public class MonthlySubscriptionService(
             SELECT TOP 1
                 t.[TenantName],
                 d.[VesselName],
-                d.[KitId],
+                COALESCE(NULLIF(d.[KITNumber], N''), d.[KITID], N'') AS [KitId],
                 pp.[PlanName],
                 pp.[PlanCode],
                 pp.[BaseData],
@@ -976,13 +987,14 @@ public class MonthlySubscriptionService(
                 s.[ID],
                 s.[TenantName],
                 s.[VesselName],
-                s.[KitId],
+                COALESCE(NULLIF(d.[KITNumber], N''), NULLIF(s.[KitId], N''), d.[KITID], N'') AS [KitId],
                 s.[PlanName],
                 s.[OverChargePrice],
                 dp.[ResellerOverChargePrice],
                 dp.[FinalOverChargePrice]
             FROM [dbo].[TblMonthlySubscription] s
             INNER JOIN [dbo].[TblDevicePricing] dp ON dp.[DeviceId] = s.[DeviceId] AND dp.[PricingPlanId] = s.[PricingPlanId]
+            LEFT JOIN [dbo].[TblDevices] d ON d.[ID] = s.[DeviceId]
             WHERE s.[ID] = @subscriptionId
               AND (@tenantId IS NULL OR s.[TenantId] = @tenantId)
               AND (@deviceId IS NULL OR s.[DeviceId] = @deviceId)
@@ -1154,22 +1166,38 @@ public class MonthlySubscriptionService(
         var year = now.Year;
         var yearStart = new DateTime(year, 1, 1);
         var nextYearStart = yearStart.AddYears(1);
+        var prefix = $"SPN-INV-{year % 100:00}-";
+        var settings = await systemSettingsService.GetSettingsByCodesAsync([InvoiceSequenceStartSettingCode], cancellationToken);
+        var startNumber = ParseInvoiceSequenceStart(settings.GetValueOrDefault(InvoiceSequenceStartSettingCode));
         const string query = """
-            SELECT COUNT(1)
+            SELECT COALESCE(MAX(TRY_CONVERT(int, RIGHT([InvoiceNumber], 5))), 0)
             FROM [dbo].[TblSubscriptionInvoice] WITH (UPDLOCK, HOLDLOCK)
             WHERE [CreatedAt] >= @yearStart
               AND [CreatedAt] < @nextYearStart
+              AND [InvoiceNumber] LIKE @invoicePrefix + N'[0-9][0-9][0-9][0-9][0-9]'
             """;
         await using var command = new SqlCommand(query, connection, transaction);
         command.Parameters.Add("@yearStart", SqlDbType.DateTime2).Value = yearStart;
         command.Parameters.Add("@nextYearStart", SqlDbType.DateTime2).Value = nextYearStart;
-        var nextNumber = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken)) + 1;
+        command.Parameters.Add("@invoicePrefix", SqlDbType.NVarChar, 50).Value = prefix;
+        var maxNumber = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
+        var nextNumber = Math.Max(maxNumber + 1, startNumber);
         if (nextNumber > 99999)
         {
             throw new InvalidOperationException("Yearly invoice sequence limit reached. Maximum is 99999 invoices per year.");
         }
 
-        return $"SHIPNET-INV-{year}-{nextNumber:00000}";
+        return $"{prefix}{nextNumber:00000}";
+    }
+
+    private static int ParseInvoiceSequenceStart(string? value)
+    {
+        if (!int.TryParse((value ?? string.Empty).Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var startNumber) || startNumber <= 0)
+        {
+            return 1;
+        }
+
+        return Math.Min(startNumber, 99999);
     }
 
     private async Task InsertAuditAsync(SqlConnection connection, SqlTransaction transaction, int? userId, int subscriptionId, string detail, CancellationToken cancellationToken)
@@ -1195,8 +1223,18 @@ public class MonthlySubscriptionService(
             return 0;
         }
 
-        var pricingCurrency = (configuration["System:PricingCurrency"] ?? DefaultPricingCurrency).Trim().ToUpperInvariant();
         var defaultCurrency = await GetSystemDefaultCurrencyAsync(cancellationToken);
+        if (string.Equals(defaultCurrency, "VND", StringComparison.OrdinalIgnoreCase))
+        {
+            return Math.Round(amount, 2, MidpointRounding.AwayFromZero);
+        }
+
+        var pricingCurrency = (configuration["System:PricingCurrency"] ?? DefaultPricingCurrency).Trim().ToUpperInvariant();
+        if (string.Equals(pricingCurrency, defaultCurrency, StringComparison.OrdinalIgnoreCase))
+        {
+            return Math.Round(amount, 2, MidpointRounding.AwayFromZero);
+        }
+
         var conversion = await currencyExchangeService.ConvertAsync(new CurrencyConversionFormViewModel
         {
             Amount = amount,
@@ -1399,6 +1437,29 @@ public class MonthlySubscriptionService(
         }
 
         return segments;
+    }
+
+    private static decimal CalculateSubscriptionPrice(decimal monthlyPrice, DateTime startDate, DateTime endDate)
+    {
+        monthlyPrice = Math.Round(Math.Max(0, monthlyPrice), 2, MidpointRounding.AwayFromZero);
+        var start = startDate.Date;
+        var end = endDate.Date;
+        if (end < start || monthlyPrice <= 0)
+        {
+            return 0;
+        }
+
+        var daysInMonth = DateTime.DaysInMonth(start.Year, start.Month);
+        var monthEnd = new DateTime(start.Year, start.Month, daysInMonth);
+        var isFullBillingPeriod = end == monthEnd &&
+            (start.Day == 1 || (daysInMonth == 31 && start.Day == 2));
+        if (isFullBillingPeriod)
+        {
+            return monthlyPrice;
+        }
+
+        var days = (end - start).Days + 1;
+        return Math.Round(monthlyPrice * days / 30m, 2, MidpointRounding.AwayFromZero);
     }
 
     private static async Task<DateTime?> FindUnpaidBillingCycleAsync(SqlConnection connection, SqlTransaction transaction, int deviceId, IReadOnlyList<MonthlySubscriptionSegment> segments, CancellationToken cancellationToken)

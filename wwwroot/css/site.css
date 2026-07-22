@@ -1257,6 +1257,54 @@ body::before{
   border:0;
   background:#101827;
 }
+.invoice-integration-panel{
+  margin-top:18px;
+  padding-top:18px;
+  border-top:1px solid rgba(90,120,180,.16);
+}
+.invoice-integration-scroll{
+  max-height:320px;
+  overflow:auto;
+  border:1px solid rgba(88,130,199,.18);
+}
+.invoice-integration-table{
+  min-width:1180px;
+}
+.invoice-integration-table th,
+.invoice-integration-table td{
+  white-space:pre-line;
+  vertical-align:top;
+}
+.invoice-integration-table td:nth-child(2),
+.invoice-integration-table td:nth-child(5),
+.invoice-integration-table td:nth-child(6),
+.invoice-integration-table td:nth-child(7){
+  overflow-wrap:anywhere;
+}
+.invoice-integration-actions{
+  display:flex;
+  justify-content:flex-end;
+  margin-top:12px;
+}
+.invoice-json-modal{
+  width:min(960px, calc(100vw - 32px));
+}
+.invoice-json-body{
+  max-height:68vh;
+  overflow:auto;
+  border:1px solid rgba(90,120,180,.18);
+  border-radius:12px;
+  background:#061023;
+}
+.invoice-json-body pre{
+  margin:0;
+  padding:16px;
+  color:#dbeafe;
+  font-size:12px;
+  line-height:1.55;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+}
 .status-pill{
     display:inline-flex;
     align-items:center;

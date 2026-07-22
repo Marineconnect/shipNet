@@ -63,6 +63,8 @@ public class InvoiceRabbitMqPublishRequest
 {
     public string InvoiceJson { get; set; } = string.Empty;
     public string RoutingKeyOverride { get; set; } = string.Empty;
+    public string MessageId { get; set; } = string.Empty;
+    public string CorrelationId { get; set; } = string.Empty;
     public int? UserId { get; set; }
     public string Username { get; set; } = "system";
 }
@@ -72,6 +74,10 @@ public class InvoiceRabbitMqPublishResult
     public bool Success { get; set; }
     public string Message { get; set; } = string.Empty;
     public string MessageId { get; set; } = string.Empty;
+    public string CorrelationId { get; set; } = string.Empty;
+    public string ExchangeName { get; set; } = string.Empty;
+    public string RoutingKey { get; set; } = string.Empty;
+    public string QueueName { get; set; } = string.Empty;
     public string Payload { get; set; } = string.Empty;
     public List<string> Logs { get; set; } = [];
 }

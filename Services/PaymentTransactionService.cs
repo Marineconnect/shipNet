@@ -17,6 +17,7 @@ public class PaymentTransactionService(
     ITelegramNotificationService telegramNotificationService,
     IInvoiceRabbitMqPublisher invoiceRabbitMqPublisher,
     IInvoicePdfService invoicePdfService,
+    IInvoiceIntegrationLogService invoiceIntegrationLogService,
     ILogger<PaymentTransactionService> logger) : IPaymentTransactionService
 {
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")
@@ -651,25 +652,110 @@ public class PaymentTransactionService(
         var generatedInvoiceCode = BuildShipNetInvoiceCode(context);
         var resolvedEmail = FirstNotEmpty(context.TenantEmail, configuration["InvoicePdf:CustomerEmail"], configuration["InvoicePdf:DefaultEmail"]);
         var invoiceSettings = await systemSettingsService.GetSettingsByCodesAsync(["invoice_po_number"], cancellationToken);
-        var poNumber = FirstNotEmpty(invoiceSettings.GetValueOrDefault("invoice_po_number"), configuration["InvoicePdf:PONumber"], configuration["InvoicePdf:PO_Number"]);
+        var poNumber = FirstNotEmpty(context.PoNumber, invoiceSettings.GetValueOrDefault("invoice_po_number"), configuration["InvoicePdf:PONumber"], configuration["InvoicePdf:PO_Number"]);
 
         AddLog($"STEP 2 - Build invoice PDF JSON. Invoice={context.InvoiceNumber}; InvoiceCode={generatedInvoiceCode}; Email={FirstNotEmpty(resolvedEmail, "-")}; Company={InvoicePdfSetting("CompanyName", "MLTECH MARINE CONNECT PTE LTD")}; TransactionCode={resolvedTransactionCode}; KitNumber={kitNumber}; AmountVnd={amountVnd:#,##0.##}.");
         var invoiceUrl = invoicePdfService.BuildUploadUrl(generatedInvoiceCode);
         var payload = BuildInvoicePdfPayloadJson(context, bank, resolvedTransactionCode, resolvedPaymentTime, resolvedOperatorName, kitNumber, amountVnd, poNumber, invoiceUrl);
         AddLog($"STEP 3 - Payload built. Size={Encoding.UTF8.GetByteCount(payload)} bytes.");
-
-        var publishResult = await invoiceRabbitMqPublisher.PublishInvoiceAsync(new InvoiceRabbitMqPublishRequest
+        var messageId = Guid.NewGuid().ToString();
+        var correlationId = FirstNotEmpty(context.TransactionPaymentNo, context.IpnPaymentNo, context.ProviderPaymentNo, messageId);
+        var rabbitQueue = FirstNotEmpty(configuration["InvoiceRabbitMq:QueueName"], "nvoice.generate.9pay");
+        var rabbitExchange = configuration["InvoiceRabbitMq:ExchangeName"]?.Trim() ?? string.Empty;
+        var rabbitRoutingKey = FirstNotEmpty(configuration["InvoiceRabbitMq:RoutingKey"], rabbitQueue);
+        var publishStartedAtUtc = DateTime.UtcNow;
+        await invoiceIntegrationLogService.WriteAsync(new InvoiceIntegrationLogEntry
         {
-            InvoiceJson = payload,
-            Username = resolvedOperatorName
+            InvoiceId = context.InvoiceId,
+            InvoiceCode = generatedInvoiceCode,
+            TransactionCode = resolvedTransactionCode,
+            EventType = "RabbitMqPublishStarted",
+            Direction = "Outbound",
+            Status = "Started",
+            SourceSystem = "ShipNet",
+            TargetSystem = "InvoiceGenerator",
+            RabbitExchange = rabbitExchange,
+            RabbitRoutingKey = rabbitRoutingKey,
+            RabbitQueue = rabbitQueue,
+            MessageId = messageId,
+            CorrelationId = correlationId,
+            PayloadJson = payload,
+            StartedAtUtc = publishStartedAtUtc,
+            CreatedBy = resolvedOperatorName
         }, cancellationToken);
+
+        InvoiceRabbitMqPublishResult publishResult;
+        try
+        {
+            publishResult = await invoiceRabbitMqPublisher.PublishInvoiceAsync(new InvoiceRabbitMqPublishRequest
+            {
+                InvoiceJson = payload,
+                MessageId = messageId,
+                CorrelationId = correlationId,
+                Username = resolvedOperatorName
+            }, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            await invoiceIntegrationLogService.WriteAsync(new InvoiceIntegrationLogEntry
+            {
+                InvoiceId = context.InvoiceId,
+                InvoiceCode = generatedInvoiceCode,
+                TransactionCode = resolvedTransactionCode,
+                EventType = "RabbitMqPublishFailed",
+                Direction = "Outbound",
+                Status = "Failed",
+                SourceSystem = "ShipNet",
+                TargetSystem = "InvoiceGenerator",
+                RabbitExchange = rabbitExchange,
+                RabbitRoutingKey = rabbitRoutingKey,
+                RabbitQueue = rabbitQueue,
+                MessageId = messageId,
+                CorrelationId = correlationId,
+                PayloadJson = payload,
+                ErrorCode = NormalizeErrorCode(exception),
+                ErrorMessage = exception.GetBaseException().Message,
+                StartedAtUtc = publishStartedAtUtc,
+                CompletedAtUtc = DateTime.UtcNow,
+                DurationMs = (long)(DateTime.UtcNow - publishStartedAtUtc).TotalMilliseconds,
+                CreatedBy = resolvedOperatorName
+            }, cancellationToken);
+            throw;
+        }
 
         result.Success = publishResult.Success;
         result.Message = publishResult.Message;
         result.MessageId = publishResult.MessageId;
+        result.CorrelationId = publishResult.CorrelationId;
+        result.ExchangeName = publishResult.ExchangeName;
+        result.RoutingKey = publishResult.RoutingKey;
+        result.QueueName = publishResult.QueueName;
         result.Payload = payload;
         result.Logs.AddRange(publishResult.Logs);
         result.Logs.Add($"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} | Payload: {payload}");
+        await invoiceIntegrationLogService.WriteAsync(new InvoiceIntegrationLogEntry
+        {
+            InvoiceId = context.InvoiceId,
+            InvoiceCode = generatedInvoiceCode,
+            TransactionCode = resolvedTransactionCode,
+            EventType = publishResult.Success ? "RabbitMqPublishSucceeded" : "RabbitMqPublishFailed",
+            Direction = "Outbound",
+            Status = publishResult.Success ? "Succeeded" : "Failed",
+            SourceSystem = "ShipNet",
+            TargetSystem = "InvoiceGenerator",
+            RabbitExchange = FirstNotEmpty(publishResult.ExchangeName, rabbitExchange),
+            RabbitRoutingKey = FirstNotEmpty(publishResult.RoutingKey, rabbitRoutingKey),
+            RabbitQueue = FirstNotEmpty(publishResult.QueueName, rabbitQueue),
+            MessageId = FirstNotEmpty(publishResult.MessageId, messageId),
+            CorrelationId = FirstNotEmpty(publishResult.CorrelationId, correlationId),
+            PayloadJson = payload,
+            ErrorCode = publishResult.Success ? string.Empty : "rabbitmq_publish_failed",
+            ErrorMessage = publishResult.Success ? string.Empty : publishResult.Message,
+            StartedAtUtc = publishStartedAtUtc,
+            CompletedAtUtc = DateTime.UtcNow,
+            DurationMs = (long)(DateTime.UtcNow - publishStartedAtUtc).TotalMilliseconds,
+            CreatedBy = resolvedOperatorName
+        }, cancellationToken);
 
         if (publishResult.Success)
         {
@@ -713,6 +799,7 @@ public class PaymentTransactionService(
                 i.[InvoiceType],
                 i.[Description],
                 i.[ReceiptNumber],
+                i.[PoNumber],
                 i.[CompletedAt],
                 i.[CreatedAt],
                 i.[Created_By],
@@ -722,7 +809,7 @@ public class PaymentTransactionService(
                 s.[TenantId],
                 s.[TenantName],
                 s.[VesselName],
-                s.[KitId],
+                COALESCE(NULLIF(d.[KITNumber], N''), NULLIF(s.[KitId], N''), d.[KITID], N'') AS [KitId],
                 s.[PlanName],
                 s.[StartDate],
                 s.[EndDate],
@@ -793,6 +880,7 @@ public class PaymentTransactionService(
             ReadText(reader, "InvoiceType"),
             ReadText(reader, "Description"),
             ReadText(reader, "ReceiptNumber"),
+            ReadText(reader, "PoNumber"),
             ReadDate(reader, "CompletedAt"),
             ReadDate(reader, "CreatedAt"),
             ReadText(reader, "Created_By"),
@@ -851,6 +939,8 @@ public class PaymentTransactionService(
             operatorName,
             email = EmptyToNull(email),
             InvoiceURL = invoiceUrl,
+            PONumber = EmptyToNull(poNumber),
+            PO_Number = EmptyToNull(poNumber),
             invoiceParams = new
             {
                 LogoUrl = InvoicePdfSetting("LogoUrl", string.Empty),
@@ -874,6 +964,7 @@ public class PaymentTransactionService(
                     vesselId = context.DeviceId > 0 ? context.DeviceId.ToString(CultureInfo.InvariantCulture) : context.SubscriptionId.ToString(CultureInfo.InvariantCulture),
                     vesselName = context.VesselName,
                     kit_id = kitNumber,
+                    PONumber = EmptyToNull(poNumber),
                     PO_Number = EmptyToNull(poNumber),
                     subscriptions = new[]
                     {
@@ -883,7 +974,7 @@ public class PaymentTransactionService(
                             title = titlePeriod,
                             subTitles = new[]
                             {
-                                $"Terminal ID: {FirstNotEmpty(context.KitId, context.DeviceCode)}",
+                                $"Terminal ID: {FirstNotEmpty(kitNumber, context.DeviceCode)}",
                                 $"KIT Code: {kitNumber}"
                             },
                             price = amountVnd,
@@ -977,13 +1068,18 @@ public class PaymentTransactionService(
 
     private static string BuildShipNetInvoiceCode(InvoicePdfPayloadContext context)
     {
+        if (!string.IsNullOrWhiteSpace(context.InvoiceNumber))
+        {
+            return context.InvoiceNumber.Trim();
+        }
+
         var year = context.InvoiceYear > 0
             ? context.InvoiceYear
             : (context.CreatedAt ?? DateTime.UtcNow).Year;
         var sequence = context.InvoiceSequenceInYear > 0
             ? context.InvoiceSequenceInYear
             : context.InvoiceId;
-        return $"SHIPNET-INV-{year}-{sequence:00000}";
+        return $"SPN-INV-{year % 100:00}-{sequence:00000}";
     }
 
     private static string FormatIsoUtc(DateTime value)
@@ -1005,6 +1101,14 @@ public class PaymentTransactionService(
         }
 
         return string.Empty;
+    }
+
+    private static string NormalizeErrorCode(Exception exception)
+    {
+        var name = exception.GetBaseException().GetType().Name;
+        return name.EndsWith("Exception", StringComparison.OrdinalIgnoreCase)
+            ? name[..^"Exception".Length].ToLowerInvariant()
+            : name.ToLowerInvariant();
     }
 
     private static string? EmptyToNull(string value)
@@ -1201,6 +1305,17 @@ public class PaymentTransactionService(
         {
             foreach (var invoice in mappedInvoices)
             {
+                await WritePaymentIntegrationLogSafeAsync(
+                    invoice.InvoiceId,
+                    invoice.InvoiceNumber,
+                    paymentNo,
+                    providerInvoiceNumber,
+                    providerStatus,
+                    amountVnd,
+                    rawJson,
+                    completedAt ?? DateTime.UtcNow,
+                    cancellationToken);
+
                 var publishResult = await SendInvoiceToRabbitMqAsync(
                     invoice.InvoiceId,
                     paymentNo,
@@ -1311,7 +1426,7 @@ public class PaymentTransactionService(
                 s.[ID],
                 s.[TenantName],
                 s.[DeviceId],
-                s.[KitId],
+                COALESCE(NULLIF(d.[KITNumber], N''), NULLIF(s.[KitId], N''), d.[KITID], N'') AS [KitId],
                 s.[PlanName],
                 s.[StartDate],
                 s.[EndDate],
@@ -1373,7 +1488,7 @@ public class PaymentTransactionService(
         var lines = new[]
         {
             "<b>9Pay IPN payment notification</b>",
-            $"Mã KIT: {Html(detail?.KitId)}",
+            $"KIT Number: {Html(detail?.KitId)}",
             $"Mã thiết bị: {Html(deviceCode)}",
             $"Plan: {Html(detail?.PlanName)}",
             $"Tenant: {Html(detail?.TenantName)}",
@@ -2302,11 +2417,31 @@ public class PaymentTransactionService(
             UPDATE s
             SET [TotalInvoiceAmount] = COALESCE(inv.[TotalInvoiceAmount], 0),
                 [TotalPaid] = COALESCE(inv.[TotalPaid], 0),
-                [Updated_Date] = GETDATE()
+                [Status] = CASE
+                    WHEN COALESCE(inv.[TotalInvoiceAmount], 0) > 0
+                     AND COALESCE(inv.[TotalPaid], 0) >= COALESCE(inv.[TotalInvoiceAmount], 0)
+                     AND COALESCE(inv.[UnpaidInvoiceCount], 0) = 0
+                    THEN N'paid'
+                    ELSE s.[Status]
+                END,
+                [Updated_Date] = GETDATE(),
+                [Updated_By] = CASE
+                    WHEN COALESCE(inv.[TotalInvoiceAmount], 0) > 0
+                     AND COALESCE(inv.[TotalPaid], 0) >= COALESCE(inv.[TotalInvoiceAmount], 0)
+                     AND COALESCE(inv.[UnpaidInvoiceCount], 0) = 0
+                    THEN N'9Pay IPN'
+                    ELSE s.[Updated_By]
+                END
             FROM [dbo].[TblMonthlySubscription] s
             OUTER APPLY (
                 SELECT SUM(i.[Amount]) AS [TotalInvoiceAmount],
-                       SUM(i.[PaidAmount]) AS [TotalPaid]
+                       SUM(i.[PaidAmount]) AS [TotalPaid],
+                       SUM(CASE
+                           WHEN LOWER(ISNULL(i.[Status], N'')) NOT IN (N'paid', N'refunded', N'void')
+                            AND ISNULL(i.[PaidAmount], 0) < ISNULL(i.[Amount], 0)
+                           THEN 1
+                           ELSE 0
+                       END) AS [UnpaidInvoiceCount]
                 FROM [dbo].[TblSubscriptionInvoice] i
                 WHERE i.[SubscriptionId] = s.[ID]
             ) inv
@@ -2316,6 +2451,45 @@ public class PaymentTransactionService(
         await using var command = new SqlCommand(query, connection, transaction);
         command.Parameters.Add("@subscriptionId", SqlDbType.Int).Value = subscriptionId;
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private async Task WritePaymentIntegrationLogSafeAsync(
+        int invoiceId,
+        string invoiceCode,
+        string paymentNo,
+        string providerInvoiceNo,
+        string providerStatus,
+        decimal amountVnd,
+        string rawJson,
+        DateTime completedAt,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await invoiceIntegrationLogService.WriteAsync(new InvoiceIntegrationLogEntry
+            {
+                InvoiceId = invoiceId,
+                InvoiceCode = invoiceCode,
+                TransactionCode = paymentNo,
+                EventType = "NinePayPaymentReceived",
+                Direction = "Inbound",
+                Status = "Paid",
+                SourceSystem = "9Pay",
+                TargetSystem = "ShipNet",
+                CorrelationId = FirstNotEmpty(paymentNo, providerInvoiceNo),
+                PayloadJson = rawJson,
+                ErrorCode = string.Empty,
+                ErrorMessage = $"ProviderInvoiceNo={providerInvoiceNo}; ProviderStatus={providerStatus}; AmountVnd={amountVnd:#,##0.##}",
+                StartedAtUtc = completedAt,
+                CompletedAtUtc = DateTime.UtcNow,
+                DurationMs = 0,
+                CreatedBy = "9Pay IPN"
+            }, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Cannot write payment integration log. InvoiceId={InvoiceId}; InvoiceCode={InvoiceCode}; PaymentNo={PaymentNo}.", invoiceId, invoiceCode, paymentNo);
+        }
     }
 
     private static async Task InsertAuditAsync(SqlConnection connection, SqlTransaction transaction, int subscriptionId, string detail, CancellationToken cancellationToken)
@@ -3375,6 +3549,7 @@ public class PaymentTransactionService(
         string InvoiceType,
         string Description,
         string ReceiptNumber,
+        string PoNumber,
         DateTime? CompletedAt,
         DateTime? CreatedAt,
         string CreatedBy,

@@ -14,6 +14,7 @@ public sealed class InvoicePdfService(
     IOptions<InvoicePdfIntegrationOptions> integrationOptions,
     IOptions<InvoicePdfStorageOptions> storageOptions,
     IInvoicePdfStorage storage,
+    IInvoiceIntegrationLogService invoiceIntegrationLogService,
     ILogger<InvoicePdfService> logger) : IInvoicePdfService
 {
     private readonly string connectionString = configuration.GetConnectionString("DefaultConnection")
@@ -61,12 +62,31 @@ public sealed class InvoicePdfService(
     public async Task<InvoicePdfUploadResult> UploadAsync(InvoicePdfUploadRequest request, CancellationToken cancellationToken = default)
     {
         var invoiceCode = NormalizeInvoiceCode(request.InvoiceCode);
-        ValidateUploadRequest(invoiceCode, request.File);
+        var startedAtUtc = DateTime.UtcNow;
+        var sourceSystem = string.IsNullOrWhiteSpace(request.SourceSystem) ? "InvoiceGenerator" : request.SourceSystem.Trim();
+        var originalFileName = Path.GetFileName(request.File?.FileName ?? string.Empty);
+        await WriteIntegrationLogSafeAsync(new InvoiceIntegrationLogEntry
+        {
+            InvoiceCode = invoiceCode,
+            TransactionCode = request.TransactionCode,
+            EventType = "InvoicePdfReceiveStarted",
+            Direction = "Inbound",
+            Status = "Started",
+            SourceSystem = sourceSystem,
+            TargetSystem = "ShipNet",
+            CorrelationId = request.ExternalReference,
+            FileOriginalName = originalFileName,
+            FileSize = request.File?.Length,
+            StartedAtUtc = startedAtUtc,
+            CreatedBy = sourceSystem
+        }, cancellationToken);
 
-        var tempPath = Path.GetTempFileName();
-        string sha256;
+        var tempPath = string.Empty;
         try
         {
+            ValidateUploadRequest(invoiceCode, request.File);
+            tempPath = Path.GetTempFileName();
+            string sha256;
             await using (var input = request.File!.OpenReadStream())
             await using (var temp = new FileStream(tempPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None, 81920, FileOptions.Asynchronous | FileOptions.SequentialScan))
             using (var sha = SHA256.Create())
@@ -103,7 +123,9 @@ public sealed class InvoicePdfService(
             if (current is not null && string.Equals(current.Sha256, sha256, StringComparison.OrdinalIgnoreCase))
             {
                 await transaction.CommitAsync(cancellationToken);
-                return BuildUploadResult(invoiceCode, current, replaced: false, unchanged: true);
+                var unchangedResult = BuildUploadResult(invoiceCode, current, replaced: false, unchanged: true);
+                await WritePdfReceiveCompletedLogAsync("InvoicePdfReceiveSucceeded", "Unchanged", invoiceCode, request, current, originalFileName, startedAtUtc, cancellationToken);
+                return unchangedResult;
             }
 
             var nextVersion = await GetNextVersionAsync(connection, transaction, invoice.InvoiceId, cancellationToken);
@@ -128,11 +150,60 @@ public sealed class InvoicePdfService(
                 throw;
             }
 
-            return BuildUploadResult(invoiceCode, savedRecord, replaced: current is not null, unchanged: false);
+            var result = BuildUploadResult(invoiceCode, savedRecord, replaced: current is not null, unchanged: false);
+            await WritePdfReceiveCompletedLogAsync(current is null ? "InvoicePdfReceiveSucceeded" : "InvoicePdfReplaced", "Succeeded", invoiceCode, request, savedRecord, originalFileName, startedAtUtc, cancellationToken);
+            return result;
+        }
+        catch (InvoicePdfError error)
+        {
+            await WriteIntegrationLogSafeAsync(new InvoiceIntegrationLogEntry
+            {
+                InvoiceCode = invoiceCode,
+                TransactionCode = request.TransactionCode,
+                EventType = "InvoicePdfReceiveFailed",
+                Direction = "Inbound",
+                Status = "Failed",
+                SourceSystem = sourceSystem,
+                TargetSystem = "ShipNet",
+                CorrelationId = request.ExternalReference,
+                FileOriginalName = originalFileName,
+                FileSize = request.File?.Length,
+                HttpStatusCode = error.StatusCode,
+                ErrorCode = error.ErrorCode,
+                ErrorMessage = error.Message,
+                StartedAtUtc = startedAtUtc,
+                CompletedAtUtc = DateTime.UtcNow,
+                DurationMs = (long)(DateTime.UtcNow - startedAtUtc).TotalMilliseconds,
+                CreatedBy = sourceSystem
+            }, cancellationToken);
+            throw;
+        }
+        catch (Exception exception)
+        {
+            await WriteIntegrationLogSafeAsync(new InvoiceIntegrationLogEntry
+            {
+                InvoiceCode = invoiceCode,
+                TransactionCode = request.TransactionCode,
+                EventType = "InvoicePdfReceiveFailed",
+                Direction = "Inbound",
+                Status = "Failed",
+                SourceSystem = sourceSystem,
+                TargetSystem = "ShipNet",
+                CorrelationId = request.ExternalReference,
+                FileOriginalName = originalFileName,
+                FileSize = request.File?.Length,
+                ErrorCode = "storage_error",
+                ErrorMessage = exception.GetBaseException().Message,
+                StartedAtUtc = startedAtUtc,
+                CompletedAtUtc = DateTime.UtcNow,
+                DurationMs = (long)(DateTime.UtcNow - startedAtUtc).TotalMilliseconds,
+                CreatedBy = sourceSystem
+            }, cancellationToken);
+            throw;
         }
         finally
         {
-            if (File.Exists(tempPath))
+            if (!string.IsNullOrWhiteSpace(tempPath) && File.Exists(tempPath))
             {
                 File.Delete(tempPath);
             }
@@ -180,8 +251,10 @@ public sealed class InvoicePdfService(
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
-        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
-        await EnsureSchemaAsync(connection, transaction, cancellationToken);
+        if (!await TableExistsAsync(connection, "TblInvoicePdf", cancellationToken))
+        {
+            return [];
+        }
 
         const string query = """
             SELECT p.[ID], p.[InvoiceId], p.[InvoiceCode], p.[FileName], p.[OriginalFileName], p.[StorageKey],
@@ -195,7 +268,7 @@ public sealed class InvoicePdfService(
               AND p.[IsCurrent] = 1
               AND p.[IsDeleted] = 0;
             """;
-        await using var command = new SqlCommand(query, connection, transaction);
+        await using var command = new SqlCommand(query, connection);
         command.Parameters.Add("@subscriptionId", SqlDbType.Int).Value = subscriptionId;
         var result = new Dictionary<int, InvoicePdfFileViewModel>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -205,7 +278,6 @@ public sealed class InvoicePdfService(
             result[record.InvoiceId] = ToViewModel(record, canReplace, canDelete);
         }
 
-        await transaction.CommitAsync(cancellationToken);
         return result;
     }
 
@@ -236,6 +308,76 @@ public sealed class InvoicePdfService(
         await InsertAuditAsync(connection, transaction, userId, invoice.SubscriptionId, "InvoicePdfDeleted", invoiceCode, username, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         await storage.DeleteAsync(record.StorageKey, cancellationToken);
+        var completedAtUtc = DateTime.UtcNow;
+        await WriteIntegrationLogSafeAsync(new InvoiceIntegrationLogEntry
+        {
+            InvoiceId = invoice.InvoiceId,
+            InvoiceCode = invoiceCode,
+            EventType = "InvoicePdfDeleted",
+            Direction = "Internal",
+            Status = "Deleted",
+            SourceSystem = "ShipNet",
+            TargetSystem = "ShipNet",
+            FileOriginalName = record.OriginalFileName,
+            FileStoredName = record.FileName,
+            FileSize = record.FileSize,
+            FileVersion = record.Version,
+            StartedAtUtc = completedAtUtc,
+            CompletedAtUtc = completedAtUtc,
+            DurationMs = 0,
+            CreatedBy = username
+        }, cancellationToken);
+    }
+
+    private async Task WritePdfReceiveCompletedLogAsync(
+        string eventType,
+        string status,
+        string invoiceCode,
+        InvoicePdfUploadRequest request,
+        InvoicePdfRecord record,
+        string originalFileName,
+        DateTime startedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var completedAtUtc = DateTime.UtcNow;
+        var sourceSystem = string.IsNullOrWhiteSpace(request.SourceSystem) ? "InvoiceGenerator" : request.SourceSystem.Trim();
+        await WriteIntegrationLogSafeAsync(new InvoiceIntegrationLogEntry
+        {
+            InvoiceId = record.InvoiceId,
+            InvoiceCode = invoiceCode,
+            TransactionCode = request.TransactionCode,
+            EventType = eventType,
+            Direction = "Inbound",
+            Status = status,
+            SourceSystem = sourceSystem,
+            TargetSystem = "ShipNet",
+            CorrelationId = request.ExternalReference,
+            FileOriginalName = FirstNotEmpty(originalFileName, record.OriginalFileName),
+            FileStoredName = record.FileName,
+            FileSize = record.FileSize,
+            FileVersion = record.Version,
+            StartedAtUtc = startedAtUtc,
+            CompletedAtUtc = completedAtUtc,
+            DurationMs = (long)(completedAtUtc - startedAtUtc).TotalMilliseconds,
+            CreatedBy = sourceSystem
+        }, cancellationToken);
+    }
+
+    private async Task WriteIntegrationLogSafeAsync(InvoiceIntegrationLogEntry entry, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(entry.InvoiceCode))
+        {
+            entry.InvoiceCode = "-";
+        }
+
+        try
+        {
+            await invoiceIntegrationLogService.WriteAsync(entry, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Cannot write invoice integration audit log. InvoiceCode={InvoiceCode}; EventType={EventType}.", entry.InvoiceCode, entry.EventType);
+        }
     }
 
     private void ValidateUploadRequest(string invoiceCode, IFormFile? file)
@@ -263,14 +405,14 @@ public sealed class InvoicePdfService(
         var extension = Path.GetExtension(file.FileName);
         if (!string.Equals(extension, ".pdf", StringComparison.OrdinalIgnoreCase))
         {
-            throw PdfError("invalid_pdf", "File không phải định dạng PDF hợp lệ.", "The uploaded file is not a valid PDF.", StatusCodes.Status415UnsupportedMediaType);
+            throw PdfError("invalid_extension", "File không phải định dạng PDF hợp lệ.", "The uploaded file is not a valid PDF.", StatusCodes.Status415UnsupportedMediaType);
         }
 
         var contentType = file.ContentType?.Trim() ?? string.Empty;
         if (!string.Equals(contentType, "application/pdf", StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(contentType, "application/octet-stream", StringComparison.OrdinalIgnoreCase))
         {
-            throw PdfError("invalid_pdf", "Content-Type của file không hợp lệ.", "The uploaded file content type is not valid for PDF.", StatusCodes.Status415UnsupportedMediaType);
+            throw PdfError("invalid_content_type", "Content-Type của file không hợp lệ.", "The uploaded file content type is not valid for PDF.", StatusCodes.Status415UnsupportedMediaType);
         }
     }
 
@@ -281,7 +423,7 @@ public sealed class InvoicePdfService(
         var read = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken);
         if (read < 5 || Encoding.ASCII.GetString(buffer) != "%PDF-")
         {
-            throw PdfError("invalid_pdf", "File không phải định dạng PDF hợp lệ.", "The uploaded file is not a valid PDF.", StatusCodes.Status415UnsupportedMediaType);
+            throw PdfError("invalid_pdf_signature", "File không phải định dạng PDF hợp lệ.", "The uploaded file is not a valid PDF.", StatusCodes.Status415UnsupportedMediaType);
         }
     }
 
@@ -321,6 +463,7 @@ public sealed class InvoicePdfService(
     {
         return new InvoicePdfUploadResult
         {
+            InvoiceId = record.InvoiceId,
             InvoiceCode = invoiceCode,
             FileName = record.FileName,
             FileSize = record.FileSize,
@@ -390,7 +533,7 @@ public sealed class InvoicePdfService(
                     i.[InvoiceNumber],
                     s.[TenantId],
                     s.[DeviceId],
-                    CONCAT(N'SHIPNET-INV-', YEAR(i.[CreatedAt]), N'-', RIGHT(N'00000' + CONVERT(nvarchar(20), ROW_NUMBER() OVER (PARTITION BY YEAR(i.[CreatedAt]) ORDER BY i.[CreatedAt], i.[ID])), 5)) AS [GeneratedInvoiceCode]
+                    i.[InvoiceNumber] AS [GeneratedInvoiceCode]
                 FROM [dbo].[TblSubscriptionInvoice] i
                 INNER JOIN [dbo].[TblMonthlySubscription] s ON s.[ID] = i.[SubscriptionId]
             )
@@ -603,6 +746,15 @@ public sealed class InvoicePdfService(
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    private static async Task<bool> TableExistsAsync(SqlConnection connection, string tableName, CancellationToken cancellationToken)
+    {
+        const string query = "SELECT CASE WHEN OBJECT_ID(@tableName, N'U') IS NULL THEN 0 ELSE 1 END;";
+        await using var command = new SqlCommand(query, connection);
+        command.Parameters.Add("@tableName", SqlDbType.NVarChar, 256).Value = $"dbo.{tableName}";
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result is not null && result != DBNull.Value && Convert.ToInt32(result, CultureInfo.InvariantCulture) == 1;
+    }
+
     private static InvoicePdfError PdfError(string errorCode, string message, string messageEn, int statusCode)
     {
         return new InvoicePdfError(errorCode, message, messageEn, statusCode);
@@ -612,6 +764,7 @@ public sealed class InvoicePdfService(
     private static long ReadLong(SqlDataReader reader, string name) => reader[name] == DBNull.Value ? 0 : Convert.ToInt64(reader[name], CultureInfo.InvariantCulture);
     private static string ReadText(SqlDataReader reader, string name) => reader[name]?.ToString() ?? string.Empty;
     private static DateTime? ReadDate(SqlDataReader reader, string name) => reader[name] == DBNull.Value ? null : Convert.ToDateTime(reader[name], CultureInfo.InvariantCulture);
+    private static string FirstNotEmpty(params string?[] values) => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? string.Empty;
 
     private sealed record InvoiceIdentity(int InvoiceId, int SubscriptionId, string InvoiceNumber, string GeneratedInvoiceCode, int TenantId, int DeviceId);
 }

@@ -91,8 +91,8 @@
           </select>
         </label>
         <label>
-          <span>Mã KIT / Kit ID</span>
-          <input name="kitId" value="@Model.Filter.KitId" placeholder="Tìm mã KIT / Search Kit ID" />
+          <span>KIT Number</span>
+          <input name="kitId" value="@Model.Filter.KitId" placeholder="Tìm KIT Number / Search KIT Number" />
         </label>
         <label>
           <span>Gói cước / Plan</span>
@@ -168,7 +168,7 @@
               }
               <th>Tenant / Tenant</th>
               <th>Tàu / Vessel</th>
-              <th>Mã KIT / Kit ID</th>
+              <th>KIT Number</th>
               <th>Tên gói / Plan Name</th>
               <th>Loại / Type</th>
               <th>Giới hạn data / Data Limit</th>
@@ -560,10 +560,26 @@
       if (calculation) calculation.textContent = "Chọn tàu, gói và ngày sử dụng để tính giá / Select vessel, plan, and usage dates to calculate pricing.";
       return;
     }
-    const days = Math.round((end - start) / 86400000) + 1;
     const price = Number(plan.FinalPrice ?? plan.finalPrice ?? 0);
-    const amount = price * days / 30;
-    if (calculation) calculation.textContent = `${money(amount)} = (${money(price)} / 30 days) x ${days} days`;
+    const result = calculateSubscriptionAmount(price, start, end);
+    if (calculation) calculation.textContent = result.isFullPeriod
+      ? `${money(result.amount)} = Full package / Trọn gói`
+      : `${money(result.amount)} = (${money(price)} / 30 days) x ${result.days} days`;
+  }
+
+  function calculateSubscriptionAmount(price, start, end) {
+    const days = Math.round((end - start) / 86400000) + 1;
+    const monthEnd = new Date(start.getFullYear(), start.getMonth() + 1, 0);
+    const daysInMonth = monthEnd.getDate();
+    const isMonthEnd = end.getFullYear() === monthEnd.getFullYear()
+      && end.getMonth() === monthEnd.getMonth()
+      && end.getDate() === monthEnd.getDate();
+    const isFullPeriod = isMonthEnd && (start.getDate() === 1 || (daysInMonth === 31 && start.getDate() === 2));
+    return {
+      days,
+      isFullPeriod,
+      amount: isFullPeriod ? price : price * days / 30
+    };
   }
 
   function applyMonthDefaults() {

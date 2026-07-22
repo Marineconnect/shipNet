@@ -34,8 +34,16 @@
     var defaultPdf = defaultInvoice?.PdfFile ?? new InvoicePdfFileViewModel { CanReplace = Model.CanManageSubscriptions };
     var showInvoiceRabbitMq = Configuration.GetValue("InvoiceRabbitMq:ShowInvoiceRabbitMQ", false);
     var billingDays = Math.Max(0, (Model.UpdateBillingForm.EndDate.Date - Model.UpdateBillingForm.StartDate.Date).Days + 1);
-    var billingAmount = Math.Round(Model.UpdateBillingForm.BasePlanPrice * billingDays / 30m, 2, MidpointRounding.AwayFromZero);
-    var billingFormula = $"{FormulaMoney(billingAmount)} = ({FormulaMoney(Model.UpdateBillingForm.BasePlanPrice)} / 30 days) x {billingDays} days";
+    var billingDaysInMonth = DateTime.DaysInMonth(Model.UpdateBillingForm.StartDate.Year, Model.UpdateBillingForm.StartDate.Month);
+    var billingMonthEnd = new DateTime(Model.UpdateBillingForm.StartDate.Year, Model.UpdateBillingForm.StartDate.Month, billingDaysInMonth);
+    var billingIsFullPeriod = Model.UpdateBillingForm.EndDate.Date == billingMonthEnd.Date &&
+        (Model.UpdateBillingForm.StartDate.Day == 1 || (billingDaysInMonth == 31 && Model.UpdateBillingForm.StartDate.Day == 2));
+    var billingAmount = billingIsFullPeriod
+        ? Model.UpdateBillingForm.BasePlanPrice
+        : Math.Round(Model.UpdateBillingForm.BasePlanPrice * billingDays / 30m, 2, MidpointRounding.AwayFromZero);
+    var billingFormula = billingIsFullPeriod
+        ? $"{FormulaMoney(billingAmount)} = Full package / Trọn gói"
+        : $"{FormulaMoney(billingAmount)} = ({FormulaMoney(Model.UpdateBillingForm.BasePlanPrice)} / 30 days) x {billingDays} days";
 }
 
 <div class="device-page">
@@ -73,7 +81,7 @@
         <table class="subscription-kv-table">
           <tbody>
             <tr><th>Tàu / Vessel</th><td>@Model.Subscription.VesselName</td><th>Tenant / Tenant</th><td>@Model.Subscription.TenantName</td></tr>
-            <tr><th>Mã KIT / Kit ID</th><td>@Model.Subscription.KitId</td><th>Gói / Plan</th><td>@Model.Subscription.PlanName</td></tr>
+            <tr><th>KIT Number</th><td>@Model.Subscription.KitId</td><th>Gói / Plan</th><td>@Model.Subscription.PlanName</td></tr>
             <tr><th>Loại / Type</th><td>@Model.Subscription.SubscriptionType</td><th>Kỳ billing / Billing Period</th><td>@Model.Subscription.SubscriptionPeriodDisplay</td></tr>
             <tr><th>Giới hạn data / Data Limit</th><td>@Data(Model.Subscription.DataLimitGb)</td><th>Ngày billing tiếp theo / Next Billing Date</th><td>@Model.Subscription.NextBillingDateDisplay</td></tr>
             <tr><th>Đơn giá / Unit Price</th><td>@Money(Model.Subscription.BasePlanPrice)</td><th>Giá overcharge / Overcharge Price</th><td>@Money(Model.Subscription.OverChargePrice) / GB</td></tr>
@@ -259,6 +267,37 @@
           </div>
           <div class="tenant-feedback" id="invoicePdfMessage" hidden></div>
         </div>
+        <div class="invoice-integration-panel" id="invoiceIntegrationPanel">
+          <div class="invoice-pdf-head">
+            <div>
+              <h3>Lịch sử tích hợp / Integration Logs</h3>
+              <p id="invoiceIntegrationMeta">Theo dõi RabbitMQ và PDF upload cho invoice đang chọn / RabbitMQ and PDF upload timeline for the selected invoice.</p>
+            </div>
+            <button type="button" class="btn-secondary" id="reloadIntegrationLogsButton">Tải lại / Reload</button>
+          </div>
+          <div class="invoice-integration-scroll">
+            <table class="device-table invoice-integration-table">
+              <thead>
+                <tr>
+                  <th>Thời gian / Time</th>
+                  <th>Sự kiện / Event</th>
+                  <th>Trạng thái / Status</th>
+                  <th>Nguồn / Source</th>
+                  <th>Message / Correlation</th>
+                  <th>File</th>
+                  <th>Lỗi / Error</th>
+                  <th>JSON</th>
+                </tr>
+              </thead>
+              <tbody id="invoiceIntegrationLogsBody">
+                <tr><td colspan="8" class="tenant-empty">Đang tải lịch sử tích hợp... / Loading integration logs...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="invoice-integration-actions">
+            <button type="button" class="btn-secondary" id="loadMoreIntegrationLogsButton" hidden>Tải thêm / Load more</button>
+          </div>
+        </div>
       </section>
     </div>
 
@@ -420,6 +459,26 @@
       </div>
       }
     </section>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="invoiceIntegrationJsonModal" hidden>
+  <div class="device-modal subscription-modal invoice-json-modal" role="dialog" aria-modal="true" aria-labelledby="invoiceIntegrationJsonTitle">
+    <div class="device-modal-head">
+      <div>
+        <h2 id="invoiceIntegrationJsonTitle">Payload JSON</h2>
+        <p id="invoiceIntegrationJsonSubtitle">-</p>
+      </div>
+      <button type="button" class="modal-close" id="closeInvoiceIntegrationJson" aria-label="Đóng / Close">×</button>
+    </div>
+    <div class="invoice-json-body">
+      <pre><code id="invoiceIntegrationJsonCode">-</code></pre>
+    </div>
+    <div class="tenant-feedback" id="invoiceIntegrationJsonMessage" hidden></div>
+    <div class="device-modal-actions">
+      <button type="button" class="btn-secondary" id="copyInvoiceIntegrationJson">Sao chép JSON / Copy JSON</button>
+      <button type="button" class="btn-primary" id="closeInvoiceIntegrationJsonAction">Đóng / Close</button>
+    </div>
   </div>
 </div>
 
@@ -688,6 +747,18 @@
     openNewTab: document.querySelector("#openInvoicePdfNewTab"),
     viewerDownload: document.querySelector("#downloadInvoicePdfViewer")
   };
+  const integrationLogs = {
+    body: document.querySelector("#invoiceIntegrationLogsBody"),
+    meta: document.querySelector("#invoiceIntegrationMeta"),
+    reloadButton: document.querySelector("#reloadIntegrationLogsButton"),
+    loadMoreButton: document.querySelector("#loadMoreIntegrationLogsButton"),
+    jsonModal: document.querySelector("#invoiceIntegrationJsonModal"),
+    jsonSubtitle: document.querySelector("#invoiceIntegrationJsonSubtitle"),
+    jsonCode: document.querySelector("#invoiceIntegrationJsonCode"),
+    jsonMessage: document.querySelector("#invoiceIntegrationJsonMessage"),
+    copyJson: document.querySelector("#copyInvoiceIntegrationJson")
+  };
+  let integrationLogState = { invoiceCode: "", page: 1, loading: false, hasMore: false };
   const qrHistoryRows = Array.from(document.querySelectorAll(".invoice-qr-session-row"));
   const qrHistoryEmptyRow = document.querySelector(".invoice-qr-empty-row");
   const qrHistoryMeta = document.querySelector("#invoiceQrHistoryMeta");
@@ -853,11 +924,27 @@
       target.innerHTML = `<span class="subscription-calculation-label">Tổng subscription / Subscription amount</span><span>Kỳ billing không hợp lệ / Invalid billing period.</span>`;
       return;
     }
-    const days = Math.round((endDate - startDate) / 86400000) + 1;
-    const amount = price * days / 30;
-    const formula = `${formatUsd(amount)} = (${formatUsd(price)} / 30 days) x ${days} days`;
+    const result = calculateSubscriptionAmount(price, startDate, endDate);
+    const amount = result.amount;
+    const formula = result.isFullPeriod
+      ? `${formatUsd(amount)} = Full package / Trọn gói`
+      : `${formatUsd(amount)} = (${formatUsd(price)} / 30 days) x ${result.days} days`;
     target.innerHTML = `<span class="subscription-calculation-label">Tổng subscription / Subscription amount</span><strong>${formatUsd(amount)}</strong><span class="subscription-calculation-formula">${formula}</span>`;
     target.title = formula;
+  }
+  function calculateSubscriptionAmount(price, start, end) {
+    const days = Math.round((end - start) / 86400000) + 1;
+    const monthEnd = new Date(start.getFullYear(), start.getMonth() + 1, 0);
+    const daysInMonth = monthEnd.getDate();
+    const isMonthEnd = end.getFullYear() === monthEnd.getFullYear()
+      && end.getMonth() === monthEnd.getMonth()
+      && end.getDate() === monthEnd.getDate();
+    const isFullPeriod = isMonthEnd && (start.getDate() === 1 || (daysInMonth === 31 && start.getDate() === 2));
+    return {
+      days,
+      isFullPeriod,
+      amount: isFullPeriod ? price : price * days / 30
+    };
   }
   ["#Billing_StartDate", "#Billing_EndDate", "#Billing_BasePlanPrice"].forEach((selector) => {
     document.querySelector(selector)?.addEventListener("input", () => {
@@ -1207,6 +1294,125 @@
     }
     return `${value.toLocaleString("en-US", { maximumFractionDigits: 2 })} ${units[unit]}`;
   }
+  function setIntegrationEmpty(message) {
+    if (!integrationLogs.body) return;
+    integrationLogs.body.innerHTML = "";
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 8;
+    cell.className = "tenant-empty";
+    cell.textContent = message;
+    row.appendChild(cell);
+    integrationLogs.body.appendChild(row);
+  }
+  function renderIntegrationLogItems(items, append) {
+    if (!integrationLogs.body) return;
+    if (!append) integrationLogs.body.innerHTML = "";
+    if (!items.length && !append) {
+      setIntegrationEmpty("Chưa có lịch sử tích hợp / No integration logs yet.");
+      return;
+    }
+    items.forEach((item) => {
+      const row = document.createElement("tr");
+      const sourceTarget = [item.sourceSystem || "-", item.targetSystem || "-"].join(" → ");
+      const messageParts = [];
+      if (item.messageId) messageParts.push(`Msg: ${item.messageId}`);
+      if (item.correlationId) messageParts.push(`Corr: ${item.correlationId}`);
+      const fileParts = [];
+      if (item.fileName) fileParts.push(item.fileName);
+      if (item.fileSizeDisplay) fileParts.push(item.fileSizeDisplay);
+      if (item.fileVersion) fileParts.push(`v${item.fileVersion}`);
+      const errorParts = [];
+      if (item.errorCode) errorParts.push(item.errorCode);
+      if (item.errorMessage) errorParts.push(item.errorMessage);
+      [
+        item.createdAtDisplay || "-",
+        `${item.eventType || "-"} / ${item.direction || "-"}`,
+        item.status || "-",
+        sourceTarget,
+        messageParts.join("\n") || "-",
+        fileParts.join("\n") || "-",
+        errorParts.join("\n") || "-"
+      ].forEach((text) => {
+        const cell = document.createElement("td");
+        cell.textContent = text;
+        row.appendChild(cell);
+      });
+      const jsonCell = document.createElement("td");
+      if (item.hasPayload) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "btn-secondary";
+        button.textContent = "Xem JSON";
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          openIntegrationJson(item.id, item.createdAtDisplay || "");
+        });
+        jsonCell.appendChild(button);
+      } else {
+        jsonCell.textContent = "-";
+      }
+      row.appendChild(jsonCell);
+      integrationLogs.body.appendChild(row);
+    });
+  }
+  async function loadIntegrationLogs(reset = true) {
+    const row = document.querySelector(".invoice-row.is-selected");
+    const invoiceCode = row?.dataset.invoiceNumber || "";
+    if (!invoiceCode || integrationLogState.loading) return;
+    integrationLogState.loading = true;
+    if (reset) {
+      integrationLogState = { invoiceCode, page: 1, loading: true, hasMore: false };
+      setIntegrationEmpty("Đang tải lịch sử tích hợp... / Loading integration logs...");
+    }
+    if (integrationLogs.loadMoreButton) integrationLogs.loadMoreButton.hidden = true;
+    try {
+      const url = `/api/invoices/${encodeURIComponent(invoiceCode)}/integration-logs?page=${integrationLogState.page}&pageSize=20`;
+      const response = await fetch(url, { headers: { "Accept": "application/json" } });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.success === false) {
+        const detail = payload.message || payload.messageEn || payload.errorCode || `HTTP ${response.status}`;
+        throw new Error(detail || "Cannot load integration logs.");
+      }
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      renderIntegrationLogItems(items, !reset);
+      integrationLogState.hasMore = items.length === 20;
+      if (integrationLogs.loadMoreButton) integrationLogs.loadMoreButton.hidden = !integrationLogState.hasMore;
+      if (integrationLogs.meta) integrationLogs.meta.textContent = `Invoice ${invoiceCode} • ${items.length}${reset ? "" : "+"} log(s) loaded`;
+    } catch (error) {
+      setIntegrationEmpty(error.message || "Không thể tải lịch sử tích hợp / Cannot load integration logs.");
+    } finally {
+      integrationLogState.loading = false;
+    }
+  }
+  async function openIntegrationJson(logId, createdAtDisplay) {
+    const invoiceCode = integrationLogState.invoiceCode || document.querySelector(".invoice-row.is-selected")?.dataset.invoiceNumber || "";
+    if (!invoiceCode || !logId) return;
+    if (integrationLogs.jsonModal) integrationLogs.jsonModal.hidden = false;
+    if (integrationLogs.jsonSubtitle) integrationLogs.jsonSubtitle.textContent = createdAtDisplay || "-";
+    if (integrationLogs.jsonCode) integrationLogs.jsonCode.textContent = "Loading...";
+    if (integrationLogs.jsonMessage) integrationLogs.jsonMessage.hidden = true;
+    try {
+      const response = await fetch(`/api/invoices/${encodeURIComponent(invoiceCode)}/integration-logs/${encodeURIComponent(logId)}`, { headers: { "Accept": "application/json" } });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.success === false) {
+        const detail = payload.message || payload.messageEn || payload.errorCode || `HTTP ${response.status}`;
+        throw new Error(detail || "Cannot load JSON payload.");
+      }
+      const raw = payload.payloadJson || "";
+      try {
+        integrationLogs.jsonCode.textContent = JSON.stringify(JSON.parse(raw), null, 2);
+      } catch {
+        integrationLogs.jsonCode.textContent = raw || "-";
+      }
+      if (payload.payloadTruncated && integrationLogs.jsonMessage) {
+        integrationLogs.jsonMessage.textContent = "Payload đã được rút gọn theo cấu hình hiển thị / Payload was truncated by display settings.";
+        integrationLogs.jsonMessage.hidden = false;
+      }
+    } catch (error) {
+      if (integrationLogs.jsonCode) integrationLogs.jsonCode.textContent = error.message || "Cannot load JSON payload.";
+    }
+  }
   qrHistoryToggle?.addEventListener("click", () => {
     const willExpand = qrHistoryBody?.hidden === true;
     if (qrHistoryBody) qrHistoryBody.hidden = !willExpand;
@@ -1237,6 +1443,7 @@
     syncMakeQrButton(row);
     syncQrHistory(row);
     syncPdfPanel(row);
+    loadIntegrationLogs(true);
   }
   document.querySelectorAll(".invoice-row").forEach((row) => {
     row.addEventListener("click", (event) => {
@@ -1304,6 +1511,7 @@
       }
       applyPdfResultToRow(row, payload.pdfFile);
       setPdfMessage("Upload PDF thành công / PDF uploaded successfully.", "is-success");
+      loadIntegrationLogs(true);
     } catch (error) {
       setPdfMessage(error.message || "Không thể upload PDF / Cannot upload PDF.", "is-error");
     } finally {
@@ -1329,6 +1537,7 @@
       }
       clearPdfFromRow(row);
       setPdfMessage("Đã xóa PDF / PDF deleted.", "is-success");
+      loadIntegrationLogs(true);
     } catch (error) {
       setPdfMessage(error.message || "Không thể xóa PDF / Cannot delete PDF.", "is-error");
     } finally {
@@ -1448,6 +1657,7 @@
         qrError.classList.toggle("is-error", !payload.success);
         qrError.hidden = false;
       }
+      loadIntegrationLogs(true);
     } catch (error) {
       if (invoiceRabbitMqLog) invoiceRabbitMqLog.textContent = error.message || "Invoice RabbitMQ failed.";
       if (qrError) {
@@ -1463,6 +1673,21 @@
   });
   copyInvoiceRabbitMqPayload?.addEventListener("click", async () => {
     const value = invoiceRabbitMqPayload?.textContent || "";
+    if (value && value !== "-") await navigator.clipboard.writeText(value);
+  });
+  integrationLogs.reloadButton?.addEventListener("click", () => loadIntegrationLogs(true));
+  integrationLogs.loadMoreButton?.addEventListener("click", () => {
+    integrationLogState.page += 1;
+    loadIntegrationLogs(false);
+  });
+  document.querySelector("#closeInvoiceIntegrationJson")?.addEventListener("click", () => {
+    if (integrationLogs.jsonModal) integrationLogs.jsonModal.hidden = true;
+  });
+  document.querySelector("#closeInvoiceIntegrationJsonAction")?.addEventListener("click", () => {
+    if (integrationLogs.jsonModal) integrationLogs.jsonModal.hidden = true;
+  });
+  integrationLogs.copyJson?.addEventListener("click", async () => {
+    const value = integrationLogs.jsonCode?.textContent || "";
     if (value && value !== "-") await navigator.clipboard.writeText(value);
   });
   sampleFields.close?.addEventListener("click", closeSampleModal);
@@ -1517,6 +1742,7 @@
   syncInvoiceEditLock(selectedRow);
   syncMakeQrButton(selectedRow);
   syncQrHistory(selectedRow);
+  loadIntegrationLogs(true);
 })();
 </script>
 }

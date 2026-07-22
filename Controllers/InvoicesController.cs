@@ -13,11 +13,14 @@ namespace StarlinkDeviceManager.Controllers;
 [Route("api/invoices")]
 public sealed class InvoicesController(
     IInvoicePdfService invoicePdfService,
+    IInvoiceIntegrationLogService invoiceIntegrationLogService,
     ISqlAuthService authService,
     IOptions<InvoicePdfIntegrationOptions> integrationOptions,
+    IOptions<InvoiceIntegrationLogOptions> logOptions,
     ILogger<InvoicesController> logger) : ControllerBase
 {
     private readonly InvoicePdfIntegrationOptions integration = integrationOptions.Value;
+    private readonly InvoiceIntegrationLogOptions integrationLogOptions = logOptions.Value;
 
     [HttpPost("{invoiceCode}/pdf")]
     [RequestSizeLimit(250_000_000)]
@@ -88,6 +91,98 @@ public sealed class InvoicesController(
         }
     }
 
+    [Authorize]
+    [HttpGet("{invoiceCode}/integration-logs")]
+    public async Task<IActionResult> GetIntegrationLogs(string invoiceCode, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] string eventType = "")
+    {
+        var user = await GetCurrentUserAsync();
+        if (user is null)
+        {
+            return Unauthorized();
+        }
+
+        try
+        {
+            var items = await invoiceIntegrationLogService.GetLogsAsync(
+                invoiceCode,
+                page,
+                pageSize,
+                eventType,
+                GetAllowedTenantId(user),
+                GetAllowedDeviceId(user),
+                HttpContext.RequestAborted);
+
+            return Ok(new { success = true, items });
+        }
+        catch (InvoicePdfError error)
+        {
+            return Error(error);
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Failed to load invoice integration logs. InvoiceCode={InvoiceCode}.", invoiceCode);
+            return StatusCode(StatusCodes.Status500InternalServerError, ErrorBody(
+                "integration_log_load_failed",
+                $"Khong the tai lich su tich hop. Chi tiet: {exception.GetBaseException().Message}",
+                $"Cannot load integration logs. Detail: {exception.GetBaseException().Message}"));
+        }
+    }
+
+    [Authorize]
+    [HttpGet("{invoiceCode}/integration-logs/{logId:long}")]
+    public async Task<IActionResult> GetIntegrationLogDetail(string invoiceCode, long logId)
+    {
+        var user = await GetCurrentUserAsync();
+        if (user is null)
+        {
+            return Unauthorized();
+        }
+
+        try
+        {
+            var entry = await invoiceIntegrationLogService.GetLogDetailAsync(
+                invoiceCode,
+                logId,
+                GetAllowedTenantId(user),
+                GetAllowedDeviceId(user),
+                HttpContext.RequestAborted);
+            if (entry is null)
+            {
+                return NotFound(ErrorBody("log_not_found", "Không tìm thấy log tích hợp.", "Integration log was not found."));
+            }
+
+            var maxLength = Math.Clamp(integrationLogOptions.MaxPayloadDisplayLength <= 0 ? 200000 : integrationLogOptions.MaxPayloadDisplayLength, 1000, 2_000_000);
+            var payload = entry.PayloadJson ?? string.Empty;
+            var truncated = payload.Length > maxLength;
+            if (truncated)
+            {
+                payload = payload[..maxLength];
+            }
+
+            entry.PayloadJson = string.Empty;
+
+            return Ok(new
+            {
+                success = true,
+                log = entry,
+                payloadJson = payload,
+                payloadTruncated = truncated
+            });
+        }
+        catch (InvoicePdfError error)
+        {
+            return Error(error);
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Failed to load invoice integration log detail. InvoiceCode={InvoiceCode}; LogId={LogId}.", invoiceCode, logId);
+            return StatusCode(StatusCodes.Status500InternalServerError, ErrorBody(
+                "integration_log_detail_load_failed",
+                $"Khong the tai JSON log tich hop. Chi tiet: {exception.GetBaseException().Message}",
+                $"Cannot load integration log JSON. Detail: {exception.GetBaseException().Message}"));
+        }
+    }
+
     private IActionResult? ValidateApiKey()
     {
         var headerName = string.IsNullOrWhiteSpace(integration.HeaderName)
@@ -102,6 +197,7 @@ public sealed class InvoicesController(
 
         if (!Request.Headers.TryGetValue(headerName, out var providedValues) || string.IsNullOrWhiteSpace(providedValues.FirstOrDefault()))
         {
+            logger.LogWarning("Invoice PDF upload rejected because API key is missing.");
             return Unauthorized(ErrorBody("missing_api_key", "Thiếu API key.", "API key is required."));
         }
 
@@ -110,6 +206,7 @@ public sealed class InvoicesController(
         var providedBytes = Encoding.UTF8.GetBytes(providedKey);
         if (configuredBytes.Length != providedBytes.Length || !CryptographicOperations.FixedTimeEquals(configuredBytes, providedBytes))
         {
+            logger.LogWarning("Invoice PDF upload rejected because API key is invalid.");
             return StatusCode(StatusCodes.Status403Forbidden, ErrorBody("invalid_api_key", "API key không hợp lệ.", "API key is invalid."));
         }
 

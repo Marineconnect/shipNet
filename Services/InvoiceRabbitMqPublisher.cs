@@ -33,7 +33,7 @@ public class InvoiceRabbitMqPublisher(
     public async Task<InvoiceRabbitMqPublishResult> PublishInvoiceAsync(InvoiceRabbitMqPublishRequest request, CancellationToken cancellationToken = default)
     {
         var result = new InvoiceRabbitMqPublishResult();
-        var messageId = Guid.NewGuid().ToString();
+        var messageId = string.IsNullOrWhiteSpace(request.MessageId) ? Guid.NewGuid().ToString() : request.MessageId.Trim();
 
         void AddLog(string message)
         {
@@ -49,13 +49,14 @@ public class InvoiceRabbitMqPublisher(
             var payload = JsonSerializer.Serialize(jsonDocument.RootElement, EventJsonOptions);
             var settings = ResolveSettings();
             var routingKey = ResolveRoutingKey(settings, request.RoutingKeyOverride);
+            var correlationId = string.IsNullOrWhiteSpace(request.CorrelationId) ? messageId : request.CorrelationId.Trim();
 
             AddLog($"STEP 2 - Publish raw invoice JSON. Host={settings.HostName}:{settings.Port}; VHost={settings.VirtualHost}; Queue={settings.QueueName}; RoutingKey={routingKey}; MessageId={messageId}.");
             await PublishPayloadWithRetryAsync(
                 settings,
                 payload,
                 messageId,
-                messageId,
+                correlationId,
                 routingKey,
                 request.Username,
                 request.UserId,
@@ -64,6 +65,10 @@ public class InvoiceRabbitMqPublisher(
 
             result.Success = true;
             result.MessageId = messageId;
+            result.CorrelationId = correlationId;
+            result.ExchangeName = settings.ExchangeName?.Trim() ?? string.Empty;
+            result.RoutingKey = routingKey;
+            result.QueueName = settings.QueueName?.Trim() ?? string.Empty;
             result.Message = $"Published invoice test message successfully. MessageId={messageId}.";
             AddLog(result.Message);
         }

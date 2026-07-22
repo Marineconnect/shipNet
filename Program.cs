@@ -71,8 +71,10 @@ builder.Services.AddScoped<ITelegramNotificationService, TelegramNotificationSer
 builder.Services.AddScoped<IKitExportService, KitExportService>();
 builder.Services.Configure<InvoicePdfIntegrationOptions>(builder.Configuration.GetSection(InvoicePdfIntegrationOptions.SectionName));
 builder.Services.Configure<InvoicePdfStorageOptions>(builder.Configuration.GetSection(InvoicePdfStorageOptions.SectionName));
+builder.Services.Configure<InvoiceIntegrationLogOptions>(builder.Configuration.GetSection(InvoiceIntegrationLogOptions.SectionName));
 builder.Services.AddScoped<IInvoicePdfStorage, LocalInvoicePdfStorage>();
 builder.Services.AddScoped<IInvoicePdfService, InvoicePdfService>();
+builder.Services.AddScoped<IInvoiceIntegrationLogService, InvoiceIntegrationLogService>();
 builder.Services.Configure<InvoiceRabbitMqOptions>(builder.Configuration.GetSection(InvoiceRabbitMqOptions.SectionName));
 builder.Services.AddSingleton<IInvoiceRabbitMqPublisher, InvoiceRabbitMqPublisher>();
 
@@ -100,6 +102,7 @@ app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.MapControllers();
 app.MapControllerRoute(
     name: "default",
     pattern: "{controller=Dashboard}/{action=Index}/{id?}");
