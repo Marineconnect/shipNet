@@ -69,6 +69,10 @@ builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
 builder.Services.AddScoped<IPaymentTransactionService, PaymentTransactionService>();
 builder.Services.AddScoped<ITelegramNotificationService, TelegramNotificationService>();
 builder.Services.AddScoped<IKitExportService, KitExportService>();
+builder.Services.Configure<InvoicePdfIntegrationOptions>(builder.Configuration.GetSection(InvoicePdfIntegrationOptions.SectionName));
+builder.Services.Configure<InvoicePdfStorageOptions>(builder.Configuration.GetSection(InvoicePdfStorageOptions.SectionName));
+builder.Services.AddScoped<IInvoicePdfStorage, LocalInvoicePdfStorage>();
+builder.Services.AddScoped<IInvoicePdfService, InvoicePdfService>();
 builder.Services.Configure<InvoiceRabbitMqOptions>(builder.Configuration.GetSection(InvoiceRabbitMqOptions.SectionName));
 builder.Services.AddSingleton<IInvoiceRabbitMqPublisher, InvoiceRabbitMqPublisher>();
 

@@ -127,6 +127,7 @@ public class SubscriptionInvoiceViewModel
     public DateTime CreatedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public bool IsPaidByBankTransfer { get; set; }
+    public InvoicePdfFileViewModel PdfFile { get; set; } = new();
 }
 
 public class NinePayQrSessionHistoryViewModel

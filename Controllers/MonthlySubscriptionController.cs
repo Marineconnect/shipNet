@@ -9,6 +9,7 @@ namespace StarlinkDeviceManager.Controllers;
 [Authorize]
 public class MonthlySubscriptionController(
     IMonthlySubscriptionService subscriptionService,
+    IInvoicePdfService invoicePdfService,
     ITenantService tenantService,
     ISqlAuthService authService,
     ILogger<MonthlySubscriptionController> logger) : Controller
@@ -146,7 +147,85 @@ public class MonthlySubscriptionController(
 
         detail.CanManageSubscriptions = CanManageSubscriptions(currentUser);
         detail.CanViewQrSessions = CanViewQrSessions(currentUser);
+        var pdfFiles = await invoicePdfService.GetCurrentFilesForSubscriptionAsync(detail.Subscription.Id, detail.CanManageSubscriptions, detail.CanManageSubscriptions, HttpContext.RequestAborted);
+        foreach (var invoice in detail.Invoices)
+        {
+            invoice.PdfFile = pdfFiles.GetValueOrDefault(invoice.Id) ?? new InvoicePdfFileViewModel
+            {
+                Available = false,
+                CanReplace = detail.CanManageSubscriptions,
+                CanDelete = false
+            };
+        }
         return View(DetailViewPath, detail);
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> UploadInvoicePdf(int subscriptionId, string invoiceCode, IFormFile? file)
+    {
+        var currentUser = await GetCurrentUserAsync();
+        if (!CanManageSubscriptions(currentUser))
+        {
+            return Forbid();
+        }
+
+        try
+        {
+            var (userId, username) = GetCurrentAuditContext();
+            var result = await invoicePdfService.UploadAsync(new InvoicePdfUploadRequest
+            {
+                InvoiceCode = invoiceCode,
+                File = file,
+                SourceSystem = "ShipNet",
+                UploadedByUserId = userId,
+                UploadedBy = username,
+                AllowedTenantId = GetAllowedTenantId(currentUser),
+                AllowedDeviceId = GetAllowedDeviceId(currentUser)
+            }, HttpContext.RequestAborted);
+
+            return Json(new { success = true, pdfFile = result });
+        }
+        catch (InvoicePdfError error)
+        {
+            Response.StatusCode = error.StatusCode;
+            return Json(new { success = false, errorCode = error.ErrorCode, message = error.Message, messageEn = error.MessageEn });
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Failed to upload invoice PDF. InvoiceCode={InvoiceCode}.", invoiceCode);
+            Response.StatusCode = StatusCodes.Status500InternalServerError;
+            return Json(new { success = false, errorCode = "storage_error", message = "Không thể lưu file PDF.", messageEn = "Cannot save the PDF file." });
+        }
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteInvoicePdf(int subscriptionId, string invoiceCode)
+    {
+        var currentUser = await GetCurrentUserAsync();
+        if (!CanManageSubscriptions(currentUser))
+        {
+            return Forbid();
+        }
+
+        try
+        {
+            var (userId, username) = GetCurrentAuditContext();
+            await invoicePdfService.DeleteAsync(invoiceCode, userId, username, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            return Json(new { success = true });
+        }
+        catch (InvoicePdfError error)
+        {
+            Response.StatusCode = error.StatusCode;
+            return Json(new { success = false, errorCode = error.ErrorCode, message = error.Message, messageEn = error.MessageEn });
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Failed to delete invoice PDF. InvoiceCode={InvoiceCode}.", invoiceCode);
+            Response.StatusCode = StatusCodes.Status500InternalServerError;
+            return Json(new { success = false, errorCode = "delete_failed", message = "Không thể xóa file PDF.", messageEn = "Cannot delete the PDF file." });
+        }
     }
 
     [HttpPost]

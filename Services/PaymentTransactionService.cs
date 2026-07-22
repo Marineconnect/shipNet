@@ -16,6 +16,7 @@ public class PaymentTransactionService(
     IHttpClientFactory httpClientFactory,
     ITelegramNotificationService telegramNotificationService,
     IInvoiceRabbitMqPublisher invoiceRabbitMqPublisher,
+    IInvoicePdfService invoicePdfService,
     ILogger<PaymentTransactionService> logger) : IPaymentTransactionService
 {
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")
@@ -653,7 +654,8 @@ public class PaymentTransactionService(
         var poNumber = FirstNotEmpty(invoiceSettings.GetValueOrDefault("invoice_po_number"), configuration["InvoicePdf:PONumber"], configuration["InvoicePdf:PO_Number"]);
 
         AddLog($"STEP 2 - Build invoice PDF JSON. Invoice={context.InvoiceNumber}; InvoiceCode={generatedInvoiceCode}; Email={FirstNotEmpty(resolvedEmail, "-")}; Company={InvoicePdfSetting("CompanyName", "MLTECH MARINE CONNECT PTE LTD")}; TransactionCode={resolvedTransactionCode}; KitNumber={kitNumber}; AmountVnd={amountVnd:#,##0.##}.");
-        var payload = BuildInvoicePdfPayloadJson(context, bank, resolvedTransactionCode, resolvedPaymentTime, resolvedOperatorName, kitNumber, amountVnd, poNumber);
+        var invoiceUrl = invoicePdfService.BuildUploadUrl(generatedInvoiceCode);
+        var payload = BuildInvoicePdfPayloadJson(context, bank, resolvedTransactionCode, resolvedPaymentTime, resolvedOperatorName, kitNumber, amountVnd, poNumber, invoiceUrl);
         AddLog($"STEP 3 - Payload built. Size={Encoding.UTF8.GetByteCount(payload)} bytes.");
 
         var publishResult = await invoiceRabbitMqPublisher.PublishInvoiceAsync(new InvoiceRabbitMqPublishRequest
@@ -829,7 +831,8 @@ public class PaymentTransactionService(
         string operatorName,
         string kitNumber,
         decimal amountVnd,
-        string poNumber)
+        string poNumber,
+        string invoiceUrl)
     {
         var startDate = context.StartDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? string.Empty;
         var endDate = context.EndDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? string.Empty;
@@ -847,6 +850,7 @@ public class PaymentTransactionService(
             paymentTime = FormatIsoUtc(paymentTime),
             operatorName,
             email = EmptyToNull(email),
+            InvoiceURL = invoiceUrl,
             invoiceParams = new
             {
                 LogoUrl = InvoicePdfSetting("LogoUrl", string.Empty),
