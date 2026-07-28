@@ -147,13 +147,16 @@ public class MonthlySubscriptionController(
 
         detail.CanManageSubscriptions = CanManageSubscriptions(currentUser);
         detail.CanViewQrSessions = CanViewQrSessions(currentUser);
-        var pdfFiles = await invoicePdfService.GetCurrentFilesForSubscriptionAsync(detail.Subscription.Id, detail.CanManageSubscriptions, detail.CanManageSubscriptions, HttpContext.RequestAborted);
+        detail.CanViewIntegrationLogs = CanViewIntegrationLogs(currentUser);
+        var pdfFiles = detail.CanViewIntegrationLogs
+            ? await invoicePdfService.GetCurrentFilesForSubscriptionAsync(detail.Subscription.Id, false, false, HttpContext.RequestAborted)
+            : [];
         foreach (var invoice in detail.Invoices)
         {
             invoice.PdfFile = pdfFiles.GetValueOrDefault(invoice.Id) ?? new InvoicePdfFileViewModel
             {
                 Available = false,
-                CanReplace = detail.CanManageSubscriptions,
+                CanReplace = false,
                 CanDelete = false
             };
         }
@@ -359,6 +362,11 @@ public class MonthlySubscriptionController(
     }
 
     private static bool CanViewQrSessions(AuthUserRecord? user)
+    {
+        return string.Equals(user?.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool CanViewIntegrationLogs(AuthUserRecord? user)
     {
         return string.Equals(user?.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
     }

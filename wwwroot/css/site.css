@@ -1286,6 +1286,14 @@ body::before{
   justify-content:flex-end;
   margin-top:12px;
 }
+.invoice-integration-modal{
+  width:min(1180px, calc(100vw - 32px));
+}
+.invoice-integration-modal .invoice-integration-panel{
+  margin-top:0;
+  padding-top:0;
+  border-top:0;
+}
 .invoice-json-modal{
   width:min(960px, calc(100vw - 32px));
 }

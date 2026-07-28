@@ -644,15 +644,15 @@ public class PaymentTransactionService(
         var bank = ExtractNinePayBankInfo(context.ProviderResponseJson, context.BankAccountNo, context.TransferContent);
         var resolvedTransactionCode = FirstNotEmpty(transactionCode, context.IpnPaymentNo, context.ProviderPaymentNo, context.ReceiptNumber, $"INVOICE-{invoiceId}");
         var resolvedPaymentTime = paymentTime ?? context.CompletedAt ?? context.IpnReceivedAt ?? context.LatestTransactionAt ?? DateTime.UtcNow;
-        var resolvedOperatorName = FirstNotEmpty(operatorName, context.UpdatedBy, context.CreatedBy, "system");
+        var resolvedOperatorName = FirstNotEmpty(context.OwnerName, operatorName, context.UpdatedBy, context.CreatedBy, "system");
         var kitNumber = FirstNotEmpty(context.KitNumber, context.KitId);
         var amountVnd = context.InvoiceAmountVnd > 0
             ? context.InvoiceAmountVnd
             : context.TransactionAmountVnd;
         var generatedInvoiceCode = BuildShipNetInvoiceCode(context);
-        var resolvedEmail = FirstNotEmpty(context.TenantEmail, configuration["InvoicePdf:CustomerEmail"], configuration["InvoicePdf:DefaultEmail"]);
+        var resolvedEmail = FirstNotEmpty(context.OwnerEmail, context.TenantEmail, configuration["InvoicePdf:CustomerEmail"], configuration["InvoicePdf:DefaultEmail"]);
         var invoiceSettings = await systemSettingsService.GetSettingsByCodesAsync(["invoice_po_number"], cancellationToken);
-        var poNumber = FirstNotEmpty(context.PoNumber, invoiceSettings.GetValueOrDefault("invoice_po_number"), configuration["InvoicePdf:PONumber"], configuration["InvoicePdf:PO_Number"]);
+        var poNumber = FirstNotEmpty(invoiceSettings.GetValueOrDefault("invoice_po_number"), configuration["InvoicePdf:PONumber"], configuration["InvoicePdf:PO_Number"]);
 
         AddLog($"STEP 2 - Build invoice PDF JSON. Invoice={context.InvoiceNumber}; InvoiceCode={generatedInvoiceCode}; Email={FirstNotEmpty(resolvedEmail, "-")}; Company={InvoicePdfSetting("CompanyName", "MLTECH MARINE CONNECT PTE LTD")}; TransactionCode={resolvedTransactionCode}; KitNumber={kitNumber}; AmountVnd={amountVnd:#,##0.##}.");
         var invoiceUrl = invoicePdfService.BuildUploadUrl(generatedInvoiceCode);
@@ -816,6 +816,8 @@ public class PaymentTransactionService(
                 d.[KITNumber],
                 d.[DeviceCode],
                 t.[Email] AS [TenantEmail],
+                COALESCE(NULLIF(ownerUser.[DisplayName], N''), NULLIF(ownerUser.[USName], N''), s.[TenantName], N'') AS [OwnerName],
+                COALESCE(NULLIF(ownerUser.[Email], N''), NULLIF(t.[Email], N''), N'') AS [OwnerEmail],
                 q.[ID] AS [QrSessionId],
                 q.[ProviderInvoiceNo],
                 q.[ProviderPaymentNo],
@@ -861,6 +863,17 @@ public class PaymentTransactionService(
                    OR pt.[InvoiceNumber] = i.[InvoiceNumber]
                 ORDER BY COALESCE(pt.[CompletedAt], pt.[ProviderCreatedAt], pt.[Updated_Date], pt.[Created_Date]) DESC, pt.[ID] DESC
             ) tx
+            OUTER APPLY (
+                SELECT TOP 1
+                    u.[USName],
+                    u.[DisplayName],
+                    u.[Email]
+                FROM [dbo].[TblMRUser] u
+                WHERE u.[TenantID] = s.[TenantId]
+                  AND LOWER(ISNULL(u.[UserType], N'')) = N'tenant'
+                  AND LOWER(ISNULL(u.[Status], N'')) NOT IN (N'deleted', N'inactive')
+                ORDER BY u.[ID] ASC
+            ) ownerUser
             WHERE i.[ID] = @invoiceId;
             """;
 
@@ -897,6 +910,8 @@ public class PaymentTransactionService(
             ReadText(reader, "KITNumber"),
             ReadText(reader, "DeviceCode"),
             ReadText(reader, "TenantEmail"),
+            ReadText(reader, "OwnerName"),
+            ReadText(reader, "OwnerEmail"),
             ReadInt(reader, "QrSessionId"),
             ReadText(reader, "ProviderInvoiceNo"),
             ReadText(reader, "ProviderPaymentNo"),
@@ -922,10 +937,19 @@ public class PaymentTransactionService(
         string poNumber,
         string invoiceUrl)
     {
-        var startDate = context.StartDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? string.Empty;
-        var endDate = context.EndDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? string.Empty;
+        var dateAnchor = paymentTime != default
+            ? paymentTime
+            : context.CompletedAt ?? context.LatestTransactionAt ?? context.CreatedAt ?? DateTime.UtcNow;
+        var normalizedStartDate = context.StartDate.HasValue
+            ? NormalizeLegacySubscriptionDate(context.StartDate.Value, dateAnchor)
+            : (DateTime?)null;
+        var normalizedEndDate = context.EndDate.HasValue
+            ? NormalizeLegacySubscriptionDate(context.EndDate.Value, normalizedStartDate ?? dateAnchor)
+            : (DateTime?)null;
+        var startDate = normalizedStartDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? string.Empty;
+        var endDate = normalizedEndDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? string.Empty;
         var invoiceCode = BuildShipNetInvoiceCode(context);
-        var email = FirstNotEmpty(context.TenantEmail, InvoicePdfSetting("CustomerEmail", string.Empty), InvoicePdfSetting("DefaultEmail", "admin@shipnet.vn"));
+        var email = FirstNotEmpty(context.OwnerEmail, context.TenantEmail, InvoicePdfSetting("CustomerEmail", string.Empty), InvoicePdfSetting("DefaultEmail", "admin@shipnet.vn"));
         var titlePeriod = string.IsNullOrWhiteSpace(startDate) || string.IsNullOrWhiteSpace(endDate)
             ? context.PlanName
             : $"{context.PlanName} ({startDate} - {endDate})";
@@ -974,7 +998,6 @@ public class PaymentTransactionService(
                             title = titlePeriod,
                             subTitles = new[]
                             {
-                                $"Terminal ID: {FirstNotEmpty(kitNumber, context.DeviceCode)}",
                                 $"KIT Code: {kitNumber}"
                             },
                             price = amountVnd,
@@ -1480,7 +1503,7 @@ public class PaymentTransactionService(
             : string.IsNullOrWhiteSpace(detail.DeviceCode) ? detail.DeviceId.ToString(CultureInfo.InvariantCulture) : detail.DeviceCode;
         var billingPeriod = detail is null || detail.StartDate == DateTime.MinValue || detail.EndDate == DateTime.MinValue
             ? "-"
-            : $"{detail.StartDate:dd-MM-yyyy} to {detail.EndDate:dd-MM-yyyy}";
+            : $"{detail.StartDate:dd/MM/yyyy} to {detail.EndDate:dd/MM/yyyy}";
         var totalAmount = detail is null
             ? $"{amountVnd:#,##0} VND"
             : $"$ {detail.TotalInvoiceAmount:#,##0.##}";
@@ -2553,6 +2576,18 @@ public class PaymentTransactionService(
         return value == DBNull.Value ? null : Convert.ToDateTime(value, CultureInfo.InvariantCulture);
     }
 
+    private static DateTime NormalizeLegacySubscriptionDate(DateTime value, DateTime anchorDate)
+    {
+        if (value == DateTime.MinValue || value.Year >= 2000)
+        {
+            return value;
+        }
+
+        var anchor = anchorDate.Year >= 2000 ? anchorDate : DateTime.UtcNow;
+        var day = Math.Min(value.Day, DateTime.DaysInMonth(anchor.Year, value.Month));
+        return new DateTime(anchor.Year, value.Month, day);
+    }
+
     private static string ReadText(SqlDataReader reader, string columnName)
     {
         var value = reader[columnName];
@@ -3566,6 +3601,8 @@ public class PaymentTransactionService(
         string KitNumber,
         string DeviceCode,
         string TenantEmail,
+        string OwnerName,
+        string OwnerEmail,
         int QrSessionId,
         string ProviderInvoiceNo,
         string ProviderPaymentNo,

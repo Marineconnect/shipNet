@@ -71,7 +71,7 @@ public class UserListItemViewModel
     private static string FormatDateTime(DateTime? value)
     {
         return value.HasValue
-            ? value.Value.ToString("yyyy-MM-dd HH:mm:ss")
+            ? value.Value.ToString("dd/MM/yyyy HH:mm:ss")
             : "-";
     }
 }

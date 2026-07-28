@@ -445,10 +445,32 @@
   }
 
   function toDateInput(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, "0");
     const day = String(date.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
+  }
+
+  function parseDateInput(value) {
+    const text = String(value || "").trim();
+    let match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+    if (match) {
+      const year = Number(match[1]);
+      const month = Number(match[2]);
+      const day = Number(match[3]);
+      return new Date(year, month - 1, day);
+    }
+
+    match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text);
+    if (match) {
+      const day = Number(match[1]);
+      const month = Number(match[2]);
+      const year = Number(match[3]);
+      return new Date(year, month - 1, day);
+    }
+
+    return null;
   }
 
   function toMonthInput(date) {
@@ -463,8 +485,8 @@
 
   function updateNextBillingDateFromEnd() {
     if (!nextBillingDate || !endDate?.value) return;
-    const end = new Date(endDate.value);
-    if (Number.isNaN(end.getTime())) return;
+    const end = parseDateInput(endDate.value);
+    if (!end || Number.isNaN(end.getTime())) return;
     nextBillingDate.value = toDateInput(firstDayOfNextMonth(end));
   }
 
@@ -548,8 +570,8 @@
 
   function updateCalculation() {
     const plan = selectedPlan();
-    const start = startDate?.value ? new Date(startDate.value) : null;
-    const end = endDate?.value ? new Date(endDate.value) : null;
+    const start = startDate?.value ? parseDateInput(startDate.value) : null;
+    const end = endDate?.value ? parseDateInput(endDate.value) : null;
     if (overchargePrice) {
       overchargePrice.value = plan ? moneyInput(plan.FinalOverChargePrice ?? plan.finalOverChargePrice ?? 0) : moneyInput(0);
     }
@@ -588,8 +610,8 @@
     if (!year || !month) return;
     const start = new Date(year, month - 1, 1);
     const end = new Date(year, month, 0);
-    if (startDate && !startDate.value) startDate.value = toDateInput(start);
-    if (endDate && !endDate.value) endDate.value = toDateInput(end);
+    if (startDate) startDate.value = toDateInput(start);
+    if (endDate) endDate.value = toDateInput(end);
     updateNextBillingDateFromEnd();
     updateCalculation();
   }

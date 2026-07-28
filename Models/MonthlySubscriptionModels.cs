@@ -79,8 +79,8 @@ public class MonthlySubscriptionListItemViewModel
     public decimal TotalInvoiceAmount { get; set; }
     public decimal TotalPaid { get; set; }
     public string InvoiceStatus { get; set; } = string.Empty;
-    public string SubscriptionPeriodDisplay => $"{StartDate:dd-MM-yyyy} to {EndDate:dd-MM-yyyy}";
-    public string NextBillingDateDisplay => NextBillingDate.HasValue ? NextBillingDate.Value.ToString("dd-MM-yyyy") : "-";
+    public string SubscriptionPeriodDisplay => $"{StartDate:dd/MM/yyyy} to {EndDate:dd/MM/yyyy}";
+    public string NextBillingDateDisplay => NextBillingDate.HasValue ? NextBillingDate.Value.ToString("dd/MM/yyyy") : "-";
 }
 
 public class MonthlySubscriptionDetailViewModel
@@ -94,8 +94,10 @@ public class MonthlySubscriptionDetailViewModel
     public UpdateMonthlySubscriptionBillingViewModel UpdateBillingForm { get; set; } = new();
     public bool CanManageSubscriptions { get; set; } = true;
     public bool CanViewQrSessions { get; set; }
+    public bool CanViewIntegrationLogs { get; set; }
     public bool CanEditBilling { get; set; }
     public string BillingEditBlockedReason { get; set; } = string.Empty;
+    public string DefaultInvoicePoNumber { get; set; } = string.Empty;
 }
 
 public class MonthlySubscriptionInvoiceSummaryViewModel

@@ -31,7 +31,8 @@
     var successMessage = TempData["SubscriptionSuccess"]?.ToString();
     var errorMessage = TempData["SubscriptionError"]?.ToString();
     var defaultInvoice = Model.Invoices.FirstOrDefault();
-    var defaultPdf = defaultInvoice?.PdfFile ?? new InvoicePdfFileViewModel { CanReplace = Model.CanManageSubscriptions };
+    var defaultPdf = defaultInvoice?.PdfFile ?? new InvoicePdfFileViewModel();
+    var displayPoNumber = string.IsNullOrWhiteSpace(Model.DefaultInvoicePoNumber) ? "-" : Model.DefaultInvoicePoNumber;
     var showInvoiceRabbitMq = Configuration.GetValue("InvoiceRabbitMq:ShowInvoiceRabbitMQ", false);
     var billingDays = Math.Max(0, (Model.UpdateBillingForm.EndDate.Date - Model.UpdateBillingForm.StartDate.Date).Days + 1);
     var billingDaysInMonth = DateTime.DaysInMonth(Model.UpdateBillingForm.StartDate.Year, Model.UpdateBillingForm.StartDate.Month);
@@ -167,7 +168,7 @@
             <tr><th>Tổng tiền / Total Amount</th><td id="selectedInvoiceAmount">@Money(defaultInvoice?.Amount ?? 0)</td><th>Đã thanh toán / Total Paid</th><td id="selectedInvoicePaid">@Money(defaultInvoice?.PaidAmount ?? 0)</td></tr>
             <tr><th>Hoàn tiền / Total Refund</th><td id="selectedInvoiceRefund">@Money(defaultInvoice?.RefundAmount ?? 0)</td><th>Trạng thái / Status</th><td id="selectedInvoiceStatus">@(defaultInvoice?.Status ?? "-")</td></tr>
             <tr><th>Số invoice / Invoice Number</th><td id="selectedInvoiceNumber">@(defaultInvoice?.InvoiceNumber ?? "-")</td><th>Số biên nhận / Receipt Number</th><td id="selectedInvoiceReceipt">@(defaultInvoice?.ReceiptNumber ?? "-")</td></tr>
-            <tr><th>Số PO / PO Number</th><td id="selectedInvoicePo">@(defaultInvoice?.PoNumber ?? "-")</td><th>Hoàn tất lúc / Completed At</th><td id="selectedInvoiceCompleted">@(defaultInvoice?.CompletedAt?.ToString("dd/MM/yyyy HH:mm") ?? "-")</td></tr>
+            <tr><th>Số PO / PO Number</th><td id="selectedInvoicePo">@displayPoNumber</td><th>Hoàn tất lúc / Completed At</th><td id="selectedInvoiceCompleted">@(defaultInvoice?.CompletedAt?.ToString("dd/MM/yyyy HH:mm") ?? "-")</td></tr>
           </tbody>
         </table>
         @if (Model.CanManageSubscriptions && defaultInvoice != null)
@@ -224,80 +225,40 @@
                   Test invoice RabbitMQ
                 </button>
               }
+              @if (Model.CanViewIntegrationLogs)
+              {
+                <button type="button"
+                        class="btn-secondary"
+                        id="openIntegrationLogsButton">
+                  Xem lịch sử / View history
+                </button>
+              }
             </div>
           </form>
         }
-        <div class="invoice-pdf-panel" id="invoicePdfPanel">
+        @if (Model.CanViewIntegrationLogs)
+        {
+        <div class="invoice-pdf-panel" id="invoicePdfPanel" @(defaultPdf.Available ? string.Empty : "hidden")>
           <div class="invoice-pdf-head">
             <div>
               <h3>Invoice PDF</h3>
-              <p id="invoicePdfStatus">@(defaultPdf.Available ? "File PDF đã sẵn sàng / PDF file is available." : "Chưa có file PDF / No PDF file has been uploaded.")</p>
+              <p id="invoicePdfStatus">File PDF đã sẵn sàng / PDF file is available.</p>
             </div>
             <span class="subscription-status" id="invoicePdfVersion">@(defaultPdf.Available ? $"v{defaultPdf.Version}" : "-")</span>
           </div>
           <table class="subscription-kv-table invoice-pdf-meta">
             <tbody>
               <tr><th>Tên file / File name</th><td id="invoicePdfFileName">@(defaultPdf.Available ? defaultPdf.FileName : "-")</td><th>Dung lượng / Size</th><td id="invoicePdfSize">@(defaultPdf.Available ? defaultPdf.SizeDisplay : "-")</td></tr>
-              <tr><th>Nguồn / Source</th><td id="invoicePdfSource">@(defaultPdf.Available ? defaultPdf.SourceSystem : "-")</td><th>Người upload / Uploaded by</th><td id="invoicePdfUploadedBy">@(defaultPdf.Available ? defaultPdf.UploadedBy : "-")</td></tr>
               <tr><th>Upload lúc / Uploaded at</th><td id="invoicePdfUploadedAt">@(defaultPdf.UploadedAt?.ToString("dd/MM/yyyy HH:mm") ?? "-")</td><th>Cập nhật / Updated</th><td id="invoicePdfUpdatedAt">@(defaultPdf.UpdatedAt?.ToString("dd/MM/yyyy HH:mm") ?? "-")</td></tr>
             </tbody>
           </table>
           <div class="invoice-pdf-actions">
             <button type="button" class="btn-secondary" id="viewInvoicePdfButton" @(defaultPdf.Available ? string.Empty : "hidden")>Xem PDF</button>
             <a class="btn-secondary" id="downloadInvoicePdfLink" href="@(defaultPdf.DownloadUrl)" @(defaultPdf.Available ? string.Empty : "hidden")>Tải xuống</a>
-            @if (Model.CanManageSubscriptions)
-            {
-              <form asp-controller="MonthlySubscription" asp-action="UploadInvoicePdf" method="post" enctype="multipart/form-data" id="invoicePdfUploadForm" class="invoice-pdf-upload-form">
-                @Html.AntiForgeryToken()
-                <input type="hidden" name="subscriptionId" value="@Model.Subscription.Id" />
-                <input type="hidden" name="invoiceCode" id="invoicePdfUploadCode" value="@(defaultInvoice?.InvoiceNumber ?? string.Empty)" />
-                <label class="btn-secondary invoice-pdf-file-label">
-                  <input type="file" name="file" id="invoicePdfFileInput" accept=".pdf,application/pdf" />
-                  <span id="invoicePdfFileLabel">Chọn PDF</span>
-                </label>
-                <button type="submit" class="btn-primary" id="uploadInvoicePdfButton">@(defaultPdf.Available ? "Thay thế file" : "Tải PDF lên")</button>
-              </form>
-              <form asp-controller="MonthlySubscription" asp-action="DeleteInvoicePdf" method="post" id="invoicePdfDeleteForm">
-                @Html.AntiForgeryToken()
-                <input type="hidden" name="subscriptionId" value="@Model.Subscription.Id" />
-                <input type="hidden" name="invoiceCode" id="invoicePdfDeleteCode" value="@(defaultInvoice?.InvoiceNumber ?? string.Empty)" />
-                <button type="submit" class="btn-secondary is-danger" id="deleteInvoicePdfButton" @(defaultPdf.Available ? string.Empty : "hidden")>Xóa file</button>
-              </form>
-            }
           </div>
           <div class="tenant-feedback" id="invoicePdfMessage" hidden></div>
         </div>
-        <div class="invoice-integration-panel" id="invoiceIntegrationPanel">
-          <div class="invoice-pdf-head">
-            <div>
-              <h3>Lịch sử tích hợp / Integration Logs</h3>
-              <p id="invoiceIntegrationMeta">Theo dõi RabbitMQ và PDF upload cho invoice đang chọn / RabbitMQ and PDF upload timeline for the selected invoice.</p>
-            </div>
-            <button type="button" class="btn-secondary" id="reloadIntegrationLogsButton">Tải lại / Reload</button>
-          </div>
-          <div class="invoice-integration-scroll">
-            <table class="device-table invoice-integration-table">
-              <thead>
-                <tr>
-                  <th>Thời gian / Time</th>
-                  <th>Sự kiện / Event</th>
-                  <th>Trạng thái / Status</th>
-                  <th>Nguồn / Source</th>
-                  <th>Message / Correlation</th>
-                  <th>File</th>
-                  <th>Lỗi / Error</th>
-                  <th>JSON</th>
-                </tr>
-              </thead>
-              <tbody id="invoiceIntegrationLogsBody">
-                <tr><td colspan="8" class="tenant-empty">Đang tải lịch sử tích hợp... / Loading integration logs...</td></tr>
-              </tbody>
-            </table>
-          </div>
-          <div class="invoice-integration-actions">
-            <button type="button" class="btn-secondary" id="loadMoreIntegrationLogsButton" hidden>Tải thêm / Load more</button>
-          </div>
-        </div>
+        }
       </section>
     </div>
 
@@ -336,7 +297,7 @@
                   data-invoice-id="@invoice.Id"
                   data-invoice-number="@invoice.InvoiceNumber"
                   data-receipt-number="@invoice.ReceiptNumber"
-                  data-po-number="@invoice.PoNumber"
+                  data-po-number="@displayPoNumber"
                   data-type="@invoice.InvoiceType"
                   data-created="@invoice.CreatedAt.ToString("dd/MM/yyyy HH:mm")"
                   data-completed="@(invoice.CompletedAt?.ToString("dd/MM/yyyy HH:mm") ?? "-")"
@@ -352,8 +313,6 @@
                   data-pdf-file-name="@invoice.PdfFile.FileName"
                   data-pdf-size="@invoice.PdfFile.SizeDisplay"
                   data-pdf-version="@invoice.PdfFile.Version"
-                  data-pdf-source="@invoice.PdfFile.SourceSystem"
-                  data-pdf-uploaded-by="@invoice.PdfFile.UploadedBy"
                   data-pdf-uploaded-at="@(invoice.PdfFile.UploadedAt?.ToString("dd/MM/yyyy HH:mm") ?? "-")"
                   data-pdf-updated-at="@(invoice.PdfFile.UpdatedAt?.ToString("dd/MM/yyyy HH:mm") ?? "-")"
                   data-pdf-view-url="@invoice.PdfFile.ViewUrl"
@@ -462,6 +421,52 @@
   </div>
 </div>
 
+@if (Model.CanViewIntegrationLogs)
+{
+<div class="modal-backdrop" id="invoiceIntegrationModal" hidden>
+  <div class="device-modal subscription-modal invoice-integration-modal" role="dialog" aria-modal="true" aria-labelledby="invoiceIntegrationModalTitle">
+    <div class="device-modal-head">
+      <div>
+        <h2 id="invoiceIntegrationModalTitle">Lịch sử tích hợp / Integration Logs</h2>
+        <p id="invoiceIntegrationMeta">Theo dõi RabbitMQ và PDF upload cho invoice đang chọn / RabbitMQ and PDF upload timeline for the selected invoice.</p>
+      </div>
+      <button type="button" class="modal-close" id="closeInvoiceIntegrationModal" aria-label="Đóng / Close">×</button>
+    </div>
+    <div class="invoice-integration-panel" id="invoiceIntegrationPanel">
+      <div class="invoice-pdf-head">
+        <div></div>
+        <button type="button" class="btn-secondary" id="reloadIntegrationLogsButton">Tải lại / Reload</button>
+      </div>
+      <div class="invoice-integration-scroll">
+        <table class="device-table invoice-integration-table">
+          <thead>
+            <tr>
+              <th>Thời gian / Time</th>
+              <th>Sự kiện / Event</th>
+              <th>Trạng thái / Status</th>
+              <th>Nguồn / Source</th>
+              <th>Message / Correlation</th>
+              <th>File</th>
+              <th>Lỗi / Error</th>
+              <th>JSON</th>
+            </tr>
+          </thead>
+          <tbody id="invoiceIntegrationLogsBody">
+            <tr><td colspan="8" class="tenant-empty">Nhấn tải lại để xem lịch sử / Click reload to view integration logs.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="invoice-integration-actions">
+        <button type="button" class="btn-secondary" id="loadMoreIntegrationLogsButton" hidden>Tải thêm / Load more</button>
+      </div>
+    </div>
+    <div class="device-modal-actions">
+      <button type="button" class="btn-primary" id="closeInvoiceIntegrationModalAction">Đóng / Close</button>
+    </div>
+  </div>
+</div>
+}
+
 <div class="modal-backdrop" id="invoiceIntegrationJsonModal" hidden>
   <div class="device-modal subscription-modal invoice-json-modal" role="dialog" aria-modal="true" aria-labelledby="invoiceIntegrationJsonTitle">
     <div class="device-modal-head">
@@ -482,6 +487,8 @@
   </div>
 </div>
 
+@if (Model.CanViewIntegrationLogs)
+{
 <div class="modal-backdrop" id="invoicePdfViewerModal" hidden>
   <div class="device-modal subscription-modal invoice-pdf-viewer-modal" role="dialog" aria-modal="true" aria-labelledby="invoicePdfViewerTitle">
     <div class="device-modal-head">
@@ -501,6 +508,7 @@
     </div>
   </div>
 </div>
+}
 
 @if (Model.CanManageSubscriptions)
 {
@@ -722,24 +730,15 @@
   const makeQrButton = document.querySelector("#makeQrButton");
   const testInvoiceRabbitMqButton = document.querySelector("#testInvoiceRabbitMqButton");
   const pdfPanel = {
+    container: document.querySelector("#invoicePdfPanel"),
     status: document.querySelector("#invoicePdfStatus"),
     version: document.querySelector("#invoicePdfVersion"),
     fileName: document.querySelector("#invoicePdfFileName"),
     size: document.querySelector("#invoicePdfSize"),
-    source: document.querySelector("#invoicePdfSource"),
-    uploadedBy: document.querySelector("#invoicePdfUploadedBy"),
     uploadedAt: document.querySelector("#invoicePdfUploadedAt"),
     updatedAt: document.querySelector("#invoicePdfUpdatedAt"),
     viewButton: document.querySelector("#viewInvoicePdfButton"),
     downloadLink: document.querySelector("#downloadInvoicePdfLink"),
-    uploadForm: document.querySelector("#invoicePdfUploadForm"),
-    deleteForm: document.querySelector("#invoicePdfDeleteForm"),
-    uploadCode: document.querySelector("#invoicePdfUploadCode"),
-    deleteCode: document.querySelector("#invoicePdfDeleteCode"),
-    fileInput: document.querySelector("#invoicePdfFileInput"),
-    fileLabel: document.querySelector("#invoicePdfFileLabel"),
-    uploadButton: document.querySelector("#uploadInvoicePdfButton"),
-    deleteButton: document.querySelector("#deleteInvoicePdfButton"),
     message: document.querySelector("#invoicePdfMessage"),
     viewerModal: document.querySelector("#invoicePdfViewerModal"),
     viewerSubtitle: document.querySelector("#invoicePdfViewerSubtitle"),
@@ -748,6 +747,8 @@
     viewerDownload: document.querySelector("#downloadInvoicePdfViewer")
   };
   const integrationLogs = {
+    modal: document.querySelector("#invoiceIntegrationModal"),
+    openButton: document.querySelector("#openIntegrationLogsButton"),
     body: document.querySelector("#invoiceIntegrationLogsBody"),
     meta: document.querySelector("#invoiceIntegrationMeta"),
     reloadButton: document.querySelector("#reloadIntegrationLogsButton"),
@@ -1228,12 +1229,11 @@
     const invoiceNumber = row?.dataset.invoiceNumber || "";
     const viewUrl = row?.dataset.pdfViewUrl || "";
     const downloadUrl = row?.dataset.pdfDownloadUrl || "";
-    if (pdfPanel.status) pdfPanel.status.textContent = available ? "File PDF đã sẵn sàng / PDF file is available." : "Chưa có file PDF / No PDF file has been uploaded.";
+    if (pdfPanel.container) pdfPanel.container.hidden = !available;
+    if (pdfPanel.status) pdfPanel.status.textContent = "File PDF đã sẵn sàng / PDF file is available.";
     if (pdfPanel.version) pdfPanel.version.textContent = available ? `v${row.dataset.pdfVersion || "1"}` : "-";
     if (pdfPanel.fileName) pdfPanel.fileName.textContent = available ? row.dataset.pdfFileName || "-" : "-";
     if (pdfPanel.size) pdfPanel.size.textContent = available ? row.dataset.pdfSize || "-" : "-";
-    if (pdfPanel.source) pdfPanel.source.textContent = available ? row.dataset.pdfSource || "-" : "-";
-    if (pdfPanel.uploadedBy) pdfPanel.uploadedBy.textContent = available ? row.dataset.pdfUploadedBy || "-" : "-";
     if (pdfPanel.uploadedAt) pdfPanel.uploadedAt.textContent = available ? row.dataset.pdfUploadedAt || "-" : "-";
     if (pdfPanel.updatedAt) pdfPanel.updatedAt.textContent = available ? row.dataset.pdfUpdatedAt || "-" : "-";
     if (pdfPanel.viewButton) {
@@ -1245,12 +1245,6 @@
       pdfPanel.downloadLink.hidden = !available;
       pdfPanel.downloadLink.href = downloadUrl || "#";
     }
-    if (pdfPanel.uploadCode) pdfPanel.uploadCode.value = invoiceNumber;
-    if (pdfPanel.deleteCode) pdfPanel.deleteCode.value = invoiceNumber;
-    if (pdfPanel.uploadButton) pdfPanel.uploadButton.textContent = available ? "Thay thế file" : "Tải PDF lên";
-    if (pdfPanel.deleteButton) pdfPanel.deleteButton.hidden = !available || row?.dataset.pdfCanDelete !== "true";
-    if (pdfPanel.fileInput) pdfPanel.fileInput.value = "";
-    if (pdfPanel.fileLabel) pdfPanel.fileLabel.textContent = "Chọn PDF";
     setPdfMessage("");
   }
   function applyPdfResultToRow(row, result) {
@@ -1357,6 +1351,7 @@
     });
   }
   async function loadIntegrationLogs(reset = true) {
+    if (!integrationLogs.body) return;
     const row = document.querySelector(".invoice-row.is-selected");
     const invoiceCode = row?.dataset.invoiceNumber || "";
     if (!invoiceCode || integrationLogState.loading) return;
@@ -1443,7 +1438,9 @@
     syncMakeQrButton(row);
     syncQrHistory(row);
     syncPdfPanel(row);
-    loadIntegrationLogs(true);
+    if (integrationLogs.modal && !integrationLogs.modal.hidden) {
+      loadIntegrationLogs(true);
+    }
   }
   document.querySelectorAll(".invoice-row").forEach((row) => {
     row.addEventListener("click", (event) => {
@@ -1453,11 +1450,6 @@
     row.querySelector("input[name='selectedInvoice']")?.addEventListener("change", () => {
       selectInvoice(row);
     });
-  });
-  pdfPanel.fileInput?.addEventListener("change", () => {
-    const file = pdfPanel.fileInput.files && pdfPanel.fileInput.files[0];
-    pdfPanel.fileLabel.textContent = file ? `${file.name} (${formatBytes(file.size)})` : "Chọn PDF";
-    setPdfMessage("");
   });
   pdfPanel.viewButton?.addEventListener("click", () => {
     const viewUrl = pdfPanel.viewButton.dataset.viewUrl || "";
@@ -1475,74 +1467,6 @@
   document.querySelector("#closeInvoicePdfViewerAction")?.addEventListener("click", () => {
     if (pdfPanel.viewerModal) pdfPanel.viewerModal.hidden = true;
     if (pdfPanel.frame) pdfPanel.frame.src = "";
-  });
-  pdfPanel.uploadForm?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const row = document.querySelector(".invoice-row.is-selected");
-    const file = pdfPanel.fileInput?.files && pdfPanel.fileInput.files[0];
-    if (!row || !file) {
-      setPdfMessage("Vui lòng chọn file PDF / Please choose a PDF file.", "is-error");
-      return;
-    }
-    const maxBytes = @((Configuration.GetValue<int?>("InvoicePdfStorage:MaxFileSizeMb") ?? 20) * 1024 * 1024);
-    if (!file.name.toLowerCase().endsWith(".pdf") || (file.type && file.type !== "application/pdf")) {
-      setPdfMessage("File phải là PDF / File must be a PDF.", "is-error");
-      return;
-    }
-    if (file.size > maxBytes) {
-      setPdfMessage("File PDF vượt quá dung lượng cho phép / PDF file is too large.", "is-error");
-      return;
-    }
-    if (row.dataset.pdfAvailable === "true" && !window.confirm("Thay thế file PDF hiện tại? / Replace the current PDF file?")) {
-      return;
-    }
-    const formData = new FormData(pdfPanel.uploadForm);
-    pdfPanel.uploadButton.disabled = true;
-    setPdfMessage("Đang upload PDF... / Uploading PDF...");
-    try {
-      const response = await fetch(pdfPanel.uploadForm.action, {
-        method: "POST",
-        body: formData,
-        headers: { "X-Requested-With": "XMLHttpRequest" }
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || payload.success === false) {
-        throw new Error(payload.message || payload.messageEn || "Upload failed.");
-      }
-      applyPdfResultToRow(row, payload.pdfFile);
-      setPdfMessage("Upload PDF thành công / PDF uploaded successfully.", "is-success");
-      loadIntegrationLogs(true);
-    } catch (error) {
-      setPdfMessage(error.message || "Không thể upload PDF / Cannot upload PDF.", "is-error");
-    } finally {
-      pdfPanel.uploadButton.disabled = false;
-    }
-  });
-  pdfPanel.deleteForm?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const row = document.querySelector(".invoice-row.is-selected");
-    if (!row || row.dataset.pdfAvailable !== "true") return;
-    if (!window.confirm("Xóa file PDF hiện tại? / Delete the current PDF file?")) return;
-    pdfPanel.deleteButton.disabled = true;
-    setPdfMessage("Đang xóa PDF... / Deleting PDF...");
-    try {
-      const response = await fetch(pdfPanel.deleteForm.action, {
-        method: "POST",
-        body: new FormData(pdfPanel.deleteForm),
-        headers: { "X-Requested-With": "XMLHttpRequest" }
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || payload.success === false) {
-        throw new Error(payload.message || payload.messageEn || "Delete failed.");
-      }
-      clearPdfFromRow(row);
-      setPdfMessage("Đã xóa PDF / PDF deleted.", "is-success");
-      loadIntegrationLogs(true);
-    } catch (error) {
-      setPdfMessage(error.message || "Không thể xóa PDF / Cannot delete PDF.", "is-error");
-    } finally {
-      pdfPanel.deleteButton.disabled = false;
-    }
   });
   initMoneyTextboxes();
   makeQrButton?.addEventListener("click", async () => {
@@ -1657,7 +1581,9 @@
         qrError.classList.toggle("is-error", !payload.success);
         qrError.hidden = false;
       }
-      loadIntegrationLogs(true);
+      if (integrationLogs.modal && !integrationLogs.modal.hidden) {
+        loadIntegrationLogs(true);
+      }
     } catch (error) {
       if (invoiceRabbitMqLog) invoiceRabbitMqLog.textContent = error.message || "Invoice RabbitMQ failed.";
       if (qrError) {
@@ -1679,6 +1605,16 @@
   integrationLogs.loadMoreButton?.addEventListener("click", () => {
     integrationLogState.page += 1;
     loadIntegrationLogs(false);
+  });
+  integrationLogs.openButton?.addEventListener("click", () => {
+    if (integrationLogs.modal) integrationLogs.modal.hidden = false;
+    loadIntegrationLogs(true);
+  });
+  document.querySelector("#closeInvoiceIntegrationModal")?.addEventListener("click", () => {
+    if (integrationLogs.modal) integrationLogs.modal.hidden = true;
+  });
+  document.querySelector("#closeInvoiceIntegrationModalAction")?.addEventListener("click", () => {
+    if (integrationLogs.modal) integrationLogs.modal.hidden = true;
   });
   document.querySelector("#closeInvoiceIntegrationJson")?.addEventListener("click", () => {
     if (integrationLogs.jsonModal) integrationLogs.jsonModal.hidden = true;
@@ -1742,7 +1678,7 @@
   syncInvoiceEditLock(selectedRow);
   syncMakeQrButton(selectedRow);
   syncQrHistory(selectedRow);
-  loadIntegrationLogs(true);
+  syncPdfPanel(selectedRow);
 })();
 </script>
 }

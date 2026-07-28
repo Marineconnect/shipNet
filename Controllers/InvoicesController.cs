@@ -73,6 +73,10 @@ public sealed class InvoicesController(
         {
             return Unauthorized();
         }
+        if (!CanViewIntegrationLogs(user))
+        {
+            return Forbid();
+        }
 
         try
         {
@@ -99,6 +103,10 @@ public sealed class InvoicesController(
         if (user is null)
         {
             return Unauthorized();
+        }
+        if (!CanViewIntegrationLogs(user))
+        {
+            return Forbid();
         }
 
         try
@@ -136,6 +144,10 @@ public sealed class InvoicesController(
         if (user is null)
         {
             return Unauthorized();
+        }
+        if (!CanViewIntegrationLogs(user))
+        {
+            return Forbid();
         }
 
         try
@@ -229,6 +241,11 @@ public sealed class InvoicesController(
     private static int? GetAllowedDeviceId(AuthUserRecord user)
     {
         return user.IsShipAdmin || user.IsCrew ? user.DeviceId ?? -1 : null;
+    }
+
+    private static bool CanViewIntegrationLogs(AuthUserRecord user)
+    {
+        return string.Equals(user.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string SanitizeDownloadName(string value)

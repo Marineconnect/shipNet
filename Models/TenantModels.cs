@@ -53,7 +53,7 @@ public class TenantListItemViewModel
 
     public string UpdatedDateVietnam =>
         UpdatedDate.HasValue
-            ? UpdatedDate.Value.ToString("yyyy-MM-dd HH:mm:ss")
+            ? UpdatedDate.Value.ToString("dd/MM/yyyy HH:mm:ss")
             : "-";
 }
 

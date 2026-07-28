@@ -57,7 +57,7 @@ public class DeviceListItemViewModel
             ? TimeZoneInfo.ConvertTimeFromUtc(
                 DateTime.SpecifyKind(LastUpdateTime.Value, DateTimeKind.Utc),
                 TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time"))
-              .ToString("yyyy-MM-dd HH:mm:ss")
+              .ToString("dd/MM/yyyy HH:mm:ss")
             : "-";
 
     public string TokenExpiredTimeVietnam =>
@@ -65,7 +65,7 @@ public class DeviceListItemViewModel
             ? TimeZoneInfo.ConvertTimeFromUtc(
                 DateTime.SpecifyKind(TokenExpiredTime.Value, DateTimeKind.Utc),
                 TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time"))
-              .ToString("yyyy-MM-dd HH:mm:ss")
+              .ToString("dd/MM/yyyy HH:mm:ss")
             : "-";
 
     public string LastSysnTimeVietnam =>
@@ -73,7 +73,7 @@ public class DeviceListItemViewModel
             ? TimeZoneInfo.ConvertTimeFromUtc(
                 DateTime.SpecifyKind(LastSysnTime.Value, DateTimeKind.Utc),
                 TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time"))
-              .ToString("yyyy-MM-dd HH:mm:ss")
+              .ToString("dd/MM/yyyy HH:mm:ss")
             : "-";
 
     public string TokenExpiredTimeUtcIso =>
@@ -125,7 +125,7 @@ public class DeviceDetailViewModel
             ? TimeZoneInfo.ConvertTimeFromUtc(
                 DateTime.SpecifyKind(LastUpdateTime.Value, DateTimeKind.Utc),
                 TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time"))
-              .ToString("yyyy-MM-dd HH:mm:ss")
+              .ToString("dd/MM/yyyy HH:mm:ss")
             : "-";
 
     public string TokenExpiredTimeVietnam =>
@@ -133,7 +133,7 @@ public class DeviceDetailViewModel
             ? TimeZoneInfo.ConvertTimeFromUtc(
                 DateTime.SpecifyKind(TokenExpiredTime.Value, DateTimeKind.Utc),
                 TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time"))
-              .ToString("yyyy-MM-dd HH:mm:ss")
+              .ToString("dd/MM/yyyy HH:mm:ss")
             : "-";
 
     public string LastSysnTimeVietnam =>
@@ -141,7 +141,7 @@ public class DeviceDetailViewModel
             ? TimeZoneInfo.ConvertTimeFromUtc(
                 DateTime.SpecifyKind(LastSysnTime.Value, DateTimeKind.Utc),
                 TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time"))
-              .ToString("yyyy-MM-dd HH:mm:ss")
+              .ToString("dd/MM/yyyy HH:mm:ss")
             : "-";
 
     public string TokenExpiredTimeUtcIso =>
@@ -209,7 +209,7 @@ public class DeviceDataOptInHistoryItem
     public string VerificationStatus { get; set; } = string.Empty;
     public DateTime? CompletedAtUtc { get; set; }
     public DateTime? VerifiedAtUtc { get; set; }
-    public string PerformedAtDisplay => TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(PerformedAtUtc, DateTimeKind.Utc), TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")).ToString("yyyy-MM-dd HH:mm:ss");
+    public string PerformedAtDisplay => TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(PerformedAtUtc, DateTimeKind.Utc), TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")).ToString("dd/MM/yyyy HH:mm:ss");
 }
 
 public class UpdateDeviceDataOptInRequest
@@ -323,7 +323,7 @@ public class DevicePlanPriceViewModel
     public string? UpdatedBy { get; set; }
 
     public string UpdatedDateDisplay => UpdatedDate.HasValue
-        ? UpdatedDate.Value.ToString("yyyy-MM-dd HH:mm:ss")
+        ? UpdatedDate.Value.ToString("dd/MM/yyyy HH:mm:ss")
         : "-";
 }
 

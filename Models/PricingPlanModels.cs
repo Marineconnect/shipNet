@@ -138,7 +138,7 @@ public class PricingPlanListItemViewModel
         : "Inactive";
 
     public string UpdatedDateDisplay => UpdatedDate.HasValue
-        ? UpdatedDate.Value.ToString("yyyy-MM-dd HH:mm:ss")
+        ? UpdatedDate.Value.ToString("dd/MM/yyyy HH:mm:ss")
         : "-";
 }
 
@@ -202,7 +202,7 @@ public class TenantPricingListItemViewModel
     public string? UpdatedBy { get; set; }
 
     public string UpdatedDateDisplay => UpdatedDate.HasValue
-        ? UpdatedDate.Value.ToString("yyyy-MM-dd HH:mm:ss")
+        ? UpdatedDate.Value.ToString("dd/MM/yyyy HH:mm:ss")
         : "-";
 }
 

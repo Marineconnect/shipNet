@@ -166,6 +166,7 @@ public class MonthlySubscriptionService(
                 : "paid"
         };
         var canEditBilling = CanEditBilling(invoices, qrSessions, out var billingEditBlockedReason);
+        var invoiceSettings = await systemSettingsService.GetSettingsByCodesAsync(["invoice_po_number"], cancellationToken);
 
         return new MonthlySubscriptionDetailViewModel
         {
@@ -186,7 +187,8 @@ public class MonthlySubscriptionService(
                 OverChargePrice = subscription.OverChargePrice
             },
             CanEditBilling = canEditBilling,
-            BillingEditBlockedReason = billingEditBlockedReason
+            BillingEditBlockedReason = billingEditBlockedReason,
+            DefaultInvoicePoNumber = invoiceSettings.GetValueOrDefault("invoice_po_number") ?? string.Empty
         };
     }
 
@@ -290,6 +292,8 @@ public class MonthlySubscriptionService(
 
     public async Task<IReadOnlyList<int>> CreateSubscriptionAsync(CreateMonthlySubscriptionViewModel model, int? userId, string username, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
     {
+        NormalizeCreateSubscriptionDates(model);
+
         if (tenantId.HasValue && model.TenantId != tenantId.Value)
         {
             throw new InvalidOperationException("Tenant is outside the current user scope.");
@@ -493,6 +497,8 @@ public class MonthlySubscriptionService(
 
     public async Task UpdateSubscriptionBillingAsync(UpdateMonthlySubscriptionBillingViewModel model, int? userId, string username, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
     {
+        NormalizeUpdateBillingDates(model);
+
         if (model.StartDate.Date > model.EndDate.Date || model.StartDate.Month != model.EndDate.Month || model.StartDate.Year != model.EndDate.Year)
         {
             throw new InvalidOperationException("Start date and end date must be in the same month.");
@@ -1353,6 +1359,11 @@ public class MonthlySubscriptionService(
 
     private static MonthlySubscriptionListItemViewModel MapSubscriptionListItem(SqlDataReader reader)
     {
+        var startDate = NormalizeLegacySubscriptionDate(ReadDate(reader, "StartDate") ?? DateTime.MinValue);
+        var endDate = NormalizeLegacySubscriptionDate(ReadDate(reader, "EndDate") ?? DateTime.MinValue, startDate);
+        var nextBillingDate = ReadDate(reader, "NextBillingDate");
+        nextBillingDate = nextBillingDate.HasValue ? NormalizeLegacySubscriptionDate(nextBillingDate.Value, endDate) : null;
+
         return new MonthlySubscriptionListItemViewModel
         {
             Id = ReadInt(reader, "ID"),
@@ -1371,9 +1382,9 @@ public class MonthlySubscriptionService(
             OverChargePrice = ReadDecimal(reader, "OverChargePrice"),
             TotalTopUpGb = ReadDecimal(reader, "TotalTopUpGb"),
             Status = reader["Status"]?.ToString() ?? string.Empty,
-            StartDate = ReadDate(reader, "StartDate") ?? DateTime.MinValue,
-            EndDate = ReadDate(reader, "EndDate") ?? DateTime.MinValue,
-            NextBillingDate = ReadDate(reader, "NextBillingDate"),
+            StartDate = startDate,
+            EndDate = endDate,
+            NextBillingDate = nextBillingDate,
             TotalInvoiceAmount = ReadDecimal(reader, "TotalInvoiceAmount"),
             TotalPaid = ReadDecimal(reader, "TotalPaid"),
             InvoiceStatus = reader["InvoiceStatus"]?.ToString() ?? string.Empty
@@ -1398,6 +1409,77 @@ public class MonthlySubscriptionService(
     private static DateTime? ReadDate(SqlDataReader reader, string columnName)
     {
         return reader[columnName] is DateTime value ? value : null;
+    }
+
+    private static DateTime NormalizeLegacySubscriptionDate(DateTime value, DateTime? anchorDate = null)
+    {
+        if (value == DateTime.MinValue || (value.Year >= 2000 && value.Year <= 2100))
+        {
+            return value;
+        }
+
+        var anchor = anchorDate.HasValue && anchorDate.Value.Year >= 2000
+            ? anchorDate.Value
+            : DateTime.Today;
+        var day = Math.Min(value.Day, DateTime.DaysInMonth(anchor.Year, value.Month));
+        return new DateTime(anchor.Year, value.Month, day);
+    }
+
+    private static void NormalizeCreateSubscriptionDates(CreateMonthlySubscriptionViewModel model)
+    {
+        if (model.UsageMonth == default)
+        {
+            return;
+        }
+
+        var usageMonth = new DateTime(model.UsageMonth.Year, model.UsageMonth.Month, 1);
+        model.UsageMonth = usageMonth;
+
+        if (IsOutOfSupportedYear(model.StartDate) || model.StartDate.Month != usageMonth.Month || model.StartDate.Year != usageMonth.Year)
+        {
+            model.StartDate = usageMonth;
+        }
+
+        if (IsOutOfSupportedYear(model.EndDate) || model.EndDate.Month != usageMonth.Month || model.EndDate.Year != usageMonth.Year)
+        {
+            model.EndDate = new DateTime(usageMonth.Year, usageMonth.Month, DateTime.DaysInMonth(usageMonth.Year, usageMonth.Month));
+        }
+
+        if (IsOutOfSupportedYear(model.NextBillingDate) || model.NextBillingDate <= model.EndDate)
+        {
+            model.NextBillingDate = new DateTime(usageMonth.Year, usageMonth.Month, 1).AddMonths(1);
+        }
+    }
+
+    private static void NormalizeUpdateBillingDates(UpdateMonthlySubscriptionBillingViewModel model)
+    {
+        if (model.UsageMonth == default)
+        {
+            return;
+        }
+
+        var usageMonth = new DateTime(model.UsageMonth.Year, model.UsageMonth.Month, 1);
+        model.UsageMonth = usageMonth;
+
+        if (IsOutOfSupportedYear(model.StartDate) || model.StartDate.Month != usageMonth.Month || model.StartDate.Year != usageMonth.Year)
+        {
+            model.StartDate = usageMonth;
+        }
+
+        if (IsOutOfSupportedYear(model.EndDate) || model.EndDate.Month != usageMonth.Month || model.EndDate.Year != usageMonth.Year)
+        {
+            model.EndDate = new DateTime(usageMonth.Year, usageMonth.Month, DateTime.DaysInMonth(usageMonth.Year, usageMonth.Month));
+        }
+
+        if (IsOutOfSupportedYear(model.NextBillingDate) || model.NextBillingDate <= model.EndDate)
+        {
+            model.NextBillingDate = new DateTime(usageMonth.Year, usageMonth.Month, 1).AddMonths(1);
+        }
+    }
+
+    private static bool IsOutOfSupportedYear(DateTime value)
+    {
+        return value == default || value.Year < 2000 || value.Year > 2100;
     }
 
     private static void AddDecimal(SqlCommand command, string name, decimal value)
