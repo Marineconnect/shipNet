@@ -31,6 +31,7 @@
     var canAccessTenant = !isShipAdmin && !isCrew;
     var canAccessCommercial = !isTenant && !isShipAdmin && !isCrew;
     var canAccessSubscription = !isShipAdmin && !isCrew;
+    var canAccessKvhSolutions = true;
     var canAccessUsers = !isCrew;
     var canAccessSettings = !isTenant && !isShipAdmin && !isCrew;
 
@@ -66,6 +67,10 @@
   <div class="portal-nav-panel" id="portalNavPanel">
     <nav class="portal-nav-links portal-nav-tree" aria-label="Primary">
       <a asp-controller="Dashboard" asp-action="Index" class="portal-nav-link@(ActiveClass("dashboard"))">Tổng quan / Dashboard</a>
+      @if (canAccessKvhSolutions)
+      {
+        <a asp-controller="KvhSolutions" asp-action="Index" class="portal-nav-link@(ActiveClass("kvhsolutions"))">KVH Solutions</a>
+      }
       @if (canAccessTenant)
       {
         <details class="portal-nav-group">
@@ -90,7 +95,7 @@
             }
             @if (canAccessSubscription)
             {
-              <a asp-controller="MonthlySubscription" asp-action="Index" class="portal-nav-subitem@(ActiveClass("subscription"))">Gói cước hàng tháng / Monthly Subscription</a>
+              <a asp-controller="MonthlySubscription" asp-action="Index" class="portal-nav-subitem@(ActiveClass("subscription"))">Chu kỳ tính cước / Billing Cycle</a>
             }
           </div>
         </details>

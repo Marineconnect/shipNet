@@ -111,7 +111,7 @@ public class MonthlySubscriptionController(
         NormalizeCreateModel(model);
         if (!ValidateCreateModel(model))
         {
-            TempData["SubscriptionError"] = "Vui lòng nhập đầy đủ thông tin subscription hợp lệ.";
+            TempData["SubscriptionError"] = "Vui lòng nhập đầy đủ thông tin billing cycle hợp lệ.";
             return RedirectToAction(nameof(Index));
         }
 
@@ -121,16 +121,16 @@ public class MonthlySubscriptionController(
             var subscriptionIds = await subscriptionService.CreateSubscriptionAsync(model, userId, username, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
             var firstSubscriptionId = subscriptionIds.FirstOrDefault();
             TempData["SubscriptionSuccess"] = subscriptionIds.Count == 1
-                ? $"Tạo subscription #{firstSubscriptionId} thành công."
-                : $"Tạo {subscriptionIds.Count} subscription theo từng chu kỳ thành công.";
+                ? $"Tạo billing cycle #{firstSubscriptionId} thành công."
+                : $"Tạo {subscriptionIds.Count} billing cycle theo từng chu kỳ thành công.";
             return firstSubscriptionId > 0
                 ? RedirectToAction(nameof(Details), new { id = firstSubscriptionId })
                 : RedirectToAction(nameof(Index));
         }
         catch (Exception exception)
         {
-            logger.LogError(exception, "Failed to create monthly subscription.");
-            TempData["SubscriptionError"] = $"Không thể tạo subscription. Chi tiết: {exception.GetBaseException().Message}";
+            logger.LogError(exception, "Failed to create billing cycle.");
+            TempData["SubscriptionError"] = $"Không thể tạo billing cycle. Chi tiết: {exception.GetBaseException().Message}";
             return RedirectToAction(nameof(Index));
         }
     }
@@ -295,12 +295,12 @@ public class MonthlySubscriptionController(
         {
             var (userId, username) = GetCurrentAuditContext();
             await subscriptionService.UpdateSubscriptionBillingAsync(model, userId, username, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
-            TempData["SubscriptionSuccess"] = "Cập nhật kỳ billing subscription thành công.";
+            TempData["SubscriptionSuccess"] = "Cập nhật billing period thành công.";
         }
         catch (Exception exception)
         {
-            logger.LogError(exception, "Failed to update subscription billing.");
-            TempData["SubscriptionError"] = $"Không thể cập nhật kỳ billing subscription. Chi tiết: {exception.GetBaseException().Message}";
+            logger.LogError(exception, "Failed to update billing cycle billing.");
+            TempData["SubscriptionError"] = $"Không thể cập nhật billing period. Chi tiết: {exception.GetBaseException().Message}";
         }
 
         return RedirectToAction(nameof(Details), new { id = model.SubscriptionId });
@@ -320,12 +320,12 @@ public class MonthlySubscriptionController(
         {
             var (userId, username) = GetCurrentAuditContext();
             await subscriptionService.UpdateSubscriptionStatusAsync(model, userId, username, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
-            TempData["SubscriptionSuccess"] = "Cập nhật trạng thái subscription thành công.";
+            TempData["SubscriptionSuccess"] = "Cập nhật trạng thái billing cycle thành công.";
         }
         catch (Exception exception)
         {
-            logger.LogError(exception, "Failed to update subscription status.");
-            TempData["SubscriptionError"] = $"Không thể cập nhật trạng thái subscription. Chi tiết: {exception.GetBaseException().Message}";
+            logger.LogError(exception, "Failed to update billing cycle status.");
+            TempData["SubscriptionError"] = $"Không thể cập nhật trạng thái billing cycle. Chi tiết: {exception.GetBaseException().Message}";
         }
 
         return RedirectToAction(nameof(Details), new { id = model.SubscriptionId });

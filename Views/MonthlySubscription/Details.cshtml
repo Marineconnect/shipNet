@@ -2,7 +2,7 @@
 @inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 @{
     ViewData["ActiveNav"] = "subscription";
-    ViewData["Title"] = "Subscription Detail";
+    ViewData["Title"] = "Billing Cycle Detail";
     var defaultCurrency = (Configuration["System:DefaultCurrency"] ?? "VND").Trim().ToUpperInvariant();
     string Money(decimal value) => string.Equals(defaultCurrency, "VND", StringComparison.OrdinalIgnoreCase)
         ? $"{value:#,##0} VND"
@@ -53,7 +53,7 @@
 
     <div class="device-topbar">
       <div>
-        <div class="device-brand">Tóm tắt subscription / Subscription Summary</div>
+        <div class="device-brand">Tóm tắt billing cycle / Billing Cycle Summary</div>
         <h1>@Model.Subscription.VesselName</h1>
         <p>@Model.Subscription.PlanName • @Model.Subscription.SubscriptionPeriodDisplay</p>
       </div>
@@ -76,17 +76,17 @@
         <div class="device-card-head">
           <div>
             <h2>Tóm tắt / Summary</h2>
-            <p>Thông tin subscription và giá prorated / Subscription information and prorated pricing.</p>
+            <p>Thông tin billing cycle và giá prorated / Billing cycle information and prorated pricing.</p>
           </div>
         </div>
         <table class="subscription-kv-table">
           <tbody>
             <tr><th>Tàu / Vessel</th><td>@Model.Subscription.VesselName</td><th>Tenant / Tenant</th><td>@Model.Subscription.TenantName</td></tr>
             <tr><th>KIT Number</th><td>@Model.Subscription.KitId</td><th>Gói / Plan</th><td>@Model.Subscription.PlanName</td></tr>
-            <tr><th>Loại / Type</th><td>@Model.Subscription.SubscriptionType</td><th>Kỳ billing / Billing Period</th><td>@Model.Subscription.SubscriptionPeriodDisplay</td></tr>
+            <tr><th>Loại / Type</th><td>@Model.Subscription.SubscriptionType</td><th>Billing period / Billing Period</th><td>@Model.Subscription.SubscriptionPeriodDisplay</td></tr>
             <tr><th>Giới hạn data / Data Limit</th><td>@Data(Model.Subscription.DataLimitGb)</td><th>Ngày billing tiếp theo / Next Billing Date</th><td>@Model.Subscription.NextBillingDateDisplay</td></tr>
             <tr><th>Đơn giá / Unit Price</th><td>@Money(Model.Subscription.BasePlanPrice)</td><th>Giá overcharge / Overcharge Price</th><td>@Money(Model.Subscription.OverChargePrice) / GB</td></tr>
-            <tr><th>Số ngày / Days</th><td>@Model.Subscription.SubscriptionDays</td><th>Tiền subscription / Subscription Price</th><td>@Money(Model.Subscription.SubscriptionPrice)</td></tr>
+            <tr><th>Số ngày / Days</th><td>@Model.Subscription.SubscriptionDays</td><th>Tiền billing cycle / Billing Cycle Price</th><td>@Money(Model.Subscription.SubscriptionPrice)</td></tr>
             <tr><th>Tổng invoice / Total Invoice</th><td>@Money(Model.Subscription.TotalInvoiceAmount)</td><th>Đã thanh toán / Total Paid</th><td>@Money(Model.Subscription.TotalPaid)</td></tr>
             <tr><th>Trạng thái / Status</th><td colspan="3"><span class="subscription-status @Model.Subscription.Status">@StatusLabel(Model.Subscription.Status)</span></td></tr>
           </tbody>
@@ -97,7 +97,7 @@
             @Html.AntiForgeryToken()
             <input type="hidden" name="SubscriptionId" value="@Model.Subscription.Id" />
             <label class="detail-field">
-              <span>Cập nhật trạng thái subscription / Update subscription status</span>
+              <span>Cập nhật trạng thái billing cycle / Update billing cycle status</span>
               <select name="Status">
                 <option value="active" selected="@(Model.Subscription.Status == "active")">Kích hoạt / Active</option>
                 <option value="debit" selected="@(Model.Subscription.Status == "debit" || Model.Subscription.Status == "pending_payment")">Ghi nợ / Debit</option>
@@ -105,7 +105,7 @@
                 <option value="terminated" selected="@(Model.Subscription.Status == "terminated")">Hủy / Terminated</option>
               </select>
             </label>
-            <button type="submit" class="btn-primary">Cập nhật subscription / Update subscription</button>
+            <button type="submit" class="btn-primary">Cập nhật billing cycle / Update billing cycle</button>
           </form>
           <form asp-controller="MonthlySubscription" asp-action="UpdateBilling" method="post" class="invoice-edit-form subscription-billing-edit-form">
             @Html.AntiForgeryToken()

@@ -44,6 +44,7 @@ public class DeviceListItemViewModel
     public string SystemType { get; set; } = string.Empty;
     public string KitNumber { get; set; } = string.Empty;
     public string ServiceLine { get; set; } = string.Empty;
+    public string TrafficId { get; set; } = string.Empty;
     public string PlanName { get; set; } = string.Empty;
     public DateTime? LastUpdateTime { get; set; }
     public DateTime? TokenExpiredTime { get; set; }
@@ -110,6 +111,7 @@ public class DeviceDetailViewModel
     public string SystemType { get; set; } = string.Empty;
     public string KitNumber { get; set; } = string.Empty;
     public string ServiceLine { get; set; } = string.Empty;
+    public string TrafficId { get; set; } = string.Empty;
     public DateTime? LastUpdateTime { get; set; }
     public DateTime? TokenExpiredTime { get; set; }
     public DateTime? LastSysnTime { get; set; }

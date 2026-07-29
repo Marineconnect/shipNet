@@ -160,6 +160,9 @@ public sealed class KvhJobService(
             KvhCommandTypes.DataOptIn => await VerifyDataOptInAsync(command, accessToken, cancellationToken),
             KvhCommandTypes.WifiUpdate => await VerifyWifiAsync(command, accessToken, cancellationToken),
             KvhCommandTypes.Reboot => await VerifyRebootAsync(command, accessToken, cancellationToken),
+            KvhCommandTypes.SubscriptionPause => await VerifySubscriptionCommandAsync(command, accessToken, "pause", cancellationToken),
+            KvhCommandTypes.SubscriptionResume => await VerifySubscriptionCommandAsync(command, accessToken, "resume", cancellationToken),
+            KvhCommandTypes.SubscriptionCancelSchedule => await VerifySubscriptionCommandAsync(command, accessToken, "cancel", cancellationToken),
             _ => VerificationResult.Mismatch("unsupported_command_type", "Unsupported command type.")
         };
 
@@ -258,6 +261,68 @@ public sealed class KvhJobService(
         catch (JsonException)
         {
             return VerificationResult.Mismatch(KvhErrorCodes.VerificationFailed, "Status verification JSON is invalid.", response.RawResponse);
+        }
+    }
+
+    private async Task<VerificationResult> VerifySubscriptionCommandAsync(KvhCommand command, string accessToken, string expectedAction, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(command.TrafficId))
+        {
+            return VerificationResult.Mismatch("kvh_traffic_id_missing", "Traffic ID is missing on the KVH command.");
+        }
+
+        using var request = CreateKvhRequest(HttpMethod.Get, $"https://api.mykvh.com/v3/subscriptions/{Uri.EscapeDataString(command.TrafficId)}", accessToken);
+        var response = await SendAsync(request, cancellationToken);
+        if (!response.Success)
+        {
+            return VerificationResult.Mismatch(KvhErrorCodes.SubscriptionVerificationFailed, $"Subscription list API returned HTTP {response.HttpStatusCode}.", response.RawResponse);
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(response.RawResponse);
+            var entries = ResolveSubscriptionArray(document.RootElement);
+            foreach (var entry in entries)
+            {
+                var region = KvhJsonHelpers.FindStringValue(entry, "region", "region_code", "regionCode");
+                if (!string.IsNullOrWhiteSpace(command.Region) && !string.Equals(region, command.Region, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var status = KvhJsonHelpers.FindStringValue(entry, "status", "state");
+                var scheduledAction = KvhJsonHelpers.FindStringValue(entry, "scheduled_action", "scheduledAction", "schedule_action", "action");
+                var scheduleId = KvhJsonHelpers.FindStringValue(entry, "schedule_id", "scheduleId");
+
+                if (expectedAction == "resume" &&
+                    (status.Equals("ACTIVE", StringComparison.OrdinalIgnoreCase) ||
+                     scheduledAction.Contains("resume", StringComparison.OrdinalIgnoreCase)))
+                {
+                    return VerificationResult.Ok(response.RawResponse);
+                }
+
+                if (expectedAction == "pause" &&
+                    (scheduledAction.Contains("pause", StringComparison.OrdinalIgnoreCase) ||
+                     scheduledAction.Contains("suspend", StringComparison.OrdinalIgnoreCase) ||
+                     status.Contains("SUSPEND", StringComparison.OrdinalIgnoreCase) ||
+                     status.Contains("PAUSE", StringComparison.OrdinalIgnoreCase)))
+                {
+                    return VerificationResult.Ok(response.RawResponse);
+                }
+
+                if (expectedAction == "cancel" &&
+                    (string.IsNullOrWhiteSpace(command.ScheduleId) ||
+                     !string.Equals(scheduleId, command.ScheduleId, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return VerificationResult.Ok(response.RawResponse);
+                }
+            }
+
+            return VerificationResult.Mismatch(KvhErrorCodes.SubscriptionVerificationFailed, "KVH subscription payload does not reflect the expected state or scheduled action.", response.RawResponse);
+        }
+        catch (JsonException)
+        {
+            return VerificationResult.Mismatch(KvhErrorCodes.SubscriptionVerificationFailed, "Subscription verification JSON is invalid.", response.RawResponse);
         }
     }
 
@@ -488,6 +553,26 @@ public sealed class KvhJobService(
         return KvhJobStatuses.Unknown;
     }
 
+    private static IReadOnlyList<JsonElement> ResolveSubscriptionArray(JsonElement root)
+    {
+        if (root.ValueKind == JsonValueKind.Array)
+        {
+            return root.EnumerateArray().Select(item => item.Clone()).ToList();
+        }
+
+        foreach (var name in new[] { "subscriptions", "data", "items", "results" })
+        {
+            if (root.ValueKind == JsonValueKind.Object &&
+                root.TryGetProperty(name, out var child) &&
+                child.ValueKind == JsonValueKind.Array)
+            {
+                return child.EnumerateArray().Select(item => item.Clone()).ToList();
+            }
+        }
+
+        return root.ValueKind == JsonValueKind.Object ? [root.Clone()] : [];
+    }
+
     private async Task<(string ClientId, string ClientSecret)> GetApiCredentialsAsync(SqlConnection connection, CancellationToken cancellationToken)
     {
         const string query = "SELECT [SettingCode], [SettingValue] FROM [dbo].[TblSettings] WHERE [SettingCode] IN ('client_id', 'client_secret')";
@@ -533,6 +618,11 @@ public sealed class KvhJobService(
         DeviceId = Convert.ToInt32(reader["DeviceId"]),
         TerminalId = reader["TerminalId"]?.ToString() ?? string.Empty,
         KvhDeviceId = reader["KvhDeviceId"]?.ToString() ?? string.Empty,
+        TrafficId = HasColumn(reader, "TrafficId") ? reader["TrafficId"]?.ToString() ?? string.Empty : string.Empty,
+        Region = HasColumn(reader, "Region") ? reader["Region"]?.ToString() ?? string.Empty : string.Empty,
+        ScheduleId = HasColumn(reader, "ScheduleId") ? reader["ScheduleId"]?.ToString() ?? string.Empty : string.Empty,
+        KvhSubscriptionId = HasColumn(reader, "KvhSubscriptionId") && reader["KvhSubscriptionId"] != DBNull.Value ? Convert.ToInt64(reader["KvhSubscriptionId"]) : null,
+        CooldownUntilUtc = HasColumn(reader, "CooldownUntilUtc") && reader["CooldownUntilUtc"] != DBNull.Value ? Convert.ToDateTime(reader["CooldownUntilUtc"]) : null,
         CommandType = reader["CommandType"]?.ToString() ?? string.Empty,
         RequestedValue = reader["RequestedValue"]?.ToString() ?? string.Empty,
         JobId = reader["JobId"]?.ToString() ?? string.Empty,
@@ -542,6 +632,19 @@ public sealed class KvhJobService(
         PollCount = Convert.ToInt32(reader["PollCount"]),
         MaxPollCount = Convert.ToInt32(reader["MaxPollCount"])
     };
+
+    private static bool HasColumn(IDataRecord reader, string columnName)
+    {
+        for (var i = 0; i < reader.FieldCount; i++)
+        {
+            if (string.Equals(reader.GetName(i), columnName, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private sealed class JobPollResult
     {

@@ -1,0 +1,150 @@
+@model KvhSolutionPageResult
+@{
+    ViewData["ActiveNav"] = "kvhsolutions";
+    ViewData["Title"] = "KVH Solutions";
+}
+
+<div class="device-dashboard">
+  <section class="device-hero">
+    <div>
+      <div class="device-brand">KVH Operations</div>
+      <h1>KVH Solutions</h1>
+      <p>Operational KVH subscription state, traffic IDs, scheduled actions, and command status.</p>
+    </div>
+  </section>
+
+  @if (TempData["KvhSolutionSuccess"] is string successMessage)
+  {
+    <div class="tenant-alert success">@successMessage</div>
+  }
+  @if (TempData["KvhSolutionError"] is string errorMessage)
+  {
+    <div class="tenant-alert danger">@errorMessage</div>
+  }
+
+  <section class="subscription-filter-panel">
+    <form asp-controller="KvhSolutions" asp-action="Index" method="get" class="subscription-filter-grid">
+      <label>
+        <span>Search</span>
+        <input type="search" name="search" value="@Model.Filter.Search" placeholder="Terminal, vessel, KIT, traffic ID" />
+      </label>
+      <label>
+        <span>Status</span>
+        <input type="text" name="status" value="@Model.Filter.Status" placeholder="ACTIVE, SUSPEND" />
+      </label>
+      <label>
+        <span>Region</span>
+        <input type="text" name="region" value="@Model.Filter.Region" />
+      </label>
+      @if (!Model.IsTenantScoped)
+      {
+        <label>
+          <span>Tenant</span>
+          <select name="tenantId">
+            <option value="">All tenants</option>
+            @foreach (var tenant in Model.Tenants)
+            {
+              <option value="@tenant.Id" selected="@(Model.Filter.TenantId == tenant.Id)">@tenant.TenantName</option>
+            }
+          </select>
+        </label>
+      }
+      <label>
+        <span>Sync state</span>
+        <select name="syncState">
+          <option value="">All</option>
+          <option value="missing_traffic" selected="@(Model.Filter.SyncState == "missing_traffic")">Missing traffic ID</option>
+          <option value="sync_failed" selected="@(Model.Filter.SyncState == "sync_failed")">Sync failed</option>
+        </select>
+      </label>
+      <div class="subscription-filter-actions">
+        <button type="submit" class="btn-primary">Filter</button>
+        <a asp-controller="KvhSolutions" asp-action="Index" class="btn-secondary">Reset</a>
+      </div>
+    </form>
+  </section>
+
+  <section class="device-card">
+    <div class="device-table-wrap">
+      <table class="device-table subscription-table">
+        <thead>
+          <tr>
+            <th>Device / Terminal</th>
+            <th>Vessel</th>
+            <th>Tenant</th>
+            <th>KIT</th>
+            <th>Traffic ID</th>
+            <th>Region</th>
+            <th>KVH Plan</th>
+            <th>Status</th>
+            <th>Scheduled</th>
+            <th>Allowance</th>
+            <th>Last sync</th>
+            <th>Sync result</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          @if (Model.Items.Count == 0)
+          {
+            <tr><td colspan="13" class="tenant-empty">No KVH Solutions found.</td></tr>
+          }
+          @foreach (var item in Model.Items)
+          {
+            <tr>
+              <td>
+                <a asp-controller="KvhSolutions" asp-action="Details" asp-route-deviceId="@item.DeviceId">@item.DeviceName</a>
+                <div class="muted">@item.TerminalId</div>
+              </td>
+              <td>@(string.IsNullOrWhiteSpace(item.VesselName) ? "-" : item.VesselName)</td>
+              <td>@(string.IsNullOrWhiteSpace(item.TenantName) ? "-" : item.TenantName)</td>
+              <td>@(string.IsNullOrWhiteSpace(item.KitNumber) ? "-" : item.KitNumber)</td>
+              <td>@(item.MissingTrafficId ? "Traffic ID unavailable" : item.TrafficId)</td>
+              <td>@(string.IsNullOrWhiteSpace(item.Region) ? "-" : item.Region)</td>
+              <td>@(string.IsNullOrWhiteSpace(item.PlanName) ? "-" : item.PlanName)</td>
+              <td><span class="subscription-status @item.Status">@(!string.IsNullOrWhiteSpace(item.Status) ? item.Status : "-")</span></td>
+              <td>
+                @(string.IsNullOrWhiteSpace(item.ScheduledAction) ? "-" : item.ScheduledAction)
+                @if (item.ScheduledEffectiveDateUtc.HasValue)
+                {
+                  <div class="muted">@item.ScheduledEffectiveDisplay</div>
+                }
+              </td>
+              <td>@item.AllowanceDisplay</td>
+              <td>@item.LastSyncDisplay</td>
+              <td>@item.LastSyncStatus @item.LastSyncErrorCode</td>
+              <td class="table-actions">
+                <form asp-controller="KvhSolutions" asp-action="Sync" method="post">
+                  @Html.AntiForgeryToken()
+                  <input type="hidden" name="deviceId" value="@item.DeviceId" />
+                  <button type="submit" class="table-action-btn">Sync</button>
+                </form>
+                @if (Model.CanManageSolutions && item.KvhSubscriptionId.HasValue)
+                {
+                  @if (item.CanPause)
+                  {
+                    <form asp-controller="KvhSolutions" asp-action="Pause" method="post">
+                      @Html.AntiForgeryToken()
+                      <input type="hidden" name="DeviceId" value="@item.DeviceId" />
+                      <input type="hidden" name="KvhSubscriptionId" value="@item.KvhSubscriptionId" />
+                      <button type="submit" class="table-action-btn">Pause</button>
+                    </form>
+                  }
+                  @if (item.CanResume)
+                  {
+                    <form asp-controller="KvhSolutions" asp-action="Resume" method="post">
+                      @Html.AntiForgeryToken()
+                      <input type="hidden" name="DeviceId" value="@item.DeviceId" />
+                      <input type="hidden" name="KvhSubscriptionId" value="@item.KvhSubscriptionId" />
+                      <button type="submit" class="table-action-btn">Resume</button>
+                    </form>
+                  }
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>

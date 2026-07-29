@@ -1,0 +1,163 @@
+@model KvhSolutionDetailViewModel
+@{
+    ViewData["ActiveNav"] = "kvhsolutions";
+    ViewData["Title"] = "KVH Solution Detail";
+}
+
+<div class="device-dashboard">
+  <section class="device-hero">
+    <div>
+      <div class="device-brand">KVH Solution Detail</div>
+      <h1>@Model.VesselName</h1>
+      <p>@Model.TerminalId • Traffic ID: @(string.IsNullOrWhiteSpace(Model.TrafficId) ? "Traffic ID unavailable" : Model.TrafficId)</p>
+    </div>
+    <div class="device-actions">
+      <a asp-controller="KvhSolutions" asp-action="Index" class="btn-secondary">Back</a>
+      <form asp-controller="KvhSolutions" asp-action="Sync" method="post">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="deviceId" value="@Model.DeviceId" />
+        <button type="submit" class="btn-primary">Sync</button>
+      </form>
+    </div>
+  </section>
+
+  @if (TempData["KvhSolutionSuccess"] is string successMessage)
+  {
+    <div class="tenant-alert success">@successMessage</div>
+  }
+  @if (TempData["KvhSolutionError"] is string errorMessage)
+  {
+    <div class="tenant-alert danger">@errorMessage</div>
+  }
+
+  <section class="device-card subscription-summary-card">
+    <header class="card-header">
+      <div>
+        <h2>ShipNet Identity</h2>
+        <p>Device, terminal and service identifiers.</p>
+      </div>
+    </header>
+    <table class="subscription-kv-table">
+      <tbody>
+        <tr><th>Device</th><td>@Model.DeviceName</td><th>Terminal ID</th><td>@Model.TerminalId</td></tr>
+        <tr><th>Vessel</th><td>@Model.VesselName</td><th>Tenant</th><td>@Model.TenantName</td></tr>
+        <tr><th>KIT Number</th><td>@Model.KitNumber</td><th>KIT ID</th><td>@Model.KitId</td></tr>
+        <tr><th>Service line</th><td>@Model.ServiceLine</td><th>Traffic ID</th><td>@(string.IsNullOrWhiteSpace(Model.TrafficId) ? "Traffic ID unavailable" : Model.TrafficId)</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="device-card">
+    <header class="card-header">
+      <div>
+        <h2>Current KVH Subscription Entries</h2>
+        <p>All current entries returned by KVH, grouped by the provider subscription key.</p>
+      </div>
+    </header>
+    <div class="device-table-wrap">
+      <table class="device-table subscription-table">
+        <thead>
+          <tr>
+            <th>Region</th>
+            <th>Status</th>
+            <th>Plan</th>
+            <th>Opt-in</th>
+            <th>Allowance</th>
+            <th>Proration</th>
+            <th>Effective</th>
+            <th>Scheduled</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          @if (Model.CurrentSubscriptions.Count == 0)
+          {
+            <tr><td colspan="9" class="tenant-empty">No current KVH subscription entries.</td></tr>
+          }
+          @foreach (var entry in Model.CurrentSubscriptions)
+          {
+            var canPause = Model.CanManageSolutions && entry.Status.Equals("ACTIVE", StringComparison.OrdinalIgnoreCase) && !entry.ScheduledAction.Contains("pause", StringComparison.OrdinalIgnoreCase);
+            var canResume = Model.CanManageSolutions && (entry.Status.Contains("SUSPEND", StringComparison.OrdinalIgnoreCase) || entry.Status.Contains("PAUSE", StringComparison.OrdinalIgnoreCase));
+            <tr>
+              <td>@entry.Region</td>
+              <td><span class="subscription-status @entry.Status">@entry.Status</span></td>
+              <td>
+                @entry.PlanName
+                <details><summary>Plan JSON</summary><pre>@entry.PlanJson</pre></details>
+              </td>
+              <td>
+                @(string.IsNullOrWhiteSpace(entry.OptInStatus) ? "-" : entry.OptInStatus)
+                <details><summary>Opt-in JSON</summary><pre>@entry.OptInJson</pre></details>
+              </td>
+              <td>@(entry.AllowanceGb.HasValue ? $"{entry.AllowanceGb:0.##} GB" : "-")</td>
+              <td>@(entry.Proration?.ToString("0.##") ?? "-")</td>
+              <td>@(entry.EffectiveDateUtc?.ToString("yyyy-MM-dd") ?? "-")</td>
+              <td>
+                @(string.IsNullOrWhiteSpace(entry.ScheduledAction) ? "-" : entry.ScheduledAction)
+                @if (!string.IsNullOrWhiteSpace(entry.ScheduleId))
+                {
+                  <div class="muted">@entry.ScheduleId</div>
+                }
+              </td>
+              <td class="table-actions">
+                @if (canPause)
+                {
+                  <form asp-controller="KvhSolutions" asp-action="Pause" method="post" onsubmit="return confirm('Pause is normally scheduled by KVH for the first day of the following month. Continue?');">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="DeviceId" value="@Model.DeviceId" />
+                    <input type="hidden" name="KvhSubscriptionId" value="@entry.Id" />
+                    <button type="submit" class="table-action-btn">Pause</button>
+                  </form>
+                }
+                @if (canResume)
+                {
+                  <form asp-controller="KvhSolutions" asp-action="Resume" method="post" onsubmit="return confirm('Resume will follow the behavior returned by KVH and will be verified after the job completes. Continue?');">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="DeviceId" value="@Model.DeviceId" />
+                    <input type="hidden" name="KvhSubscriptionId" value="@entry.Id" />
+                    <button type="submit" class="table-action-btn">Resume</button>
+                  </form>
+                }
+                @if (Model.CanManageSolutions && !string.IsNullOrWhiteSpace(entry.ScheduleId))
+                {
+                  <form asp-controller="KvhSolutions" asp-action="CancelSchedule" method="post">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="DeviceId" value="@Model.DeviceId" />
+                    <input type="hidden" name="KvhSubscriptionId" value="@entry.Id" />
+                    <button type="submit" class="table-action-btn">Cancel schedule</button>
+                  </form>
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="device-card">
+    <header class="card-header"><h2>Recent Sync Logs</h2></header>
+    <table class="device-table subscription-table">
+      <thead><tr><th>Started UTC</th><th>Success</th><th>Traffic ID</th><th>Rows</th><th>Error</th></tr></thead>
+      <tbody>
+        @foreach (var log in Model.SyncLogs)
+        {
+          <tr><td>@log.StartedAtUtc.ToString("yyyy-MM-dd HH:mm:ss")</td><td>@log.Success</td><td>@log.TrafficId</td><td>@log.ReturnedCount</td><td>@log.ErrorCode @log.ErrorMessage</td></tr>
+        }
+      </tbody>
+    </table>
+  </section>
+
+  <section class="device-card">
+    <header class="card-header"><h2>Recent KVH Commands</h2></header>
+    <table class="device-table subscription-table">
+      <thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Job</th><th>Requested UTC</th><th>Error</th></tr></thead>
+      <tbody>
+        @foreach (var command in Model.RecentCommands)
+        {
+          <tr><td>@command.Id</td><td>@command.CommandType</td><td>@command.CommandStatus / @command.VerificationStatus</td><td>@command.JobId</td><td>@command.RequestedAtUtc.ToString("yyyy-MM-dd HH:mm:ss")</td><td>@command.ErrorCode @command.ErrorMessage</td></tr>
+        }
+      </tbody>
+    </table>
+  </section>
+</div>

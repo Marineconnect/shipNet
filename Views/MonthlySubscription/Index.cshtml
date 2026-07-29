@@ -3,7 +3,7 @@
 @using System.Text.Json
 @{
     ViewData["ActiveNav"] = "subscription";
-    ViewData["Title"] = "Monthly Subscription";
+    ViewData["Title"] = "Billing Cycle";
     var defaultCurrency = (Configuration["System:DefaultCurrency"] ?? "VND").Trim().ToUpperInvariant();
     string Money(decimal value) => string.Equals(defaultCurrency, "VND", StringComparison.OrdinalIgnoreCase)
         ? $"{value:#,##0} VND"
@@ -21,16 +21,16 @@
 
     <div class="device-topbar">
       <div>
-        <div class="device-brand">Lịch sử gói cước / Subscription History</div>
-        <h1>Gói cước hàng tháng / Monthly Subscription</h1>
-        <p>Quản lý mua bán gói cước hàng tháng, invoice subscription và invoice phát sinh / Manage monthly subscriptions, subscription invoices, and additional invoices.</p>
+        <div class="device-brand">Lịch sử chu kỳ tính cước / Billing Cycle History</div>
+        <h1>Chu kỳ tính cước / Billing Cycle</h1>
+        <p>Quản lý chu kỳ tính cước, invoice billing cycle và invoice phát sinh / Manage billing cycles, billing cycle invoices, and additional invoices.</p>
       </div>
       @if (Model.CanManageSubscriptions)
       {
         <div class="device-actions">
           <button type="button" class="btn-primary add-device-btn" id="openSubscriptionModal">
             <span class="add-device-icon">+</span>
-            <span>Tạo gói cước</span>
+            <span>Tạo billing cycle</span>
           </button>
         </div>
       }
@@ -47,7 +47,7 @@
 
     <section class="subscription-metrics">
       <div class="subscription-metric is-blue">
-        <span>Tổng subscription / Total Subscriptions</span>
+        <span>Tổng billing cycle / Total Billing Cycles</span>
         <strong>@Model.Summary.TotalSubscriptions.ToString("#,##0")</strong>
       </div>
       <div class="subscription-metric is-orange">
@@ -105,7 +105,7 @@
           </select>
         </label>
         <label>
-          <span>Trạng thái subscription / Subscription Status</span>
+          <span>Trạng thái billing cycle / Billing Cycle Status</span>
           <select name="status">
             <option value="">Vui lòng chọn / Please select</option>
             <option value="pending_payment" selected="@(Model.Filter.Status == "pending_payment")">Chờ thanh toán / Pending Payment</option>
@@ -148,8 +148,8 @@
     <section class="device-card">
       <div class="device-card-head">
         <div>
-          <h2>Lịch sử subscription / Subscription History</h2>
-          <p>Tổng số subscription / Total subscriptions: <strong>@Model.TotalItems</strong></p>
+          <h2>Lịch sử billing cycle / Billing Cycle History</h2>
+          <p>Tổng số billing cycle / Total billing cycles: <strong>@Model.TotalItems</strong></p>
         </div>
         @if (Model.CanManageSubscriptions)
         {
@@ -163,7 +163,7 @@
               @if (Model.CanManageSubscriptions)
               {
                 <th class="invoice-select-col">
-                  <input type="checkbox" id="selectAllSubscriptionsForQr" aria-label="Chọn tất cả subscription để tạo QR / Select all subscriptions for QR" />
+                  <input type="checkbox" id="selectAllSubscriptionsForQr" aria-label="Chọn tất cả billing cycle để tạo QR / Select all billing cycles for QR" />
                 </th>
               }
               <th>Tenant / Tenant</th>
@@ -173,9 +173,9 @@
               <th>Loại / Type</th>
               <th>Giới hạn data / Data Limit</th>
               <th>Tổng mua thêm / Total Top Up</th>
-              <th>Trạng thái subscription / Subscription Status</th>
+              <th>Trạng thái billing cycle / Billing Cycle Status</th>
               <th>Trạng thái invoice / Invoice Status</th>
-              <th>Kỳ subscription / Subscription</th>
+              <th>Billing period / Billing Period</th>
               <th>Ngày billing tiếp theo / Next Billing Date</th>
               <th>Tổng tiền invoice / Total Invoice Amount</th>
               <th>Đã thanh toán / Total Paid</th>
@@ -185,7 +185,7 @@
           <tbody>
             @if (Model.Subscriptions.Count == 0)
             {
-              <tr><td colspan="@(Model.CanManageSubscriptions ? 15 : 14)" class="tenant-empty">Chưa có monthly subscription nào / No monthly subscriptions found.</td></tr>
+              <tr><td colspan="@(Model.CanManageSubscriptions ? 15 : 14)" class="tenant-empty">Chưa có billing cycle nào / No billing cycles found.</td></tr>
             }
             else
             {
@@ -199,7 +199,7 @@
                              class="subscription-qr-checkbox"
                              value="@item.Id"
                              data-tenant-id="@item.TenantId"
-                             aria-label="Chọn subscription @item.Id để tạo QR / Select subscription @item.Id for QR"
+                             aria-label="Chọn billing cycle @item.Id để tạo QR / Select billing cycle @item.Id for QR"
                              disabled="@(!string.Equals(item.InvoiceStatus, "pending", StringComparison.OrdinalIgnoreCase) || item.TotalInvoiceAmount <= item.TotalPaid)" />
                     </td>
                   }
@@ -258,8 +258,8 @@
     <div class="device-modal subscription-modal" role="dialog" aria-modal="true" aria-labelledby="subscriptionModalTitle">
       <div class="device-modal-head">
         <div>
-          <h2 id="subscriptionModalTitle">Tạo gói cước</h2>
-          <p>Tạo gói cước hàng tháng và invoice chính.</p>
+          <h2 id="subscriptionModalTitle">Tạo billing cycle</h2>
+          <p>Tạo billing cycle và invoice chính.</p>
         </div>
         <button type="button" class="modal-close" id="closeSubscriptionModal" aria-label="Đóng / Close">×</button>
       </div>
@@ -282,9 +282,9 @@
           </select>
         </label>
         <label class="detail-field">
-          <span>* Gói subscription / Subscription Plan</span>
+          <span>* Gói billing cycle / Billing Cycle Plan</span>
           <select asp-for="CreateForm.PricingPlanId" id="createPlan">
-            <option value="">Chọn gói subscription / Select subscription plan</option>
+            <option value="">Chọn gói billing cycle / Select billing cycle plan</option>
           </select>
         </label>
         <label class="detail-field">

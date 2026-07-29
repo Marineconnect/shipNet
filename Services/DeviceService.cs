@@ -8,7 +8,7 @@ using StarlinkDeviceManager.Models;
 
 namespace StarlinkDeviceManager.Services;
 
-public class DeviceService(IConfiguration configuration, IHttpClientFactory httpClientFactory, IKvhCommandService kvhCommandService) : IDeviceService
+public class DeviceService(IConfiguration configuration, IHttpClientFactory httpClientFactory, IKvhCommandService kvhCommandService, IKvhSubscriptionService kvhSubscriptionService) : IDeviceService
 {
     private const string CreateDeviceAuditAction = "created_Device";
     private const string UpdateDeviceAuditAction = "updated_Device";
@@ -84,6 +84,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                 d.[SystemType],
                 d.[KITNumber],
                 d.[ServiceLine],
+                d.[TrafficId],
                 {planNameSelect}
                 d.[LastUpdateTime],
                 d.[TokenExpiredTime],
@@ -139,6 +140,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                 SystemType = reader["SystemType"]?.ToString() ?? string.Empty,
                 KitNumber = reader["KITNumber"]?.ToString() ?? string.Empty,
                 ServiceLine = reader["ServiceLine"]?.ToString() ?? string.Empty,
+                TrafficId = reader["TrafficId"]?.ToString() ?? string.Empty,
                 PlanName = reader["PlanName"]?.ToString() ?? string.Empty,
                 LastUpdateTime = reader["LastUpdateTime"] as DateTime?,
                 TokenExpiredTime = reader["TokenExpiredTime"] as DateTime?,
@@ -194,6 +196,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                 d.[SystemType],
                 d.[KITNumber],
                 d.[ServiceLine],
+                d.[TrafficId],
                 {planNameSelect}
                 d.[LastUpdateTime],
                 d.[TokenExpiredTime],
@@ -234,6 +237,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             SystemType = reader["SystemType"]?.ToString() ?? string.Empty,
             KitNumber = reader["KITNumber"]?.ToString() ?? string.Empty,
             ServiceLine = reader["ServiceLine"]?.ToString() ?? string.Empty,
+            TrafficId = reader["TrafficId"]?.ToString() ?? string.Empty,
             PlanName = hasPlanNameColumn ? reader["PlanName"]?.ToString() ?? string.Empty : string.Empty,
             LastUpdateTime = reader["LastUpdateTime"] as DateTime?,
             TokenExpiredTime = reader["TokenExpiredTime"] as DateTime?,
@@ -285,7 +289,17 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                         usage.SubscriptionLimitGb,
                         usage.PriorityOverageGb,
                         usage.PlanName,
+                        usage.TrafficId,
                         cancellationToken);
+
+                    try
+                    {
+                        await kvhSubscriptionService.SyncForDeviceAsync(id, device.DeviceCode, device.TokenString, usage.TrafficId, cancellationToken);
+                    }
+                    catch when (!cancellationToken.IsCancellationRequested)
+                    {
+                        // Detail usage remains useful even if the KVH subscription list endpoint is temporarily unavailable.
+                    }
                 }
             }
             catch when (!cancellationToken.IsCancellationRequested)
@@ -1762,6 +1776,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                 d.[SystemType],
                 d.[KITNumber],
                 d.[ServiceLine],
+                d.[TrafficId],
                 {planNameSelect}
                 d.[LastUpdateTime],
                 d.[TokenExpiredTime],
@@ -1803,6 +1818,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             SystemType = reader["SystemType"]?.ToString() ?? string.Empty,
             KitNumber = reader["KITNumber"]?.ToString() ?? string.Empty,
             ServiceLine = reader["ServiceLine"]?.ToString() ?? string.Empty,
+            TrafficId = reader["TrafficId"]?.ToString() ?? string.Empty,
             PlanName = hasPlanNameColumn ? reader["PlanName"]?.ToString() ?? string.Empty : string.Empty,
             LastUpdateTime = reader["LastUpdateTime"] as DateTime?,
             TokenExpiredTime = reader["TokenExpiredTime"] as DateTime?,
@@ -1991,7 +2007,17 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                 usageCall.SubscriptionLimitGb,
                 usageCall.PriorityOverageGb,
                 usageCall.PlanName,
+                usageCall.TrafficId,
                 cancellationToken);
+
+            try
+            {
+                await kvhSubscriptionService.SyncForDeviceAsync(id, device.DeviceCode, accessToken, usageCall.TrafficId, cancellationToken);
+            }
+            catch when (!cancellationToken.IsCancellationRequested)
+            {
+                // Keep the terminal status/usage refresh successful even when subscription sync fails.
+            }
         }
 
         var syncSucceeded = statusCall.Success && usageCall.Success;
@@ -2505,6 +2531,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         decimal? priorityData,
         decimal? overageData,
         string? planName,
+        string? trafficId,
         CancellationToken cancellationToken)
     {
         var hasPlanNameColumn = await HasPlanNameColumnAsync(connection, cancellationToken);
@@ -2513,7 +2540,9 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             SET
                 [UsageData] = @usageData,
                 [PriorityData] = @priorityData,
-                [OverageData] = @overageData
+                [OverageData] = @overageData,
+                [TrafficId] = CASE WHEN NULLIF(@trafficId, '') IS NULL THEN [TrafficId] ELSE @trafficId END,
+                [KvhUsageLastSyncUtc] = SYSUTCDATETIME()
             """;
 
         if (hasPlanNameColumn)
@@ -2528,6 +2557,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         command.Parameters.AddWithValue("@usageData", (object?)usageData ?? DBNull.Value);
         command.Parameters.AddWithValue("@priorityData", (object?)priorityData ?? DBNull.Value);
         command.Parameters.AddWithValue("@overageData", (object?)overageData ?? DBNull.Value);
+        command.Parameters.AddWithValue("@trafficId", (object?)trafficId ?? DBNull.Value);
         if (hasPlanNameColumn)
         {
             command.Parameters.AddWithValue("@planName", (object?)planName ?? DBNull.Value);
@@ -2812,7 +2842,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         }
     }
 
-    private async Task<(bool Success, string RawResponse, decimal? SubscriptionUsageGb, decimal? SubscriptionLimitGb, decimal? PriorityOverageGb, decimal? PriorityOverageLimitGb, string PlanName, bool? DataOptInEnabled)> RequestTerminalUsageAsync(
+    private async Task<(bool Success, string RawResponse, decimal? SubscriptionUsageGb, decimal? SubscriptionLimitGb, decimal? PriorityOverageGb, decimal? PriorityOverageLimitGb, string PlanName, bool? DataOptInEnabled, string TrafficId, string ServiceCode)> RequestTerminalUsageAsync(
         string terminalId,
         string accessToken,
         CancellationToken cancellationToken)
@@ -2827,7 +2857,7 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
 
         if (response.StatusCode != HttpStatusCode.OK)
         {
-            return (false, rawResponse, null, null, null, null, string.Empty, null);
+            return (false, rawResponse, null, null, null, null, string.Empty, null, string.Empty, string.Empty);
         }
 
         try
@@ -2840,13 +2870,22 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             decimal sloUsageBytes = 0m;
             decimal sloLimitBytes = 0m;
             string planName = string.Empty;
+            string trafficId = string.Empty;
+            string serviceCodeSummary = string.Empty;
             bool? dataOptInEnabled = null;
+
+            trafficId = KvhJsonHelpers.FindStringValue(root, "traffic_id", "trafficId", "trafficID", "trafficid");
 
             if (root.TryGetProperty("subscriptions", out var subscriptionsElement) &&
                 subscriptionsElement.ValueKind == JsonValueKind.Array)
             {
                 foreach (var subscription in subscriptionsElement.EnumerateArray())
                 {
+                    if (string.IsNullOrWhiteSpace(trafficId))
+                    {
+                        trafficId = KvhJsonHelpers.FindStringValue(subscription, "traffic_id", "trafficId", "trafficID", "trafficid");
+                    }
+
                     if (string.IsNullOrWhiteSpace(planName) &&
                         subscription.TryGetProperty("plan", out var planElement) &&
                         planElement.ValueKind == JsonValueKind.Object &&
@@ -2865,6 +2904,10 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
                         var serviceCode = usage.TryGetProperty("service_code", out var serviceCodeElement)
                             ? serviceCodeElement.GetString() ?? string.Empty
                             : string.Empty;
+                        if (string.IsNullOrWhiteSpace(serviceCodeSummary) && !string.IsNullOrWhiteSpace(serviceCode))
+                        {
+                            serviceCodeSummary = serviceCode;
+                        }
 
                         var allowanceBytes = usage.TryGetProperty("allowance", out var allowanceElement) &&
                                              TryGetDecimal(allowanceElement, out var parsedAllowance)
@@ -2915,11 +2958,11 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             var priorityOverageGb = BytesToDecimalGigabytes(sloUsageBytes);
             var priorityOverageLimitGb = BytesToDecimalGigabytes(sloLimitBytes);
 
-            return (true, rawResponse, totalUsageGb, totalLimitGb, priorityOverageGb, priorityOverageLimitGb, planName, dataOptInEnabled);
+            return (true, rawResponse, totalUsageGb, totalLimitGb, priorityOverageGb, priorityOverageLimitGb, planName, dataOptInEnabled, trafficId, serviceCodeSummary);
         }
         catch (JsonException)
         {
-            return (false, rawResponse, null, null, null, null, string.Empty, null);
+            return (false, rawResponse, null, null, null, null, string.Empty, null, string.Empty, string.Empty);
         }
     }
 

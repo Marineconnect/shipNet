@@ -5,6 +5,9 @@ public static class KvhCommandTypes
     public const string DataOptIn = "DATA_OPT_IN";
     public const string WifiUpdate = "WIFI_UPDATE";
     public const string Reboot = "REBOOT";
+    public const string SubscriptionPause = "SUBSCRIPTION_PAUSE";
+    public const string SubscriptionResume = "SUBSCRIPTION_RESUME";
+    public const string SubscriptionCancelSchedule = "SUBSCRIPTION_CANCEL_SCHEDULE";
 }
 
 public static class KvhCommandStatuses
@@ -57,6 +60,7 @@ public static class KvhErrorCodes
     public const string TelemetryRateLimited = "telemetry_rate_limited";
     public const string TelemetryApiError = "telemetry_api_error";
     public const string TelemetryTimeout = "telemetry_timeout";
+    public const string SubscriptionVerificationFailed = "kvh_subscription_verification_failed";
 }
 
 public sealed class KvhCommand
@@ -65,6 +69,11 @@ public sealed class KvhCommand
     public int DeviceId { get; set; }
     public string TerminalId { get; set; } = string.Empty;
     public string KvhDeviceId { get; set; } = string.Empty;
+    public string TrafficId { get; set; } = string.Empty;
+    public string Region { get; set; } = string.Empty;
+    public string ScheduleId { get; set; } = string.Empty;
+    public long? KvhSubscriptionId { get; set; }
+    public DateTime? CooldownUntilUtc { get; set; }
     public string CommandType { get; set; } = string.Empty;
     public string RequestedValue { get; set; } = string.Empty;
     public string JobId { get; set; } = string.Empty;
