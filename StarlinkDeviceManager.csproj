@@ -3,7 +3,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <DefaultItemExcludes>$(DefaultItemExcludes);publish-iis\**;bin\**;obj\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);publish-iis\**;bin\**;obj\**;bin-build-*\**;obj-build-*\**;StarlinkDeviceManager.Tests\**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />

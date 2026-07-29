@@ -145,10 +145,12 @@ public sealed class KvhSubscriptionService(
             AddSolutionParameters(command, filter, allowedTenantId, allowedDeviceId);
             command.Parameters.Add("@offset", SqlDbType.Int).Value = (page - 1) * pageSize;
             command.Parameters.Add("@pageSize", SqlDbType.Int).Value = pageSize;
-            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-            while (await reader.ReadAsync(cancellationToken))
+            await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
             {
-                items.Add(MapListItem(reader));
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    items.Add(MapListItem(reader));
+                }
             }
 
             var tenants = await GetTenantOptionsAsync(connection, allowedTenantId, cancellationToken);
@@ -199,10 +201,12 @@ public sealed class KvhSubscriptionService(
         await using (var command = new SqlCommand(subscriptionSql, connection))
         {
             command.Parameters.Add("@deviceId", SqlDbType.Int).Value = deviceId;
-            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-            while (await reader.ReadAsync(cancellationToken))
+            await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
             {
-                detail.CurrentSubscriptions.Add(MapEntry(reader));
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    detail.CurrentSubscriptions.Add(MapEntry(reader));
+                }
             }
         }
 
@@ -210,20 +214,22 @@ public sealed class KvhSubscriptionService(
         await using (var command = new SqlCommand(logSql, connection))
         {
             command.Parameters.Add("@deviceId", SqlDbType.Int).Value = deviceId;
-            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-            while (await reader.ReadAsync(cancellationToken))
+            await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
             {
-                detail.SyncLogs.Add(new KvhSubscriptionSyncLogViewModel
+                while (await reader.ReadAsync(cancellationToken))
                 {
-                    Id = Convert.ToInt64(reader["ID"]),
-                    StartedAtUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["StartedAtUtc"]), DateTimeKind.Utc),
-                    CompletedAtUtc = reader["CompletedAtUtc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["CompletedAtUtc"]), DateTimeKind.Utc),
-                    Success = reader["Success"] != DBNull.Value && Convert.ToBoolean(reader["Success"]),
-                    ErrorCode = reader["ErrorCode"]?.ToString() ?? string.Empty,
-                    ErrorMessage = reader["ErrorMessage"]?.ToString() ?? string.Empty,
-                    TrafficId = reader["TrafficId"]?.ToString() ?? string.Empty,
-                    ReturnedCount = reader["ReturnedCount"] == DBNull.Value ? 0 : Convert.ToInt32(reader["ReturnedCount"])
-                });
+                    detail.SyncLogs.Add(new KvhSubscriptionSyncLogViewModel
+                    {
+                        Id = Convert.ToInt64(reader["ID"]),
+                        StartedAtUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["StartedAtUtc"]), DateTimeKind.Utc),
+                        CompletedAtUtc = reader["CompletedAtUtc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["CompletedAtUtc"]), DateTimeKind.Utc),
+                        Success = reader["Success"] != DBNull.Value && Convert.ToBoolean(reader["Success"]),
+                        ErrorCode = reader["ErrorCode"]?.ToString() ?? string.Empty,
+                        ErrorMessage = reader["ErrorMessage"]?.ToString() ?? string.Empty,
+                        TrafficId = reader["TrafficId"]?.ToString() ?? string.Empty,
+                        ReturnedCount = reader["ReturnedCount"] == DBNull.Value ? 0 : Convert.ToInt32(reader["ReturnedCount"])
+                    });
+                }
             }
         }
 
@@ -323,25 +329,27 @@ public sealed class KvhSubscriptionService(
         command.Parameters.Add("@subscriptionId", SqlDbType.BigInt).Value = request.KvhSubscriptionId;
         command.Parameters.Add("@tenantId", SqlDbType.Int).Value = (object?)allowedTenantId ?? DBNull.Value;
         command.Parameters.Add("@allowedDeviceId", SqlDbType.Int).Value = (object?)allowedDeviceId ?? DBNull.Value;
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        if (!await reader.ReadAsync(cancellationToken))
+        CommandContext context;
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
-            return CommandContext.Fail("kvh_subscription_not_found", "KVH subscription was not found or you do not have access.");
-        }
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return CommandContext.Fail("kvh_subscription_not_found", "KVH subscription was not found or you do not have access.");
+            }
 
-        var context = new CommandContext
-        {
-            Success = true,
-            DeviceId = Convert.ToInt32(reader["ID"]),
-            TerminalId = reader["DeviceCode"]?.ToString() ?? string.Empty,
-            AccessToken = reader["TokenString"]?.ToString() ?? string.Empty,
-            TokenExpiredTime = reader["TokenExpiredTime"] == DBNull.Value ? null : Convert.ToDateTime(reader["TokenExpiredTime"]),
-            KvhSubscriptionId = Convert.ToInt64(reader["KvhSubscriptionId"]),
-            TrafficId = reader["TrafficId"]?.ToString() ?? string.Empty,
-            Region = reader["Region"]?.ToString() ?? string.Empty,
-            ScheduleId = reader["ScheduleId"]?.ToString() ?? string.Empty
-        };
-        await reader.DisposeAsync();
+            context = new CommandContext
+            {
+                Success = true,
+                DeviceId = Convert.ToInt32(reader["ID"]),
+                TerminalId = reader["DeviceCode"]?.ToString() ?? string.Empty,
+                AccessToken = reader["TokenString"]?.ToString() ?? string.Empty,
+                TokenExpiredTime = reader["TokenExpiredTime"] == DBNull.Value ? null : Convert.ToDateTime(reader["TokenExpiredTime"]),
+                KvhSubscriptionId = Convert.ToInt64(reader["KvhSubscriptionId"]),
+                TrafficId = reader["TrafficId"]?.ToString() ?? string.Empty,
+                Region = reader["Region"]?.ToString() ?? string.Empty,
+                ScheduleId = reader["ScheduleId"]?.ToString() ?? string.Empty
+            };
+        }
 
         if (string.IsNullOrWhiteSpace(context.TrafficId))
         {
