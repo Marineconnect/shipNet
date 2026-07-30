@@ -67,20 +67,29 @@
   <div class="portal-nav-panel" id="portalNavPanel">
     <nav class="portal-nav-links portal-nav-tree" aria-label="Primary">
       <a asp-controller="Dashboard" asp-action="Index" class="portal-nav-link@(ActiveClass("dashboard"))">Tổng quan / Dashboard</a>
-      @if (canAccessKvhSolutions)
-      {
-        <a asp-controller="KvhSolutions" asp-action="Index" class="portal-nav-link@(ActiveClass("kvhsolutions"))">KVH Solutions</a>
-      }
       @if (canAccessTenant)
       {
         <details class="portal-nav-group">
-          <summary class="portal-nav-link portal-nav-summary@(ActiveClass("tenant", "user"))">Vận hành / Operations</summary>
+          <summary class="portal-nav-link portal-nav-summary@(ActiveClass("tenant", "user", "kvhsolutions"))">Vận hành / Operations</summary>
           <div class="portal-nav-submenu">
             <a asp-controller="Tenant" asp-action="Index" class="portal-nav-subitem@(ActiveClass("tenant"))">Quản lý tenant / Tenant Management</a>
             @if (canAccessUsers)
             {
               <a asp-controller="User" asp-action="Index" class="portal-nav-subitem@(ActiveClass("user"))">Quản lý người dùng / User Management</a>
             }
+            @if (canAccessKvhSolutions)
+            {
+              <a asp-controller="KvhSolutions" asp-action="Index" class="portal-nav-subitem@(ActiveClass("kvhsolutions"))">KVH Solutions</a>
+            }
+          </div>
+        </details>
+      }
+      else if (canAccessKvhSolutions)
+      {
+        <details class="portal-nav-group">
+          <summary class="portal-nav-link portal-nav-summary@(ActiveClass("kvhsolutions"))">Váº­n hÃ nh / Operations</summary>
+          <div class="portal-nav-submenu">
+            <a asp-controller="KvhSolutions" asp-action="Index" class="portal-nav-subitem@(ActiveClass("kvhsolutions"))">KVH Solutions</a>
           </div>
         </details>
       }

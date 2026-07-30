@@ -1,6 +1,6 @@
 {
   "Version": 1,
-  "Hash": "GDZWrKm6GYg+GvwuiVRzuMDi7YPaOurN6JTOG0HYTbk=",
+  "Hash": "ccC3mdtqmI1yU8Skgz414DYIVaCiSKOV44hsxmga5ZY=",
   "Source": "StarlinkDeviceManager",
   "BasePath": "_content/StarlinkDeviceManager",
   "Mode": "Default",
@@ -34,6 +34,25 @@
       "CopyToOutputDirectory": "Never",
       "CopyToPublishDirectory": "PreserveNewest",
       "OriginalItemSpec": "wwwroot\\css\\site.css"
+    },
+    {
+      "Identity": "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\shipNet\\wwwroot\\js\\kvh-solutions.js",
+      "SourceId": "StarlinkDeviceManager",
+      "SourceType": "Discovered",
+      "ContentRoot": "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\shipNet\\wwwroot\\",
+      "BasePath": "_content/StarlinkDeviceManager",
+      "RelativePath": "js/kvh-solutions.js",
+      "AssetKind": "All",
+      "AssetMode": "All",
+      "AssetRole": "Primary",
+      "AssetMergeBehavior": "PreferTarget",
+      "AssetMergeSource": "",
+      "RelatedAsset": "",
+      "AssetTraitName": "",
+      "AssetTraitValue": "",
+      "CopyToOutputDirectory": "Never",
+      "CopyToPublishDirectory": "PreserveNewest",
+      "OriginalItemSpec": "wwwroot\\js\\kvh-solutions.js"
     },
     {
       "Identity": "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\shipNet\\wwwroot\\uploads\\tenant-logos\\tenant-20260418074338403-15f9d245ddb24dd8a210d908b8ba7a71.jpg",

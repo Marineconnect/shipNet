@@ -200,6 +200,14 @@ public sealed class KvhSubscriptionService(
             LEFT JOIN [dbo].[TblTenant] t ON t.[ID] = d.[TenantID]
             LEFT JOIN [dbo].[TblKvhSubscription] s ON s.[DeviceId] = d.[ID] AND s.[IsCurrent] = 1
             OUTER APPLY (SELECT TOP 1 * FROM [dbo].[TblKvhSubscriptionSyncLog] l WHERE l.[DeviceId] = d.[ID] ORDER BY l.[StartedAtUtc] DESC, l.[ID] DESC) log
+            OUTER APPLY (
+                SELECT TOP 1 CAST(1 AS bit) AS [HasPendingCommand], [CooldownUntilUtc]
+                FROM [dbo].[TblKvhCommand] c
+                WHERE c.[DeviceId] = d.[ID]
+                  AND c.[CommandType] IN ('SUBSCRIPTION_PAUSE', 'SUBSCRIPTION_RESUME', 'SUBSCRIPTION_CANCEL_SCHEDULE')
+                  AND c.[CommandStatus] NOT IN ('FAILED', 'TIMEOUT', 'VERIFIED', 'VERIFICATION_MISMATCH', 'VERIFICATION_TIMEOUT')
+                ORDER BY c.[RequestedAtUtc] DESC, c.[ID] DESC
+            ) pending
             WHERE {where}
             """;
         await using (var countCommand = new SqlCommand(countSql, connection))
@@ -207,9 +215,9 @@ public sealed class KvhSubscriptionService(
             AddSolutionParameters(countCommand, filter, allowedTenantId, allowedDeviceId);
             var total = Convert.ToInt32(await countCommand.ExecuteScalarAsync(cancellationToken) ?? 0);
             var query = $"""
-                SELECT d.[ID], d.[DeviceName], d.[DeviceCode], d.[VesselName], d.[TenantID], t.[TenantName], d.[KITNumber], d.[TrafficId],
+                SELECT d.[ID], d.[DeviceName], d.[DeviceCode], d.[VesselName], d.[TenantID], t.[TenantName], d.[KITNumber], d.[Availability], d.[LastUpdateTime], d.[TrafficId],
                        s.[ID] AS [KvhSubscriptionId], s.[Region], s.[PlanName], s.[Status], s.[ScheduledAction], s.[ScheduleId], s.[ScheduledEffectiveDateUtc],
-                       s.[AllowanceGb], s.[LastSeenAtUtc], log.[StartedAtUtc] AS [LastSyncAtUtc], log.[Success] AS [LastSyncSuccess], log.[ErrorCode] AS [LastSyncErrorCode],
+                       s.[AllowanceGb], s.[LastSeenAtUtc], log.[StartedAtUtc] AS [LastSyncAtUtc], log.[Success] AS [LastSyncSuccess], log.[ErrorCode] AS [LastSyncErrorCode], log.[ReturnedCount] AS [LastSyncReturnedCount],
                        pending.[HasPendingCommand], pending.[CooldownUntilUtc]
                 FROM [dbo].[TblDevices] d
                 LEFT JOIN [dbo].[TblTenant] t ON t.[ID] = d.[TenantID]
@@ -274,6 +282,8 @@ public sealed class KvhSubscriptionService(
             KitNumber = device.KitNumber,
             KitId = device.KitId,
             ServiceLine = device.ServiceLine,
+            Availability = device.Availability,
+            LastUpdateTimeUtc = device.LastUpdateTimeUtc,
             TrafficId = device.TrafficId,
             CanManageSolutions = canManage
         };
@@ -313,7 +323,10 @@ public sealed class KvhSubscriptionService(
                         ErrorCode = reader["ErrorCode"]?.ToString() ?? string.Empty,
                         ErrorMessage = reader["ErrorMessage"]?.ToString() ?? string.Empty,
                         TrafficId = reader["TrafficId"]?.ToString() ?? string.Empty,
-                        ReturnedCount = reader["ReturnedCount"] == DBNull.Value ? 0 : Convert.ToInt32(reader["ReturnedCount"])
+                        ReturnedCount = reader["ReturnedCount"] == DBNull.Value ? 0 : Convert.ToInt32(reader["ReturnedCount"]),
+                        HttpStatusCode = reader["HttpStatusCode"] == DBNull.Value ? null : Convert.ToInt32(reader["HttpStatusCode"]),
+                        SyncSource = reader["SyncSource"]?.ToString() ?? string.Empty,
+                        ResponseJson = reader["ResponseJson"]?.ToString() ?? string.Empty
                     });
                 }
             }
@@ -791,7 +804,7 @@ public sealed class KvhSubscriptionService(
     private async Task<DeviceRow?> GetDeviceAsync(SqlConnection connection, int id, int? allowedTenantId, int? allowedDeviceId, CancellationToken cancellationToken)
     {
         const string query = """
-            SELECT TOP 1 d.[ID], d.[DeviceName], d.[DeviceCode], d.[VesselName], d.[TenantID], t.[TenantName], d.[KITNumber], d.[KITID], d.[ServiceLine], d.[TrafficId], d.[TokenString], d.[TokenExpiredTime]
+            SELECT TOP 1 d.[ID], d.[DeviceName], d.[DeviceCode], d.[VesselName], d.[TenantID], t.[TenantName], d.[KITNumber], d.[KITID], d.[ServiceLine], d.[Availability], d.[LastUpdateTime], d.[TrafficId], d.[TokenString], d.[TokenExpiredTime]
             FROM [dbo].[TblDevices] d
             LEFT JOIN [dbo].[TblTenant] t ON t.[ID] = d.[TenantID]
             WHERE d.[ID] = @id
@@ -818,6 +831,8 @@ public sealed class KvhSubscriptionService(
             KitNumber = reader["KITNumber"]?.ToString() ?? string.Empty,
             KitId = reader["KITID"]?.ToString() ?? string.Empty,
             ServiceLine = reader["ServiceLine"]?.ToString() ?? string.Empty,
+            Availability = reader["Availability"]?.ToString() ?? string.Empty,
+            LastUpdateTimeUtc = reader["LastUpdateTime"] == DBNull.Value ? null : Convert.ToDateTime(reader["LastUpdateTime"]),
             TrafficId = reader["TrafficId"]?.ToString() ?? string.Empty,
             AccessToken = reader["TokenString"]?.ToString() ?? string.Empty,
             TokenExpiredTime = reader["TokenExpiredTime"] == DBNull.Value ? null : Convert.ToDateTime(reader["TokenExpiredTime"])
@@ -903,6 +918,22 @@ public sealed class KvhSubscriptionService(
         {
             clauses.Add("NULLIF(LTRIM(RTRIM(ISNULL(d.[TrafficId], ''))), '') IS NULL");
         }
+        else if (string.Equals(filter.SyncState, "not_synced", StringComparison.OrdinalIgnoreCase))
+        {
+            clauses.Add("log.[ID] IS NULL");
+        }
+        else if (string.Equals(filter.SyncState, "syncing", StringComparison.OrdinalIgnoreCase))
+        {
+            clauses.Add("ISNULL(pending.[HasPendingCommand], 0) = 1");
+        }
+        else if (string.Equals(filter.SyncState, "success", StringComparison.OrdinalIgnoreCase))
+        {
+            clauses.Add("log.[Success] = 1 AND ISNULL(log.[ReturnedCount], 0) > 0");
+        }
+        else if (string.Equals(filter.SyncState, "empty", StringComparison.OrdinalIgnoreCase))
+        {
+            clauses.Add("log.[Success] = 1 AND ISNULL(log.[ReturnedCount], 0) = 0");
+        }
         else if (string.Equals(filter.SyncState, "sync_failed", StringComparison.OrdinalIgnoreCase))
         {
             clauses.Add("ISNULL(log.[Success], 1) = 0");
@@ -933,6 +964,8 @@ public sealed class KvhSubscriptionService(
         TenantId = reader["TenantID"] == DBNull.Value ? null : Convert.ToInt32(reader["TenantID"]),
         TenantName = reader["TenantName"]?.ToString() ?? string.Empty,
         KitNumber = reader["KITNumber"]?.ToString() ?? string.Empty,
+        Availability = reader["Availability"]?.ToString() ?? string.Empty,
+        LastUpdateTimeUtc = reader["LastUpdateTime"] == DBNull.Value ? null : Convert.ToDateTime(reader["LastUpdateTime"]),
         TrafficId = reader["TrafficId"]?.ToString() ?? string.Empty,
         KvhSubscriptionId = reader["KvhSubscriptionId"] == DBNull.Value ? null : Convert.ToInt64(reader["KvhSubscriptionId"]),
         Region = reader["Region"]?.ToString() ?? string.Empty,
@@ -944,7 +977,13 @@ public sealed class KvhSubscriptionService(
         AllowanceGb = reader["AllowanceGb"] == DBNull.Value ? null : Convert.ToDecimal(reader["AllowanceGb"]),
         LastSeenAtUtc = reader["LastSeenAtUtc"] == DBNull.Value ? null : Convert.ToDateTime(reader["LastSeenAtUtc"]),
         LastSyncAtUtc = reader["LastSyncAtUtc"] == DBNull.Value ? null : Convert.ToDateTime(reader["LastSyncAtUtc"]),
-        LastSyncStatus = reader["LastSyncSuccess"] == DBNull.Value ? "Not synced" : Convert.ToBoolean(reader["LastSyncSuccess"]) ? "Success" : "Failed",
+        LastSyncStatus = reader["LastSyncSuccess"] == DBNull.Value
+            ? "Not synced"
+            : Convert.ToBoolean(reader["LastSyncSuccess"])
+                ? reader["LastSyncReturnedCount"] != DBNull.Value && Convert.ToInt32(reader["LastSyncReturnedCount"]) == 0
+                    ? "Empty"
+                    : "Success"
+                : "Failed",
         LastSyncErrorCode = reader["LastSyncErrorCode"]?.ToString() ?? string.Empty,
         HasPendingCommand = reader["HasPendingCommand"] != DBNull.Value && Convert.ToBoolean(reader["HasPendingCommand"]),
         CooldownUntilUtc = reader["CooldownUntilUtc"] == DBNull.Value ? null : Convert.ToDateTime(reader["CooldownUntilUtc"])
@@ -1177,6 +1216,8 @@ public sealed class KvhSubscriptionService(
         public string KitNumber { get; set; } = string.Empty;
         public string KitId { get; set; } = string.Empty;
         public string ServiceLine { get; set; } = string.Empty;
+        public string Availability { get; set; } = string.Empty;
+        public DateTime? LastUpdateTimeUtc { get; set; }
         public string TrafficId { get; set; } = string.Empty;
         public string AccessToken { get; set; } = string.Empty;
         public DateTime? TokenExpiredTime { get; set; }

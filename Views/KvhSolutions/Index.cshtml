@@ -2,19 +2,63 @@
 @{
     ViewData["ActiveNav"] = "kvhsolutions";
     ViewData["Title"] = "KVH Solutions";
+
+    var firstFailedBatch = Model.RecentBatches.FirstOrDefault(batch => batch.FailedItems > 0);
+    var previousPage = Math.Max(1, Model.CurrentPage - 1);
+    var nextPage = Math.Min(Model.TotalPages <= 0 ? 1 : Model.TotalPages, Model.CurrentPage + 1);
+
+    string StatusClass(string? status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            return "unknown";
+        }
+
+        var normalized = status.ToLowerInvariant();
+        return normalized.Contains("active") ? "active"
+            : normalized.Contains("suspend") || normalized.Contains("pause") ? "pending"
+            : normalized.Contains("fail") ? "void"
+            : normalized.Contains("success") ? "paid"
+            : normalized.Contains("missing") || normalized.Contains("empty") ? "debit"
+            : "unknown";
+    }
+
+    string SyncStateLabel(string? value) => value switch
+    {
+        "not_synced" => "Chua dong bo / Not synced",
+        "syncing" => "Dang dong bo / Syncing",
+        "success" => "Thanh cong / Success",
+        "empty" => "Khong co du lieu / Empty",
+        "sync_failed" => "That bai / Failed",
+        "missing_traffic" => "Thieu Traffic ID / Missing Traffic ID",
+        _ => "Tat ca / All"
+    };
 }
 
-<div class="device-dashboard">
+<div class="device-dashboard kvh-page">
   <nav class="portal-breadcrumb" aria-label="Breadcrumb">
-    <a asp-controller="Dashboard" asp-action="Index">Dashboard</a>
+    <a asp-controller="Dashboard" asp-action="Index">Tong quan / Dashboard</a>
+    <span>Van hanh / Operations</span>
     <span>KVH Solutions</span>
   </nav>
-  <section class="device-hero">
+
+  <section class="device-hero kvh-hero">
     <div>
-      <div class="device-brand">KVH Operations</div>
+      <div class="device-brand">SHIPNET PORTAL</div>
       <h1>KVH Solutions</h1>
-      <p>Operational KVH subscription state, traffic IDs, scheduled actions, and command status.</p>
+      <p>Quan ly trang thai subscription KVH, Traffic ID, lenh Pause/Resume va tien do dong bo.</p>
     </div>
+    @if (Model.CanManageSolutions)
+    {
+      <div class="device-actions kvh-hero-actions">
+        <form asp-controller="KvhSolutions" asp-action="CreateSyncBatch" method="post">
+          @Html.AntiForgeryToken()
+          <input type="hidden" name="Mode" value="SYNC_MISSING" />
+          <button type="submit" class="btn-secondary">Sync missing</button>
+        </form>
+        <button type="button" class="btn-primary" data-kvh-open-sync-all>Sync all</button>
+      </div>
+    }
   </section>
 
   @if (TempData["KvhSolutionSuccess"] is string successMessage)
@@ -26,26 +70,49 @@
     <div class="tenant-alert danger">@errorMessage</div>
   }
 
-  <section class="subscription-filter-panel">
-    <form asp-controller="KvhSolutions" asp-action="Index" method="get" class="subscription-filter-grid">
+  <section class="device-card kvh-inventory-card">
+    <header class="device-card-head kvh-card-head">
+      <div>
+        <h2>KVH Subscription Inventory</h2>
+        <p>Tong so thiet bi / Total devices: @Model.TotalItems</p>
+      </div>
+      <form asp-controller="KvhSolutions" asp-action="Index" method="get" class="device-search kvh-search">
+        <input type="hidden" name="status" value="@Model.Filter.Status" />
+        <input type="hidden" name="region" value="@Model.Filter.Region" />
+        <input type="hidden" name="tenantId" value="@Model.Filter.TenantId" />
+        <input type="hidden" name="syncState" value="@Model.Filter.SyncState" />
+        <input type="hidden" name="pageSize" value="@Model.PageSize" />
+        <label class="device-search-field">
+          <input class="device-search-input" type="search" name="search" value="@Model.Filter.Search" placeholder="Terminal, vessel, KIT, Traffic ID" />
+          <button type="submit" class="device-search-icon-btn" aria-label="Search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 3a6.5 6.5 0 0 1 5.18 10.43l4.45 4.45-1.41 1.41-4.45-4.45A6.5 6.5 0 1 1 9.5 3Zm0 2a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Z"/></svg>
+          </button>
+        </label>
+      </form>
+    </header>
+
+    <form asp-controller="KvhSolutions" asp-action="Index" method="get" class="kvh-filter-bar">
+      <input type="hidden" name="pageSize" value="@Model.PageSize" />
       <label>
-        <span>Search</span>
-        <input type="search" name="search" value="@Model.Filter.Search" placeholder="Terminal, vessel, KIT, traffic ID" />
-      </label>
-      <label>
-        <span>Status</span>
-        <input type="text" name="status" value="@Model.Filter.Status" placeholder="ACTIVE, SUSPEND" />
+        <span>Trang thai / Status</span>
+        <select name="status">
+          <option value="">Tat ca / All</option>
+          <option value="ACTIVE" selected="@(Model.Filter.Status == "ACTIVE")">ACTIVE</option>
+          <option value="SUSPEND" selected="@(Model.Filter.Status == "SUSPEND")">SUSPEND</option>
+          <option value="PAUSED" selected="@(Model.Filter.Status == "PAUSED")">PAUSED</option>
+          <option value="UNKNOWN" selected="@(Model.Filter.Status == "UNKNOWN")">UNKNOWN</option>
+        </select>
       </label>
       <label>
         <span>Region</span>
-        <input type="text" name="region" value="@Model.Filter.Region" />
+        <input type="text" name="region" value="@Model.Filter.Region" placeholder="GLOBAL" />
       </label>
       @if (!Model.IsTenantScoped)
       {
         <label>
           <span>Tenant</span>
           <select name="tenantId">
-            <option value="">All tenants</option>
+            <option value="">Tat ca tenant / All tenants</option>
             @foreach (var tenant in Model.Tenants)
             {
               <option value="@tenant.Id" selected="@(Model.Filter.TenantId == tenant.Id)">@tenant.TenantName</option>
@@ -54,28 +121,35 @@
         </label>
       }
       <label>
-        <span>Sync state</span>
+        <span>Trang thai sync / Sync state</span>
         <select name="syncState">
-          <option value="">All</option>
-          <option value="missing_traffic" selected="@(Model.Filter.SyncState == "missing_traffic")">Missing traffic ID</option>
-          <option value="sync_failed" selected="@(Model.Filter.SyncState == "sync_failed")">Sync failed</option>
+          <option value="">@SyncStateLabel(null)</option>
+          <option value="not_synced" selected="@(Model.Filter.SyncState == "not_synced")">@SyncStateLabel("not_synced")</option>
+          <option value="syncing" selected="@(Model.Filter.SyncState == "syncing")">@SyncStateLabel("syncing")</option>
+          <option value="success" selected="@(Model.Filter.SyncState == "success")">@SyncStateLabel("success")</option>
+          <option value="empty" selected="@(Model.Filter.SyncState == "empty")">@SyncStateLabel("empty")</option>
+          <option value="sync_failed" selected="@(Model.Filter.SyncState == "sync_failed")">@SyncStateLabel("sync_failed")</option>
+          <option value="missing_traffic" selected="@(Model.Filter.SyncState == "missing_traffic")">@SyncStateLabel("missing_traffic")</option>
         </select>
       </label>
-      <div class="subscription-filter-actions">
-        <button type="submit" class="btn-primary">Filter</button>
-        <a asp-controller="KvhSolutions" asp-action="Index" class="btn-secondary">Reset</a>
+      <label>
+        <span>Tim kiem / Search</span>
+        <input type="search" name="search" value="@Model.Filter.Search" placeholder="Terminal, vessel, KIT, Traffic ID" />
+      </label>
+      <div class="kvh-filter-actions">
+        <button type="submit" class="btn-primary">Loc / Filter</button>
+        <a asp-controller="KvhSolutions" asp-action="Index" class="btn-secondary">Dat lai / Reset</a>
       </div>
     </form>
-  </section>
 
-  @if (Model.CanManageSolutions)
-  {
-    <section class="subscription-filter-panel">
-      <div class="device-actions">
-        <label class="table-action-btn">
+    @if (Model.CanManageSolutions)
+    {
+      <div class="kvh-bulk-toolbar">
+        <label class="kvh-check-control">
           <input type="checkbox" id="kvhSelectAll" />
-          Select page
+          <span>Chon trang / Select page</span>
         </label>
+        <span class="kvh-selected-count"><strong id="kvhSelectedCount">0</strong> selected</span>
         <form id="kvhSyncSelectedForm" asp-controller="KvhSolutions" asp-action="CreateSyncBatch" method="post">
           @Html.AntiForgeryToken()
           <input type="hidden" name="Mode" value="SYNC_SELECTED" />
@@ -87,133 +161,91 @@
           <input type="hidden" name="Mode" value="SYNC_MISSING" />
           <button type="submit" class="btn-secondary">Sync missing</button>
         </form>
-        <form asp-controller="KvhSolutions" asp-action="CreateSyncBatch" method="post" onsubmit="return confirm('You are about to create a background sync batch for available devices. This may take several minutes.');">
-          @Html.AntiForgeryToken()
-          <input type="hidden" name="Mode" value="SYNC_ALL" />
-          <button type="submit" class="btn-secondary">Sync all</button>
-        </form>
+        <button type="button" class="btn-secondary" data-kvh-open-sync-all>Sync all</button>
+        @if (firstFailedBatch is not null)
+        {
+          <form asp-controller="KvhSolutions" asp-action="RetryFailedBatch" method="post">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="id" value="@firstFailedBatch.Id" />
+            <button type="submit" class="btn-secondary">Retry failed</button>
+          </form>
+        }
+        else
+        {
+          <button type="button" class="btn-secondary" disabled>Retry failed</button>
+        }
       </div>
-    </section>
-  }
+    }
 
-  <section class="device-card">
-    <header class="card-header">
-      <div>
-        <h2>Recent Sync Batches</h2>
-        <p>Background KVH subscription synchronization progress.</p>
-      </div>
-    </header>
     <div class="device-table-wrap">
-      <table class="device-table subscription-table">
-        <thead>
-          <tr>
-            <th>Batch ID</th>
-            <th>Mode</th>
-            <th>Status</th>
-            <th>Total</th>
-            <th>Pending</th>
-            <th>Success</th>
-            <th>Empty</th>
-            <th>Failed</th>
-            <th>Started</th>
-            <th>Completed</th>
-            <th>Progress</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          @if (Model.RecentBatches.Count == 0)
-          {
-            <tr><td colspan="12" class="tenant-empty">No KVH sync batches yet.</td></tr>
-          }
-          @foreach (var batch in Model.RecentBatches)
-          {
-            <tr class="kvh-batch-row" data-batch-id="@batch.Id" data-running="@batch.IsRunning.ToString().ToLowerInvariant()">
-              <td>#@batch.Id</td>
-              <td>@batch.BatchType</td>
-              <td class="kvh-batch-status">@batch.Status</td>
-              <td>@batch.TotalItems</td>
-              <td class="kvh-batch-pending">@batch.PendingItems</td>
-              <td class="kvh-batch-success">@batch.SuccessItems</td>
-              <td class="kvh-batch-empty">@batch.EmptyItems</td>
-              <td class="kvh-batch-failed">@batch.FailedItems</td>
-              <td>@batch.StartedAtUtc?.ToString("dd/MM/yyyy HH:mm")</td>
-              <td class="kvh-batch-completed">@batch.CompletedAtUtc?.ToString("dd/MM/yyyy HH:mm")</td>
-              <td>
-                <div class="progress-shell"><span class="kvh-batch-progress" style="width:@batch.ProgressPercent%"></span></div>
-                <div class="muted kvh-batch-progress-text">@batch.ProcessedItems / @batch.TotalItems</div>
-              </td>
-              <td class="table-actions">
-                @if (Model.CanManageSolutions && batch.IsRunning)
-                {
-                  <form asp-controller="KvhSolutions" asp-action="CancelSyncBatch" method="post">
-                    @Html.AntiForgeryToken()
-                    <input type="hidden" name="id" value="@batch.Id" />
-                    <button type="submit" class="table-action-btn">Cancel</button>
-                  </form>
-                }
-                @if (Model.CanManageSolutions && batch.FailedItems > 0)
-                {
-                  <form asp-controller="KvhSolutions" asp-action="RetryFailedBatch" method="post">
-                    @Html.AntiForgeryToken()
-                    <input type="hidden" name="id" value="@batch.Id" />
-                    <button type="submit" class="table-action-btn">Retry failed</button>
-                  </form>
-                }
-              </td>
-            </tr>
-          }
-        </tbody>
-      </table>
-    </div>
-  </section>
-
-  <section class="device-card">
-    <div class="device-table-wrap">
-      <table class="device-table subscription-table">
+      <table class="device-table subscription-table kvh-table">
         <thead>
           <tr>
             <th></th>
             <th>Device / Terminal</th>
             <th>Vessel</th>
             <th>Tenant</th>
-            <th>KIT</th>
+            <th>KIT Number</th>
             <th>Traffic ID</th>
-            <th>Region</th>
             <th>KVH Plan</th>
-            <th>Status</th>
+            <th>Region</th>
+            <th>Subscription</th>
             <th>Scheduled</th>
             <th>Allowance</th>
-            <th>Last sync</th>
+            <th>Terminal status</th>
             <th>Sync result</th>
+            <th>Command</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           @if (Model.Items.Count == 0)
           {
-            <tr><td colspan="14" class="tenant-empty">No KVH Solutions found.</td></tr>
+            <tr>
+              <td colspan="15" class="tenant-empty">
+                Khong co thiet bi KVH phu hop / No KVH devices match the current filters.
+              </td>
+            </tr>
           }
           @foreach (var item in Model.Items)
           {
+            var syncStatusClass = StatusClass(item.LastSyncStatus);
+            var subscriptionClass = StatusClass(item.Status);
+            var availabilityText = string.IsNullOrWhiteSpace(item.Availability) ? "unknown" : item.Availability;
             <tr>
               <td>
                 @if (Model.CanManageSolutions)
                 {
-                  <input type="checkbox" class="kvh-device-checkbox" value="@item.DeviceId" />
+                  <input type="checkbox" class="kvh-device-checkbox" value="@item.DeviceId" aria-label="Select @item.DeviceName" />
                 }
               </td>
               <td>
-                <a asp-controller="KvhSolutions" asp-action="Details" asp-route-deviceId="@item.DeviceId">@item.DeviceName</a>
-                <div class="muted">@item.TerminalId</div>
+                <a asp-controller="KvhSolutions" asp-action="Details" asp-route-deviceId="@item.DeviceId" class="kvh-primary-link">@item.DeviceName</a>
+                <div class="kvh-inline-code">
+                  <span>@(string.IsNullOrWhiteSpace(item.TerminalId) ? "-" : item.TerminalId)</span>
+                  @if (!string.IsNullOrWhiteSpace(item.TerminalId))
+                  {
+                    <button type="button" class="kvh-copy-btn" data-copy-value="@item.TerminalId" aria-label="Copy terminal ID">Copy</button>
+                  }
+                </div>
               </td>
               <td>@(string.IsNullOrWhiteSpace(item.VesselName) ? "-" : item.VesselName)</td>
               <td>@(string.IsNullOrWhiteSpace(item.TenantName) ? "-" : item.TenantName)</td>
               <td>@(string.IsNullOrWhiteSpace(item.KitNumber) ? "-" : item.KitNumber)</td>
-              <td>@(item.MissingTrafficId ? "Traffic ID unavailable" : item.TrafficId)</td>
-              <td>@(string.IsNullOrWhiteSpace(item.Region) ? "-" : item.Region)</td>
+              <td>
+                @if (item.MissingTrafficId)
+                {
+                  <span class="subscription-status debit">Missing Traffic ID</span>
+                }
+                else
+                {
+                  <span>@item.TrafficId</span>
+                  <button type="button" class="kvh-copy-btn" data-copy-value="@item.TrafficId" aria-label="Copy Traffic ID">Copy</button>
+                }
+              </td>
               <td>@(string.IsNullOrWhiteSpace(item.PlanName) ? "-" : item.PlanName)</td>
-              <td><span class="subscription-status @item.Status">@(!string.IsNullOrWhiteSpace(item.Status) ? item.Status : "-")</span></td>
+              <td>@(string.IsNullOrWhiteSpace(item.Region) ? "-" : item.Region)</td>
+              <td><span class="subscription-status @subscriptionClass">@(!string.IsNullOrWhiteSpace(item.Status) ? item.Status : "UNKNOWN")</span></td>
               <td>
                 @(string.IsNullOrWhiteSpace(item.ScheduledAction) ? "-" : item.ScheduledAction)
                 @if (item.ScheduledEffectiveDateUtc.HasValue)
@@ -222,35 +254,159 @@
                 }
               </td>
               <td>@item.AllowanceDisplay</td>
-              <td>@item.LastSyncDisplay</td>
-              <td>@item.LastSyncStatus @item.LastSyncErrorCode</td>
-              <td class="table-actions">
-                <form asp-controller="KvhSolutions" asp-action="Sync" method="post">
-                  @Html.AntiForgeryToken()
-                  <input type="hidden" name="deviceId" value="@item.DeviceId" />
-                  <button type="submit" class="table-action-btn">Sync</button>
-                </form>
-                @if (Model.CanManageSolutions && item.KvhSubscriptionId.HasValue)
+              <td>
+                <span class="kvh-terminal-status @StatusClass(availabilityText)">@availabilityText</span>
+                <div class="muted">@item.LastUpdateDisplay</div>
+              </td>
+              <td>
+                <span class="subscription-status @syncStatusClass">@item.LastSyncStatus</span>
+                @if (!string.IsNullOrWhiteSpace(item.LastSyncErrorCode))
                 {
-                  @if (item.CanPause)
-                  {
-                    <form asp-controller="KvhSolutions" asp-action="Pause" method="post">
-                      @Html.AntiForgeryToken()
-                      <input type="hidden" name="DeviceId" value="@item.DeviceId" />
-                      <input type="hidden" name="KvhSubscriptionId" value="@item.KvhSubscriptionId" />
-                      <button type="submit" class="table-action-btn">Pause</button>
-                    </form>
-                  }
-                  @if (item.CanResume)
-                  {
-                    <form asp-controller="KvhSolutions" asp-action="Resume" method="post">
-                      @Html.AntiForgeryToken()
-                      <input type="hidden" name="DeviceId" value="@item.DeviceId" />
-                      <input type="hidden" name="KvhSubscriptionId" value="@item.KvhSubscriptionId" />
-                      <button type="submit" class="table-action-btn">Resume</button>
-                    </form>
-                  }
+                  <div class="muted">@item.LastSyncErrorCode</div>
                 }
+                <div class="muted">@item.LastSyncDisplay</div>
+              </td>
+              <td>
+                @if (item.HasPendingCommand)
+                {
+                  <span class="subscription-status pending">Pending</span>
+                }
+                else
+                {
+                  <span class="subscription-status paid">Ready</span>
+                }
+              </td>
+              <td>
+                <details class="kvh-action-menu">
+                  <summary aria-label="Open actions">...</summary>
+                  <div class="kvh-action-panel">
+                    <a asp-controller="KvhSolutions" asp-action="Details" asp-route-deviceId="@item.DeviceId">Chi tiet / Detail</a>
+                    <form asp-controller="KvhSolutions" asp-action="Sync" method="post">
+                      @Html.AntiForgeryToken()
+                      <input type="hidden" name="deviceId" value="@item.DeviceId" />
+                      <button type="submit">Sync</button>
+                    </form>
+                    @if (Model.CanManageSolutions && item.KvhSubscriptionId.HasValue)
+                    {
+                      @if (item.CanPause)
+                      {
+                        <form asp-controller="KvhSolutions" asp-action="Pause" method="post">
+                          @Html.AntiForgeryToken()
+                          <input type="hidden" name="DeviceId" value="@item.DeviceId" />
+                          <input type="hidden" name="KvhSubscriptionId" value="@item.KvhSubscriptionId" />
+                          <button type="submit">Pause</button>
+                        </form>
+                      }
+                      @if (item.CanResume)
+                      {
+                        <form asp-controller="KvhSolutions" asp-action="Resume" method="post">
+                          @Html.AntiForgeryToken()
+                          <input type="hidden" name="DeviceId" value="@item.DeviceId" />
+                          <input type="hidden" name="KvhSubscriptionId" value="@item.KvhSubscriptionId" />
+                          <button type="submit">Resume</button>
+                        </form>
+                      }
+                    }
+                  </div>
+                </details>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <footer class="device-pagination">
+      <div class="device-pagination-meta">
+        <span>So dong / Rows</span>
+        <form asp-controller="KvhSolutions" asp-action="Index" method="get" class="kvh-page-size-form">
+          <input type="hidden" name="search" value="@Model.Filter.Search" />
+          <input type="hidden" name="status" value="@Model.Filter.Status" />
+          <input type="hidden" name="region" value="@Model.Filter.Region" />
+          <input type="hidden" name="tenantId" value="@Model.Filter.TenantId" />
+          <input type="hidden" name="syncState" value="@Model.Filter.SyncState" />
+          <select class="page-size-select" name="pageSize" onchange="this.form.submit()">
+            <option value="10" selected="@(Model.PageSize == 10)">10</option>
+            <option value="20" selected="@(Model.PageSize == 20)">20</option>
+            <option value="50" selected="@(Model.PageSize == 50)">50</option>
+            <option value="100" selected="@(Model.PageSize == 100)">100</option>
+          </select>
+        </form>
+        <span>Trang / Page @Model.CurrentPage / @(Model.TotalPages == 0 ? 1 : Model.TotalPages)</span>
+      </div>
+      <div class="device-pagination-actions">
+        <a class="pagination-btn @(Model.HasPreviousPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-page="1" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState">Dau</a>
+        <a class="pagination-btn @(Model.HasPreviousPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-page="@previousPage" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState">Truoc</a>
+        <span class="pagination-btn is-active">@Model.CurrentPage</span>
+        <a class="pagination-btn @(Model.HasNextPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-page="@nextPage" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState">Sau</a>
+        <a class="pagination-btn @(Model.HasNextPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-page="@(Model.TotalPages == 0 ? 1 : Model.TotalPages)" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState">Cuoi</a>
+      </div>
+    </footer>
+  </section>
+
+  <section class="device-card kvh-batches-card">
+    <header class="device-card-head">
+      <div>
+        <h2>Recent Sync Batches</h2>
+        <p>Tien do dong bo KVH subscription nen / Background synchronization progress.</p>
+      </div>
+    </header>
+    <div class="device-table-wrap">
+      <table class="device-table subscription-table kvh-table">
+        <thead>
+          <tr>
+            <th>Batch</th>
+            <th>Type</th>
+            <th>Status</th>
+            <th>Progress</th>
+            <th>Success</th>
+            <th>Empty</th>
+            <th>Failed</th>
+            <th>Started</th>
+            <th>Completed</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          @if (Model.RecentBatches.Count == 0)
+          {
+            <tr><td colspan="10" class="tenant-empty">Chua co batch dong bo KVH / No KVH sync batches yet.</td></tr>
+          }
+          @foreach (var batch in Model.RecentBatches)
+          {
+            var batchStatusClass = StatusClass(batch.Status);
+            <tr class="kvh-batch-row" data-batch-id="@batch.Id" data-kvh-running="@batch.IsRunning.ToString().ToLowerInvariant()">
+              <td>#@batch.Id</td>
+              <td>@batch.BatchType</td>
+              <td><span class="subscription-status kvh-batch-status @batchStatusClass">@batch.Status</span></td>
+              <td>
+                <div class="progress-shell"><span class="kvh-batch-progress" style="width:@batch.ProgressPercent%"></span></div>
+                <div class="muted kvh-batch-progress-text">@batch.ProcessedItems / @batch.TotalItems</div>
+              </td>
+              <td class="kvh-batch-success">@batch.SuccessItems</td>
+              <td class="kvh-batch-empty">@batch.EmptyItems</td>
+              <td class="kvh-batch-failed">@batch.FailedItems</td>
+              <td>@batch.StartedAtUtc?.ToString("dd/MM/yyyy HH:mm")</td>
+              <td class="kvh-batch-completed">@batch.CompletedAtUtc?.ToString("dd/MM/yyyy HH:mm")</td>
+              <td>
+                <div class="kvh-row-actions">
+                  @if (Model.CanManageSolutions && batch.IsRunning)
+                  {
+                    <form asp-controller="KvhSolutions" asp-action="CancelSyncBatch" method="post">
+                      @Html.AntiForgeryToken()
+                      <input type="hidden" name="id" value="@batch.Id" />
+                      <button type="submit" class="table-action-btn">Cancel</button>
+                    </form>
+                  }
+                  @if (Model.CanManageSolutions && batch.FailedItems > 0)
+                  {
+                    <form asp-controller="KvhSolutions" asp-action="RetryFailedBatch" method="post">
+                      @Html.AntiForgeryToken()
+                      <input type="hidden" name="id" value="@batch.Id" />
+                      <button type="submit" class="table-action-btn">Retry failed</button>
+                    </form>
+                  }
+                </div>
               </td>
             </tr>
           }
@@ -258,60 +414,26 @@
       </table>
     </div>
   </section>
+
+  <div class="kvh-modal-backdrop" data-kvh-sync-all-modal hidden>
+    <div class="kvh-modal" role="dialog" aria-modal="true" aria-labelledby="kvhSyncAllTitle">
+      <header>
+        <h2 id="kvhSyncAllTitle">Xac nhan Sync all</h2>
+        <button type="button" class="kvh-modal-close" data-kvh-close-modal aria-label="Close">x</button>
+      </header>
+      <p>He thong se tao batch dong bo cho cac thiet bi KVH dang co trong pham vi truy cap. Qua trinh nay co the mat vai phut.</p>
+      <div class="device-modal-actions">
+        <button type="button" class="btn-secondary" data-kvh-close-modal>Huy / Cancel</button>
+        <form asp-controller="KvhSolutions" asp-action="CreateSyncBatch" method="post">
+          @Html.AntiForgeryToken()
+          <input type="hidden" name="Mode" value="SYNC_ALL" />
+          <button type="submit" class="btn-primary">Dong y Sync all</button>
+        </form>
+      </div>
+    </div>
+  </div>
 </div>
 
 @section Scripts {
-  <script>
-    (() => {
-      const selectedForm = document.getElementById('kvhSyncSelectedForm');
-      const selectedInputs = document.getElementById('kvhSelectedInputs');
-      const selectedButton = document.getElementById('kvhSyncSelectedButton');
-      const selectAll = document.getElementById('kvhSelectAll');
-      const boxes = Array.from(document.querySelectorAll('.kvh-device-checkbox'));
-
-      function refreshSelected() {
-        if (!selectedInputs || !selectedButton) return;
-        selectedInputs.innerHTML = '';
-        const checked = boxes.filter(box => box.checked);
-        checked.forEach((box, index) => {
-          const input = document.createElement('input');
-          input.type = 'hidden';
-          input.name = `DeviceIds[${index}]`;
-          input.value = box.value;
-          selectedInputs.appendChild(input);
-        });
-        selectedButton.disabled = checked.length === 0;
-      }
-
-      selectAll?.addEventListener('change', () => {
-        boxes.forEach(box => box.checked = selectAll.checked);
-        refreshSelected();
-      });
-      boxes.forEach(box => box.addEventListener('change', refreshSelected));
-      selectedForm?.addEventListener('submit', refreshSelected);
-
-      const runningRows = Array.from(document.querySelectorAll('.kvh-batch-row[data-running="true"]'));
-      if (runningRows.length === 0) return;
-      const finalStatuses = new Set(['COMPLETED', 'COMPLETED_WITH_ERRORS', 'FAILED', 'CANCELLED']);
-      const timers = runningRows.map(row => {
-        const id = row.dataset.batchId;
-        const timer = window.setInterval(async () => {
-          if (document.hidden) return;
-          const response = await fetch(`/KvhSolutions/BatchStatus?id=${encodeURIComponent(id)}`, { headers: { 'Accept': 'application/json' } });
-          if (!response.ok) return;
-          const batch = await response.json();
-          row.querySelector('.kvh-batch-status').textContent = batch.status;
-          row.querySelector('.kvh-batch-pending').textContent = batch.pendingItems;
-          row.querySelector('.kvh-batch-success').textContent = batch.successItems;
-          row.querySelector('.kvh-batch-empty').textContent = batch.emptyItems;
-          row.querySelector('.kvh-batch-failed').textContent = batch.failedItems;
-          row.querySelector('.kvh-batch-progress').style.width = `${batch.progressPercent}%`;
-          row.querySelector('.kvh-batch-progress-text').textContent = `${batch.processedItems} / ${batch.totalItems}`;
-          if (finalStatuses.has(batch.status)) window.clearInterval(timer);
-        }, 7000);
-        return timer;
-      });
-      window.addEventListener('beforeunload', () => timers.forEach(timer => window.clearInterval(timer)));
-    })();
-  </script>
+  <script src="~/js/kvh-solutions.js" asp-append-version="true"></script>
 }

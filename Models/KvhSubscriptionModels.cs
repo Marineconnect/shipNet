@@ -54,6 +54,8 @@ public sealed class KvhSolutionListItemViewModel
     public int? TenantId { get; set; }
     public string TenantName { get; set; } = string.Empty;
     public string KitNumber { get; set; } = string.Empty;
+    public string Availability { get; set; } = string.Empty;
+    public DateTime? LastUpdateTimeUtc { get; set; }
     public string TrafficId { get; set; } = string.Empty;
     public long? KvhSubscriptionId { get; set; }
     public string Region { get; set; } = string.Empty;
@@ -81,6 +83,7 @@ public sealed class KvhSolutionListItemViewModel
     public string AllowanceDisplay => AllowanceGb.HasValue ? $"{AllowanceGb.Value:0.##} GB" : "-";
     public string LastSyncDisplay => FormatUtc(LastSyncAtUtc);
     public string ScheduledEffectiveDisplay => FormatUtc(ScheduledEffectiveDateUtc);
+    public string LastUpdateDisplay => FormatUtc(LastUpdateTimeUtc);
 
     private static string FormatUtc(DateTime? value) =>
         value.HasValue
@@ -98,6 +101,8 @@ public sealed class KvhSolutionDetailViewModel
     public string KitNumber { get; set; } = string.Empty;
     public string KitId { get; set; } = string.Empty;
     public string ServiceLine { get; set; } = string.Empty;
+    public string Availability { get; set; } = string.Empty;
+    public DateTime? LastUpdateTimeUtc { get; set; }
     public string TrafficId { get; set; } = string.Empty;
     public bool CanManageSolutions { get; set; }
     public List<KvhSubscriptionEntryViewModel> CurrentSubscriptions { get; set; } = [];
@@ -136,6 +141,17 @@ public sealed class KvhSubscriptionSyncLogViewModel
     public string ErrorMessage { get; set; } = string.Empty;
     public string TrafficId { get; set; } = string.Empty;
     public int ReturnedCount { get; set; }
+    public int? HttpStatusCode { get; set; }
+    public string SyncSource { get; set; } = string.Empty;
+    public string ResponseJson { get; set; } = string.Empty;
+
+    public string StartedDisplay => FormatUtc(StartedAtUtc);
+    public string CompletedDisplay => FormatUtc(CompletedAtUtc);
+
+    private static string FormatUtc(DateTime? value) =>
+        value.HasValue
+            ? TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(value.Value, DateTimeKind.Utc), TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")).ToString("dd/MM/yyyy HH:mm:ss")
+            : "-";
 }
 
 public sealed class KvhSolutionCommandRequest
