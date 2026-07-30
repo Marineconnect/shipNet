@@ -19,6 +19,60 @@ public sealed class KvhSubscriptionService(
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")
         ?? throw new InvalidOperationException("Missing connection string: DefaultConnection");
 
+    public async Task<KvhDeviceSyncResult> SyncDeviceSubscriptionAsync(int deviceId, int? allowedTenantId = null, int? allowedDeviceId = null, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var device = await GetDeviceAsync(connection, deviceId, allowedTenantId, allowedDeviceId, cancellationToken);
+        if (device is null)
+        {
+            return ToDeviceSyncResult(Fail(deviceId, string.Empty, string.Empty, "device_not_found", "Device not found."));
+        }
+
+        if (string.IsNullOrWhiteSpace(device.TerminalId))
+        {
+            await InsertSyncLogAsync(connection, deviceId, string.Empty, string.Empty, false, "kvh_terminal_id_missing", "Terminal ID is unavailable.", null, 0, cancellationToken);
+            return ToDeviceSyncResult(Fail(deviceId, string.Empty, string.Empty, "kvh_terminal_id_missing", "Terminal ID is unavailable."));
+        }
+
+        var accessToken = device.AccessToken;
+        if (string.IsNullOrWhiteSpace(accessToken) || IsTokenExpired(device.TokenExpiredTime))
+        {
+            accessToken = await RefreshTokenAsync(connection, device.DeviceId, device.TerminalId, cancellationToken);
+            if (string.IsNullOrWhiteSpace(accessToken))
+            {
+                await InsertSyncLogAsync(connection, deviceId, device.TerminalId, device.TrafficId, false, KvhErrorCodes.TokenRefreshFailed, "Could not refresh KVH token.", null, 0, cancellationToken);
+                return ToDeviceSyncResult(Fail(deviceId, device.TerminalId, device.TrafficId, KvhErrorCodes.TokenRefreshFailed, "Could not refresh KVH token."));
+            }
+        }
+
+        var usage = await RequestTerminalUsageAsync(device.TerminalId, accessToken, cancellationToken);
+        if (!usage.Success && usage.HttpStatusCode == 401)
+        {
+            accessToken = await RefreshTokenAsync(connection, device.DeviceId, device.TerminalId, cancellationToken);
+            usage = string.IsNullOrWhiteSpace(accessToken)
+                ? usage
+                : await RequestTerminalUsageAsync(device.TerminalId, accessToken, cancellationToken);
+        }
+
+        if (!usage.Success)
+        {
+                await InsertSyncLogAsync(connection, deviceId, device.TerminalId, device.TrafficId, false, usage.ErrorCode, usage.ErrorMessage, usage.RawResponse, 0, cancellationToken, httpStatusCode: usage.HttpStatusCode);
+            return ToDeviceSyncResult(Fail(deviceId, device.TerminalId, device.TrafficId, usage.ErrorCode, usage.ErrorMessage, usage.RawResponse));
+        }
+
+        var trafficId = Normalize(usage.TrafficId);
+        if (string.IsNullOrWhiteSpace(trafficId))
+        {
+            await InsertSyncLogAsync(connection, deviceId, device.TerminalId, string.Empty, false, "kvh_traffic_id_missing", "Traffic ID is unavailable.", usage.RawResponse, 0, cancellationToken, httpStatusCode: usage.HttpStatusCode);
+            return ToDeviceSyncResult(Fail(deviceId, device.TerminalId, string.Empty, "kvh_traffic_id_missing", "Traffic ID is unavailable.", usage.RawResponse));
+        }
+
+        var result = await SyncForDeviceAsync(deviceId, device.TerminalId, accessToken, trafficId, cancellationToken);
+        return ToDeviceSyncResult(result);
+    }
+
     public async Task<KvhSubscriptionSyncResult> SyncForDeviceAsync(int deviceId, string terminalId, string accessToken, string? trafficId = null, CancellationToken cancellationToken = default)
     {
         await using var connection = new SqlConnection(_connectionString);
@@ -46,9 +100,18 @@ public sealed class KvhSubscriptionService(
 
         var startedAt = DateTime.UtcNow;
         var response = await SendKvhAsync(HttpMethod.Get, $"https://api.mykvh.com/v3/subscriptions/{Uri.EscapeDataString(resolvedTrafficId)}", accessToken, null, "kvh_subscription_list_failed", cancellationToken);
+        if (!response.Success && response.HttpStatusCode == 401)
+        {
+            var refreshedToken = await RefreshTokenAsync(connection, deviceId, terminalId, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(refreshedToken))
+            {
+                response = await SendKvhAsync(HttpMethod.Get, $"https://api.mykvh.com/v3/subscriptions/{Uri.EscapeDataString(resolvedTrafficId)}", refreshedToken, null, "kvh_subscription_list_failed", cancellationToken);
+            }
+        }
+
         if (!response.Success)
         {
-            await InsertSyncLogAsync(connection, deviceId, terminalId, resolvedTrafficId, false, response.ErrorCode, response.ErrorMessage, response.RawResponse, 0, cancellationToken, startedAt);
+            await InsertSyncLogAsync(connection, deviceId, terminalId, resolvedTrafficId, false, response.ErrorCode, response.ErrorMessage, response.RawResponse, 0, cancellationToken, startedAt, httpStatusCode: response.HttpStatusCode);
             return Fail(deviceId, terminalId, resolvedTrafficId, response.ErrorCode, response.ErrorMessage, response.RawResponse);
         }
 
@@ -59,12 +122,32 @@ public sealed class KvhSubscriptionService(
         }
         catch (JsonException)
         {
-            await InsertSyncLogAsync(connection, deviceId, terminalId, resolvedTrafficId, false, "kvh_subscription_list_failed", "Subscription API returned invalid JSON.", response.RawResponse, 0, cancellationToken, startedAt);
+            await InsertSyncLogAsync(connection, deviceId, terminalId, resolvedTrafficId, false, "kvh_subscription_list_failed", "Subscription API returned invalid JSON.", response.RawResponse, 0, cancellationToken, startedAt, httpStatusCode: response.HttpStatusCode);
             return Fail(deviceId, terminalId, resolvedTrafficId, "kvh_subscription_list_failed", "Subscription API returned invalid JSON.", response.RawResponse);
         }
 
+        if (entries.Count == 0)
+        {
+            const string emptyMessage = "KVH returned no subscription entries for this Traffic ID.";
+            await InsertSyncLogAsync(connection, deviceId, terminalId, resolvedTrafficId, true, string.Empty, emptyMessage, response.RawResponse, 0, cancellationToken, startedAt, httpStatusCode: response.HttpStatusCode);
+            return new KvhSubscriptionSyncResult
+            {
+                Success = false,
+                DeviceId = deviceId,
+                TerminalId = terminalId,
+                TrafficId = resolvedTrafficId,
+                ReturnedCount = 0,
+                CurrentCount = 0,
+                RawResponse = response.RawResponse,
+                UsedStoredTrafficId = usedStoredTrafficId,
+                ErrorCode = "kvh_subscription_empty",
+                Message = emptyMessage,
+                MessageEn = emptyMessage
+            };
+        }
+
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
-        await MarkDeviceSubscriptionsNotCurrentAsync(connection, transaction, deviceId, cancellationToken);
+        var deactivatedCount = await MarkDeviceSubscriptionsNotCurrentAsync(connection, transaction, deviceId, cancellationToken);
         foreach (var entry in entries)
         {
             await UpsertSubscriptionAsync(connection, transaction, entry, cancellationToken);
@@ -72,7 +155,7 @@ public sealed class KvhSubscriptionService(
 
         var summary = SelectSummary(entries);
         await UpdateDeviceSubscriptionSummaryAsync(connection, transaction, deviceId, resolvedTrafficId, summary, cancellationToken);
-        await InsertSyncLogAsync(connection, deviceId, terminalId, resolvedTrafficId, true, string.Empty, string.Empty, response.RawResponse, entries.Count, cancellationToken, startedAt, transaction);
+        await InsertSyncLogAsync(connection, deviceId, terminalId, resolvedTrafficId, true, string.Empty, string.Empty, response.RawResponse, entries.Count, cancellationToken, startedAt, transaction, response.HttpStatusCode);
         await transaction.CommitAsync(cancellationToken);
 
         logger.LogInformation("Synced {Count} KVH subscriptions for DeviceId {DeviceId}, TerminalId {TerminalId}, TrafficId {TrafficId}", entries.Count, deviceId, terminalId, resolvedTrafficId);
@@ -82,6 +165,9 @@ public sealed class KvhSubscriptionService(
             DeviceId = deviceId,
             TerminalId = terminalId,
             TrafficId = resolvedTrafficId,
+            ReturnedCount = entries.Count,
+            UpdatedCount = entries.Count,
+            DeactivatedCount = deactivatedCount,
             CurrentCount = entries.Count,
             RawResponse = response.RawResponse,
             UsedStoredTrafficId = usedStoredTrafficId,
@@ -444,10 +530,10 @@ public sealed class KvhSubscriptionService(
                 OptInJson = optInElement.HasValue ? optInElement.Value.GetRawText() : string.Empty,
                 ScheduledAction = KvhJsonHelpers.FindStringValue(item, "scheduled_action", "scheduledAction", "schedule_action", "action"),
                 ScheduleId = KvhJsonHelpers.FindStringValue(item, "schedule_id", "scheduleId"),
-                ScheduledEffectiveDateUtc = TryFindDate(item, "scheduled_effective_date", "scheduledEffectiveDate", "schedule_effective_date"),
+                ScheduledEffectiveDateUtc = TryFindDate(item, "scheduled_effective_date", "scheduledEffectiveDate", "schedule_effective_date", "schedule.effective_date", "schedule.effectiveDate"),
                 Region = region,
                 Proration = TryFindDecimal(item, "proration"),
-                AllowanceGb = BytesToGb(TryFindDecimal(item, "allowance")),
+                AllowanceGb = ResolveAllowanceGb(item),
                 EffectiveDateUtc = TryFindDate(item, "effective_date", "effectiveDate"),
                 RawSubscriptionJson = item.GetRawText()
             });
@@ -463,12 +549,30 @@ public sealed class KvhSubscriptionService(
             return root.EnumerateArray().Select(item => item.Clone()).ToList();
         }
 
-        foreach (var name in new[] { "subscriptions", "data", "items", "results" })
+        foreach (var name in new[] { "subscriptions", "items", "results" })
         {
             if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty(name, out var child) && child.ValueKind == JsonValueKind.Array)
             {
                 return child.EnumerateArray().Select(item => item.Clone()).ToList();
             }
+        }
+
+        if (root.ValueKind == JsonValueKind.Object &&
+            root.TryGetProperty("data", out var data) &&
+            data.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var name in new[] { "subscriptions", "items", "results" })
+            {
+                if (data.TryGetProperty(name, out var child) && child.ValueKind == JsonValueKind.Array)
+                {
+                    return child.EnumerateArray().Select(item => item.Clone()).ToList();
+                }
+            }
+        }
+
+        if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("data", out var dataArray) && dataArray.ValueKind == JsonValueKind.Array)
+        {
+            return dataArray.EnumerateArray().Select(item => item.Clone()).ToList();
         }
 
         return root.ValueKind == JsonValueKind.Object ? [root.Clone()] : [];
@@ -501,6 +605,48 @@ public sealed class KvhSubscriptionService(
 
     private static decimal? BytesToGb(decimal? value) => value.HasValue ? Math.Round(value.Value / 1_000_000_000m, 2) : null;
 
+    private static decimal? ResolveAllowanceGb(JsonElement item)
+    {
+        var explicitGb = TryFindDecimal(item, "allowance_gb", "allowanceGb", "data_allowance_gb", "dataAllowanceGb");
+        if (explicitGb.HasValue)
+        {
+            return Math.Round(explicitGb.Value, 2);
+        }
+
+        var explicitBytes = TryFindDecimal(item, "allowance_bytes", "allowanceBytes", "data_allowance_bytes", "dataAllowanceBytes");
+        if (explicitBytes.HasValue)
+        {
+            return BytesToGb(explicitBytes);
+        }
+
+        if (item.TryGetProperty("allowance", out var allowance) && allowance.ValueKind == JsonValueKind.Object)
+        {
+            var value = TryFindDecimal(allowance, "value", "amount", "bytes", "gb");
+            var unit = KvhJsonHelpers.FindStringValue(allowance, "unit", "units");
+            if (!value.HasValue)
+            {
+                return null;
+            }
+
+            if (unit.Contains("byte", StringComparison.OrdinalIgnoreCase) || allowance.TryGetProperty("bytes", out _))
+            {
+                return BytesToGb(value);
+            }
+
+            if (unit.Equals("gb", StringComparison.OrdinalIgnoreCase) || unit.Equals("gigabyte", StringComparison.OrdinalIgnoreCase) || allowance.TryGetProperty("gb", out _))
+            {
+                return Math.Round(value.Value, 2);
+            }
+
+            return value.Value > 100_000m ? BytesToGb(value) : Math.Round(value.Value, 2);
+        }
+
+        var genericAllowance = TryFindDecimal(item, "allowance", "data_allowance", "dataAllowance");
+        return genericAllowance.HasValue && genericAllowance.Value > 100_000m
+            ? BytesToGb(genericAllowance)
+            : genericAllowance.HasValue ? Math.Round(genericAllowance.Value, 2) : null;
+    }
+
     private static ParsedSubscription? SelectSummary(IReadOnlyList<ParsedSubscription> entries)
     {
         return entries
@@ -511,12 +657,12 @@ public sealed class KvhSubscriptionService(
             .FirstOrDefault();
     }
 
-    private static async Task MarkDeviceSubscriptionsNotCurrentAsync(SqlConnection connection, SqlTransaction transaction, int deviceId, CancellationToken cancellationToken)
+    private static async Task<int> MarkDeviceSubscriptionsNotCurrentAsync(SqlConnection connection, SqlTransaction transaction, int deviceId, CancellationToken cancellationToken)
     {
         const string query = "UPDATE [dbo].[TblKvhSubscription] SET [IsCurrent] = 0 WHERE [DeviceId] = @deviceId";
         await using var command = new SqlCommand(query, connection, transaction);
         command.Parameters.Add("@deviceId", SqlDbType.Int).Value = deviceId;
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        return await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task UpsertSubscriptionAsync(SqlConnection connection, SqlTransaction transaction, ParsedSubscription entry, CancellationToken cancellationToken)
@@ -589,13 +735,13 @@ public sealed class KvhSubscriptionService(
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private static async Task InsertSyncLogAsync(SqlConnection connection, int deviceId, string terminalId, string trafficId, bool success, string errorCode, string errorMessage, string? rawResponse, int returnedCount, CancellationToken cancellationToken, DateTime? startedAt = null, SqlTransaction? transaction = null)
+    private static async Task InsertSyncLogAsync(SqlConnection connection, int deviceId, string terminalId, string trafficId, bool success, string errorCode, string errorMessage, string? rawResponse, int returnedCount, CancellationToken cancellationToken, DateTime? startedAt = null, SqlTransaction? transaction = null, int? httpStatusCode = null)
     {
         const string query = """
             INSERT INTO [dbo].[TblKvhSubscriptionSyncLog]
-                ([DeviceId], [TerminalId], [TrafficId], [StartedAtUtc], [CompletedAtUtc], [Success], [ErrorCode], [ErrorMessage], [ResponseJson], [ReturnedCount])
+                ([DeviceId], [TerminalId], [TrafficId], [StartedAtUtc], [CompletedAtUtc], [Success], [ErrorCode], [ErrorMessage], [ResponseJson], [ReturnedCount], [HttpStatusCode], [SyncSource])
             VALUES
-                (@deviceId, @terminalId, @trafficId, @startedAt, SYSUTCDATETIME(), @success, NULLIF(@errorCode, ''), NULLIF(@errorMessage, ''), @responseJson, @returnedCount)
+                (@deviceId, @terminalId, @trafficId, @startedAt, SYSUTCDATETIME(), @success, NULLIF(@errorCode, ''), NULLIF(@errorMessage, ''), @responseJson, @returnedCount, @httpStatusCode, @syncSource)
             """;
         await using var command = new SqlCommand(query, connection, transaction);
         command.Parameters.Add("@deviceId", SqlDbType.Int).Value = deviceId;
@@ -607,6 +753,8 @@ public sealed class KvhSubscriptionService(
         command.Parameters.Add("@errorMessage", SqlDbType.NVarChar, -1).Value = errorMessage;
         command.Parameters.Add("@responseJson", SqlDbType.NVarChar, -1).Value = Db(RedactJson(rawResponse ?? string.Empty));
         command.Parameters.Add("@returnedCount", SqlDbType.Int).Value = returnedCount;
+        command.Parameters.Add("@httpStatusCode", SqlDbType.Int).Value = (object?)httpStatusCode ?? DBNull.Value;
+        command.Parameters.Add("@syncSource", SqlDbType.NVarChar, 50).Value = "PORTAL";
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -670,8 +818,68 @@ public sealed class KvhSubscriptionService(
             KitNumber = reader["KITNumber"]?.ToString() ?? string.Empty,
             KitId = reader["KITID"]?.ToString() ?? string.Empty,
             ServiceLine = reader["ServiceLine"]?.ToString() ?? string.Empty,
-            TrafficId = reader["TrafficId"]?.ToString() ?? string.Empty
+            TrafficId = reader["TrafficId"]?.ToString() ?? string.Empty,
+            AccessToken = reader["TokenString"]?.ToString() ?? string.Empty,
+            TokenExpiredTime = reader["TokenExpiredTime"] == DBNull.Value ? null : Convert.ToDateTime(reader["TokenExpiredTime"])
         };
+    }
+
+    private async Task<KvhUsageResult> RequestTerminalUsageAsync(string terminalId, string accessToken, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.mykvh.com/v3/terminals/{Uri.EscapeDataString(terminalId)}/usage");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        try
+        {
+            var client = httpClientFactory.CreateClient();
+            using var response = await client.SendAsync(request, cancellationToken);
+            var raw = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (response.StatusCode != HttpStatusCode.OK)
+            {
+                return new KvhUsageResult
+                {
+                    Success = false,
+                    HttpStatusCode = (int)response.StatusCode,
+                    RawResponse = RedactJson(raw),
+                    ErrorCode = "kvh_terminal_usage_failed",
+                    ErrorMessage = $"KVH terminal usage API returned HTTP {(int)response.StatusCode}."
+                };
+            }
+
+            try
+            {
+                using var document = JsonDocument.Parse(raw);
+                var trafficId = KvhJsonHelpers.FindStringValue(document.RootElement, "traffic_id", "trafficId", "trafficID", "trafficid");
+                return new KvhUsageResult
+                {
+                    Success = true,
+                    HttpStatusCode = (int)response.StatusCode,
+                    RawResponse = RedactJson(raw),
+                    TrafficId = trafficId
+                };
+            }
+            catch (JsonException)
+            {
+                return new KvhUsageResult
+                {
+                    Success = false,
+                    HttpStatusCode = (int)response.StatusCode,
+                    RawResponse = RedactJson(raw),
+                    ErrorCode = "kvh_terminal_usage_invalid_json",
+                    ErrorMessage = "KVH terminal usage API returned invalid JSON."
+                };
+            }
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return new KvhUsageResult
+            {
+                Success = false,
+                ErrorCode = "kvh_terminal_usage_timeout",
+                ErrorMessage = "KVH terminal usage request timed out."
+            };
+        }
     }
 
     private static string BuildSolutionWhere(KvhSolutionFilter filter, int? allowedTenantId, int? allowedDeviceId)
@@ -893,6 +1101,24 @@ public sealed class KvhSubscriptionService(
         RawResponse = rawResponse
     };
 
+    private static KvhDeviceSyncResult ToDeviceSyncResult(KvhSubscriptionSyncResult result) => new()
+    {
+        Success = result.Success,
+        ErrorCode = result.ErrorCode,
+        Message = result.Message,
+        MessageEn = result.MessageEn,
+        DeviceId = result.DeviceId,
+        TerminalId = result.TerminalId,
+        TrafficId = result.TrafficId,
+        ReturnedCount = result.ReturnedCount,
+        InsertedCount = result.InsertedCount,
+        UpdatedCount = result.UpdatedCount,
+        DeactivatedCount = result.DeactivatedCount,
+        CurrentCount = result.CurrentCount,
+        RawResponse = result.RawResponse,
+        UsedStoredTrafficId = result.UsedStoredTrafficId
+    };
+
     private static string RedactJson(string rawJson)
     {
         if (string.IsNullOrWhiteSpace(rawJson))
@@ -952,6 +1178,8 @@ public sealed class KvhSubscriptionService(
         public string KitId { get; set; } = string.Empty;
         public string ServiceLine { get; set; } = string.Empty;
         public string TrafficId { get; set; } = string.Empty;
+        public string AccessToken { get; set; } = string.Empty;
+        public DateTime? TokenExpiredTime { get; set; }
     }
 
     private sealed class ParsedSubscription
@@ -998,6 +1226,16 @@ public sealed class KvhSubscriptionService(
         public bool Success { get; set; }
         public int? HttpStatusCode { get; set; }
         public string RawResponse { get; set; } = string.Empty;
+        public string ErrorCode { get; set; } = string.Empty;
+        public string ErrorMessage { get; set; } = string.Empty;
+    }
+
+    private sealed class KvhUsageResult
+    {
+        public bool Success { get; set; }
+        public int? HttpStatusCode { get; set; }
+        public string RawResponse { get; set; } = string.Empty;
+        public string TrafficId { get; set; } = string.Empty;
         public string ErrorCode { get; set; } = string.Empty;
         public string ErrorMessage { get; set; } = string.Empty;
     }

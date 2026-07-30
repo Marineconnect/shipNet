@@ -1834,6 +1834,42 @@ body.is-map-fullscreen{
   color:#9fb4d7;
   font-size:12px;
 }
+.progress-shell{
+  width:140px;
+  height:8px;
+  border-radius:999px;
+  overflow:hidden;
+  background:rgba(255,255,255,.08);
+  border:1px solid rgba(148,163,184,.22);
+}
+.progress-shell span{
+  display:block;
+  height:100%;
+  background:linear-gradient(90deg,#2f8cff,#32d4ff);
+  transition:width .2s ease;
+}
+.portal-breadcrumb{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+  margin:0 0 18px;
+  color:#9fb4d7;
+  font-size:13px;
+}
+.portal-breadcrumb a{
+  color:#67d5ff;
+  text-decoration:none;
+}
+.portal-breadcrumb a:hover{
+  text-decoration:underline;
+}
+.portal-breadcrumb a::after{
+  content:">";
+  color:#6f86aa;
+  margin-left:8px;
+  text-decoration:none;
+}
 .usage-grid{
   display:grid;
   gap:10px;

@@ -1,0 +1,15 @@
+**/bin/
+**/obj/
+bin-build-*/
+obj-build-*/
+publish/
+publish-*/
+TestResults/
+*.user
+*.suo
+*.pdb
+*.dll
+*.exe
+*.cache
+*.nupkg
+*.snupkg

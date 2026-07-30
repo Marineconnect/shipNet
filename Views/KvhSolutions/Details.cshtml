@@ -5,6 +5,11 @@
 }
 
 <div class="device-dashboard">
+  <nav class="portal-breadcrumb" aria-label="Breadcrumb">
+    <a asp-controller="Dashboard" asp-action="Index">Dashboard</a>
+    <a asp-controller="KvhSolutions" asp-action="Index">KVH Solutions</a>
+    <span>@(string.IsNullOrWhiteSpace(Model.VesselName) ? Model.DeviceName : Model.VesselName)</span>
+  </nav>
   <section class="device-hero">
     <div>
       <div class="device-brand">KVH Solution Detail</div>
@@ -72,7 +77,14 @@
         <tbody>
           @if (Model.CurrentSubscriptions.Count == 0)
           {
-            <tr><td colspan="9" class="tenant-empty">No current KVH subscription entries.</td></tr>
+            var lastLog = Model.SyncLogs.FirstOrDefault();
+            <tr>
+              <td colspan="9" class="tenant-empty">
+                No subscription entries were returned by KVH for Traffic ID @(string.IsNullOrWhiteSpace(Model.TrafficId) ? "unavailable" : Model.TrafficId).
+                <div class="muted">Last sync: @(lastLog is null ? "Not synced" : lastLog.StartedAtUtc.ToString("dd/MM/yyyy HH:mm"))</div>
+                <div class="muted">Result: @(lastLog is null ? "Not synced" : lastLog.Success && lastLog.ReturnedCount == 0 ? "Empty" : lastLog.Success ? "Success" : $"Failed {lastLog.ErrorCode}")</div>
+              </td>
+            </tr>
           }
           @foreach (var entry in Model.CurrentSubscriptions)
           {
@@ -91,7 +103,7 @@
               </td>
               <td>@(entry.AllowanceGb.HasValue ? $"{entry.AllowanceGb:0.##} GB" : "-")</td>
               <td>@(entry.Proration?.ToString("0.##") ?? "-")</td>
-              <td>@(entry.EffectiveDateUtc?.ToString("yyyy-MM-dd") ?? "-")</td>
+              <td>@(entry.EffectiveDateUtc?.ToString("dd/MM/yyyy") ?? "-")</td>
               <td>
                 @(string.IsNullOrWhiteSpace(entry.ScheduledAction) ? "-" : entry.ScheduledAction)
                 @if (!string.IsNullOrWhiteSpace(entry.ScheduleId))
@@ -140,9 +152,13 @@
     <table class="device-table subscription-table">
       <thead><tr><th>Started UTC</th><th>Success</th><th>Traffic ID</th><th>Rows</th><th>Error</th></tr></thead>
       <tbody>
+        @if (Model.SyncLogs.Count == 0)
+        {
+          <tr><td colspan="5" class="tenant-empty">No sync log has been recorded for this device.</td></tr>
+        }
         @foreach (var log in Model.SyncLogs)
         {
-          <tr><td>@log.StartedAtUtc.ToString("yyyy-MM-dd HH:mm:ss")</td><td>@log.Success</td><td>@log.TrafficId</td><td>@log.ReturnedCount</td><td>@log.ErrorCode @log.ErrorMessage</td></tr>
+          <tr><td>@log.StartedAtUtc.ToString("dd/MM/yyyy HH:mm:ss")</td><td>@log.Success</td><td>@log.TrafficId</td><td>@log.ReturnedCount</td><td>@log.ErrorCode @log.ErrorMessage</td></tr>
         }
       </tbody>
     </table>
@@ -153,9 +169,13 @@
     <table class="device-table subscription-table">
       <thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Job</th><th>Requested UTC</th><th>Error</th></tr></thead>
       <tbody>
+        @if (Model.RecentCommands.Count == 0)
+        {
+          <tr><td colspan="6" class="tenant-empty">No recent KVH commands for this device.</td></tr>
+        }
         @foreach (var command in Model.RecentCommands)
         {
-          <tr><td>@command.Id</td><td>@command.CommandType</td><td>@command.CommandStatus / @command.VerificationStatus</td><td>@command.JobId</td><td>@command.RequestedAtUtc.ToString("yyyy-MM-dd HH:mm:ss")</td><td>@command.ErrorCode @command.ErrorMessage</td></tr>
+          <tr><td>@command.Id</td><td>@command.CommandType</td><td>@command.CommandStatus / @command.VerificationStatus</td><td>@command.JobId</td><td>@command.RequestedAtUtc.ToString("dd/MM/yyyy HH:mm:ss")</td><td>@command.ErrorCode @command.ErrorMessage</td></tr>
         }
       </tbody>
     </table>

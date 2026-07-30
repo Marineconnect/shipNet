@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("StarlinkDeviceManager")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+c2ff40bbe16d71b997aee7d39467f6aa4e75af46")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+3d61cca5a8e9278e73ed9d6c488dc686de9b806d")]
 [assembly: System.Reflection.AssemblyProductAttribute("StarlinkDeviceManager")]
 [assembly: System.Reflection.AssemblyTitleAttribute("StarlinkDeviceManager")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

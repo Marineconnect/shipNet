@@ -9,6 +9,7 @@ namespace StarlinkDeviceManager.Controllers;
 [Authorize]
 public class KvhSolutionsController(
     IKvhSubscriptionService kvhSubscriptionService,
+    IKvhBulkSyncService kvhBulkSyncService,
     IDeviceService deviceService,
     ISqlAuthService authService,
     ILogger<KvhSolutionsController> logger) : Controller
@@ -25,6 +26,7 @@ public class KvhSolutionsController(
             GetAllowedDeviceId(currentUser),
             CanManageSolutions(currentUser),
             HttpContext.RequestAborted);
+        model.RecentBatches = (await kvhBulkSyncService.GetRecentBatchesAsync(GetAllowedTenantId(currentUser), HttpContext.RequestAborted)).ToList();
         return View("~/Views/KvhSolutions/Index.cshtml", model);
     }
 
@@ -47,11 +49,79 @@ public class KvhSolutionsController(
             return NotFound();
         }
 
-        var result = await deviceService.RefreshExpiredDeviceAsync(deviceId, HttpContext.RequestAborted);
+        var result = await kvhSubscriptionService.SyncDeviceSubscriptionAsync(deviceId, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
         TempData[result.Success ? "KvhSolutionSuccess" : "KvhSolutionError"] = result.Success
-            ? "KVH solution synchronized."
-            : $"Could not synchronize KVH solution: {result.MessageEn}";
+            ? $"Synchronized {result.ReturnedCount} subscription entry."
+            : result.MessageEn;
         return RedirectToAction(nameof(Details), new { deviceId });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> CreateSyncBatch(KvhBatchCreateRequest request)
+    {
+        var currentUser = await GetCurrentUserAsync();
+        if (!CanManageSolutions(currentUser))
+        {
+            return Forbid();
+        }
+
+        var result = await kvhBulkSyncService.CreateBatchAsync(
+            request,
+            GetCurrentUserId(),
+            User.FindFirstValue("DisplayName") ?? User.Identity?.Name ?? "system",
+            GetAllowedTenantId(currentUser),
+            GetAllowedDeviceId(currentUser),
+            HttpContext.RequestAborted);
+
+        TempData[result.Success ? "KvhSolutionSuccess" : "KvhSolutionError"] = result.Success
+            ? result.Message
+            : result.Message;
+        return RedirectToAction(nameof(Index));
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> BatchStatus(long id)
+    {
+        var currentUser = await GetCurrentUserAsync();
+        var batch = await kvhBulkSyncService.GetBatchAsync(id, GetAllowedTenantId(currentUser), HttpContext.RequestAborted);
+        return batch is null ? NotFound() : Json(batch);
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> CancelSyncBatch(long id)
+    {
+        var currentUser = await GetCurrentUserAsync();
+        if (!CanManageSolutions(currentUser))
+        {
+            return Forbid();
+        }
+
+        await kvhBulkSyncService.RequestCancelAsync(id, GetAllowedTenantId(currentUser), HttpContext.RequestAborted);
+        TempData["KvhSolutionSuccess"] = $"Cancel requested for KVH sync batch #{id}.";
+        return RedirectToAction(nameof(Index));
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> RetryFailedBatch(long id)
+    {
+        var currentUser = await GetCurrentUserAsync();
+        if (!CanManageSolutions(currentUser))
+        {
+            return Forbid();
+        }
+
+        var result = await kvhBulkSyncService.CreateBatchAsync(
+            new KvhBatchCreateRequest { Mode = KvhBatchTypes.RetryFailed, SourceBatchId = id },
+            GetCurrentUserId(),
+            User.FindFirstValue("DisplayName") ?? User.Identity?.Name ?? "system",
+            GetAllowedTenantId(currentUser),
+            GetAllowedDeviceId(currentUser),
+            HttpContext.RequestAborted);
+        TempData[result.Success ? "KvhSolutionSuccess" : "KvhSolutionError"] = result.Message;
+        return RedirectToAction(nameof(Index));
     }
 
     [HttpPost]
