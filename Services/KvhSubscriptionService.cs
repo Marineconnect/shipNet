@@ -483,15 +483,34 @@ public sealed class KvhSubscriptionService(
         var response = await SendKvhAsync(method, uri, context.AccessToken, null, commandType == KvhCommandTypes.SubscriptionResume ? "kvh_resume_submit_failed" : "kvh_pause_submit_failed", cancellationToken);
         var jobId = KvhJsonHelpers.ExtractJobId(response.RawResponse);
 
-        if (!response.Success || string.IsNullOrWhiteSpace(jobId))
+        if (!response.Success)
         {
-            await MarkSubmitFailedAsync(connection, commandId, response.HttpStatusCode, response.RawResponse, string.IsNullOrWhiteSpace(jobId) ? KvhErrorCodes.MissingJobId : response.ErrorCode, string.IsNullOrWhiteSpace(jobId) ? "KVH accepted the request but did not return a job id." : response.ErrorMessage, cancellationToken);
+            var submitError = ResolveSubscriptionSubmitError(response, action);
+            await MarkSubmitFailedAsync(connection, commandId, response.HttpStatusCode, response.RawResponse, submitError.ErrorCode, submitError.Message, cancellationToken);
             return new KvhCommandSubmitResult
             {
                 Success = false,
-                ErrorCode = string.IsNullOrWhiteSpace(jobId) ? KvhErrorCodes.MissingJobId : response.ErrorCode,
-                Message = string.IsNullOrWhiteSpace(jobId) ? "KVH accepted the request but did not return a job id." : response.ErrorMessage,
-                MessageEn = string.IsNullOrWhiteSpace(jobId) ? "KVH accepted the request but did not return a job id." : response.ErrorMessage,
+                ErrorCode = submitError.ErrorCode,
+                Message = submitError.Message,
+                MessageEn = submitError.Message,
+                DeviceId = context.DeviceId,
+                TerminalId = context.TerminalId,
+                CommandId = commandId,
+                RawResponse = response.RawResponse,
+                HttpStatusCode = response.HttpStatusCode
+            };
+        }
+
+        if (string.IsNullOrWhiteSpace(jobId))
+        {
+            const string missingJobMessage = "KVH accepted the request but did not return a job id.";
+            await MarkSubmitFailedAsync(connection, commandId, response.HttpStatusCode, response.RawResponse, KvhErrorCodes.MissingJobId, missingJobMessage, cancellationToken);
+            return new KvhCommandSubmitResult
+            {
+                Success = false,
+                ErrorCode = KvhErrorCodes.MissingJobId,
+                Message = missingJobMessage,
+                MessageEn = missingJobMessage,
                 DeviceId = context.DeviceId,
                 TerminalId = context.TerminalId,
                 CommandId = commandId,
@@ -785,11 +804,13 @@ public sealed class KvhSubscriptionService(
     private static async Task UpsertSubscriptionAsync(SqlConnection connection, SqlTransaction transaction, ParsedSubscription entry, CancellationToken cancellationToken)
     {
         const string query = """
-            MERGE [dbo].[TblKvhSubscription] AS target
-            USING (SELECT @deviceId AS [DeviceId], @subscriptionKey AS [SubscriptionKey]) AS source
-            ON target.[DeviceId] = source.[DeviceId] AND target.[SubscriptionKey] = source.[SubscriptionKey]
+            MERGE [dbo].[TblKvhSubscription] WITH (HOLDLOCK) AS target
+            USING (SELECT @deviceId AS [DeviceId], @trafficId AS [TrafficId], @region AS [Region]) AS source
+            ON target.[DeviceId] = source.[DeviceId]
+               AND target.[TrafficId] = source.[TrafficId]
+               AND ISNULL(target.[Region], '') = ISNULL(source.[Region], '')
             WHEN MATCHED THEN UPDATE SET
-                [TerminalId] = @terminalId, [TrafficId] = @trafficId, [Status] = @status, [PlanName] = @planName, [PlanJson] = @planJson,
+                [TerminalId] = @terminalId, [SubscriptionKey] = @subscriptionKey, [Status] = @status, [PlanName] = @planName, [PlanJson] = @planJson,
                 [OptInStatus] = @optInStatus, [OptInJson] = @optInJson, [ScheduledAction] = @scheduledAction, [ScheduleId] = @scheduleId,
                 [ScheduledEffectiveDateUtc] = @scheduledEffectiveDateUtc, [Region] = @region, [Proration] = @proration, [AllowanceGb] = @allowanceGb,
                 [EffectiveDateUtc] = @effectiveDateUtc, [RawSubscriptionJson] = @rawSubscriptionJson, [IsCurrent] = 1, [LastSeenAtUtc] = SYSUTCDATETIME(), [UpdatedAtUtc] = SYSUTCDATETIME()
@@ -902,6 +923,46 @@ public sealed class KvhSubscriptionService(
         catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             return new KvhHttpResult { Success = false, ErrorCode = errorCode, ErrorMessage = "KVH subscription request timed out." };
+        }
+    }
+
+    private static (string ErrorCode, string Message) ResolveSubscriptionSubmitError(KvhHttpResult response, string action)
+    {
+        var detail = ExtractKvhDetail(response.RawResponse);
+        if (response.HttpStatusCode == StatusCodes.Status409Conflict)
+        {
+            var actionLabel = string.Equals(action, "resume", StringComparison.OrdinalIgnoreCase) ? "khôi phục" : "tạm dừng";
+            var message = $"KVH trả State Conflict khi gửi lệnh {actionLabel}. Subscription hiện tại có thể đã ở trạng thái tương ứng, đã có lịch đang chờ xử lý, hoặc KVH không cho phép thao tác này tại thời điểm hiện tại.";
+            if (!string.IsNullOrWhiteSpace(detail))
+            {
+                message += $" Chi tiết KVH: {detail}";
+            }
+
+            return (KvhErrorCodes.StateConflict, message);
+        }
+
+        var fallback = string.IsNullOrWhiteSpace(response.ErrorMessage)
+            ? $"KVH API returned HTTP {response.HttpStatusCode}."
+            : response.ErrorMessage;
+        if (!string.IsNullOrWhiteSpace(detail) && !fallback.Contains(detail, StringComparison.OrdinalIgnoreCase))
+        {
+            fallback += $" Chi tiết KVH: {detail}";
+        }
+
+        return (string.IsNullOrWhiteSpace(response.ErrorCode) ? KvhErrorCodes.CommandSubmitFailed : response.ErrorCode, fallback);
+    }
+
+    private static string ExtractKvhDetail(string rawResponse)
+    {
+        if (string.IsNullOrWhiteSpace(rawResponse)) return string.Empty;
+        try
+        {
+            using var document = JsonDocument.Parse(rawResponse);
+            return KvhJsonHelpers.FindStringValue(document.RootElement, "detail", "message", "error", "title");
+        }
+        catch (JsonException)
+        {
+            return rawResponse.Length > 500 ? rawResponse[..500] : rawResponse;
         }
     }
 
@@ -1214,7 +1275,7 @@ public sealed class KvhSubscriptionService(
         command.Parameters.Add("@userId", SqlDbType.Int).Value = (object?)userId ?? DBNull.Value;
         command.Parameters.Add("@requestedBy", SqlDbType.NVarChar, 250).Value = string.IsNullOrWhiteSpace(requestedBy) ? "system" : requestedBy.Trim();
         command.Parameters.Add("@requestedAtUtc", SqlDbType.DateTime2).Value = now;
-        command.Parameters.Add("@nextPollAtUtc", SqlDbType.DateTime2).Value = now.AddSeconds(Math.Max(1, monitorOptions.Value.InitialPollDelaySeconds));
+        command.Parameters.Add("@nextPollAtUtc", SqlDbType.DateTime2).Value = now.AddSeconds(Math.Max(120, monitorOptions.Value.JobPollIntervalSeconds));
         command.Parameters.Add("@maxPollCount", SqlDbType.Int).Value = Math.Max(1, monitorOptions.Value.MaxPollCount);
         return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
     }

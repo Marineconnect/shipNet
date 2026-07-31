@@ -197,6 +197,10 @@
     <a id="kvh-tab-batches-link" class="kvh-tab-button @(Model.ActiveTab == "batches" ? "is-active" : string.Empty)" role="tab" aria-controls="kvh-tab-batches" aria-selected="@(Model.ActiveTab == "batches")" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="batches">Batch đồng bộ gần đây</a>
   </nav>
 
+  <div class="kvh-tabs kvh-operation-shortcut">
+    <a id="kvh-tab-operations-link" class="kvh-tab-button" asp-controller="KvhSubscriptionOperations" asp-action="Index">Lich su Pause/Resume</a>
+  </div>
+
   <section class="kvh-tab-panel @(Model.ActiveTab == "devices" ? "is-active" : string.Empty)" role="tabpanel" id="kvh-tab-devices" aria-labelledby="kvh-tab-devices-link">
     <div class="device-card kvh-inventory-card">
       <header class="device-card-head kvh-card-head">

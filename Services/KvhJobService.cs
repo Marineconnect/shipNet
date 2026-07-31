@@ -52,13 +52,14 @@ public sealed class KvhJobService(
             const string claimQuery = """
                 UPDATE [dbo].[TblKvhCommand]
                 SET [LastPolledAtUtc] = SYSUTCDATETIME(),
-                    [NextPollAtUtc] = DATEADD(second, 60, SYSUTCDATETIME()),
+                    [NextPollAtUtc] = DATEADD(second, @pollSeconds, SYSUTCDATETIME()),
                     [PollCount] = [PollCount] + 1,
                     [CommandStatus] = CASE WHEN [CommandStatus] = 'SUBMITTED' THEN 'PENDING' ELSE [CommandStatus] END
                 WHERE [ID] IN ({0})
                 """;
             var parameterNames = commands.Select((_, index) => $"@id{index}").ToArray();
             await using var claim = new SqlCommand(string.Format(claimQuery, string.Join(",", parameterNames)), connection, transaction);
+            claim.Parameters.Add("@pollSeconds", SqlDbType.Int).Value = Math.Max(120, monitorOptions.Value.JobPollIntervalSeconds);
             for (var i = 0; i < commands.Count; i++)
             {
                 claim.Parameters.Add(parameterNames[i], SqlDbType.BigInt).Value = commands[i].Id;
@@ -522,13 +523,9 @@ public sealed class KvhJobService(
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private static TimeSpan ResolveBackoff(int pollCount)
+    private TimeSpan ResolveBackoff(int pollCount)
     {
-        if (pollCount <= 1) return TimeSpan.FromSeconds(5);
-        if (pollCount == 2) return TimeSpan.FromSeconds(10);
-        if (pollCount == 3) return TimeSpan.FromSeconds(15);
-        if (pollCount < 10) return TimeSpan.FromSeconds(30);
-        return TimeSpan.FromSeconds(60);
+        return TimeSpan.FromSeconds(Math.Max(120, monitorOptions.Value.JobPollIntervalSeconds));
     }
 
     private static bool? TryReadRequestedBool(string json, string propertyName)

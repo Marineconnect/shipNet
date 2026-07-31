@@ -1,0 +1,636 @@
+@using System.Text.Json
+@model KvhSubscriptionOperationDetailViewModel
+@{
+    ViewData["ActiveNav"] = "kvhsolutions";
+    ViewData["Title"] = Model.BatchCode;
+
+    var previewJson = ViewData["ImportPreviewJson"] as string;
+    var preview = string.IsNullOrWhiteSpace(previewJson)
+        ? null
+        : JsonSerializer.Deserialize<KvhSubscriptionOperationImportPreview>(previewJson);
+
+    var failedItems = Model.JobFailedItems + Model.VerificationMismatchItems;
+    var processingItems = Model.QueuedItems + Model.PendingItems + Model.JobSuccessItems + Model.VerifyingItems;
+    var waitingItems = Math.Max(0, Model.TotalItems - Model.CompletedItems - processingItems);
+    var isLive = Model.Status is KvhSubscriptionOperationBatchStatuses.Queued
+        or KvhSubscriptionOperationBatchStatuses.Running
+        or KvhSubscriptionOperationBatchStatuses.Verifying
+        or KvhSubscriptionOperationBatchStatuses.CancelRequested
+        or KvhSubscriptionOperationBatchStatuses.Validating;
+
+    string OperationLabel(string value) => value == KvhSubscriptionOperationTypes.Resume ? "Khôi phục subscription" : "Tạm dừng subscription";
+    string ShortOperationLabel(string value) => value == KvhSubscriptionOperationTypes.Resume ? "Resume" : "Pause";
+
+    string BatchStatusLabel(string value) => value switch
+    {
+        KvhSubscriptionOperationBatchStatuses.Draft => "Nháp",
+        KvhSubscriptionOperationBatchStatuses.Validating => "Đang kiểm tra",
+        KvhSubscriptionOperationBatchStatuses.Ready => "Sẵn sàng chạy",
+        KvhSubscriptionOperationBatchStatuses.Queued => "Đang chờ xử lý",
+        KvhSubscriptionOperationBatchStatuses.Running => "Đang xử lý",
+        KvhSubscriptionOperationBatchStatuses.Verifying => "Đang xác minh",
+        KvhSubscriptionOperationBatchStatuses.Completed => "Hoàn tất",
+        KvhSubscriptionOperationBatchStatuses.CompletedWithErrors => "Hoàn tất có lỗi",
+        KvhSubscriptionOperationBatchStatuses.Failed => "Thất bại",
+        KvhSubscriptionOperationBatchStatuses.CancelRequested => "Đang hủy",
+        KvhSubscriptionOperationBatchStatuses.Cancelled => "Đã hủy",
+        _ => string.IsNullOrWhiteSpace(value) ? "Chưa xác định" : value
+    };
+
+    string ItemStatusLabel(string value) => value switch
+    {
+        KvhSubscriptionOperationItemStatuses.Draft => "Nháp",
+        KvhSubscriptionOperationItemStatuses.ValidationFailed => "Không hợp lệ",
+        KvhSubscriptionOperationItemStatuses.Ready => "Sẵn sàng",
+        KvhSubscriptionOperationItemStatuses.Queued => "Đang xếp hàng",
+        KvhSubscriptionOperationItemStatuses.WaitingCooldown => "Chờ cooldown",
+        KvhSubscriptionOperationItemStatuses.Submitting => "Đang gửi lệnh",
+        KvhSubscriptionOperationItemStatuses.Submitted => "Đã gửi lệnh",
+        KvhSubscriptionOperationItemStatuses.JobPending => "KVH đang xử lý",
+        KvhSubscriptionOperationItemStatuses.JobSuccess => "Job thành công",
+        KvhSubscriptionOperationItemStatuses.JobFailed => "Job thất bại",
+        KvhSubscriptionOperationItemStatuses.Verifying => "Đang xác minh",
+        KvhSubscriptionOperationItemStatuses.Verified => "Đã xác minh",
+        KvhSubscriptionOperationItemStatuses.VerificationMismatch => "Sai lệch xác minh",
+        KvhSubscriptionOperationItemStatuses.RetryWait => "Chờ chạy lại",
+        KvhSubscriptionOperationItemStatuses.Skipped => "Bỏ qua",
+        KvhSubscriptionOperationItemStatuses.Cancelled => "Đã hủy",
+        KvhSubscriptionOperationItemStatuses.Timeout => "Quá thời gian",
+        _ => string.IsNullOrWhiteSpace(value) ? "Chưa xác định" : value
+    };
+
+    string StatusClass(string value) => value switch
+    {
+        KvhSubscriptionOperationBatchStatuses.Completed or KvhSubscriptionOperationItemStatuses.Verified => "paid",
+        KvhSubscriptionOperationBatchStatuses.CompletedWithErrors => "debit",
+        KvhSubscriptionOperationBatchStatuses.Ready or KvhSubscriptionOperationItemStatuses.Ready => "active",
+        KvhSubscriptionOperationBatchStatuses.Failed or KvhSubscriptionOperationBatchStatuses.Cancelled or
+            KvhSubscriptionOperationItemStatuses.JobFailed or KvhSubscriptionOperationItemStatuses.ValidationFailed or
+            KvhSubscriptionOperationItemStatuses.VerificationMismatch or KvhSubscriptionOperationItemStatuses.Timeout => "void",
+        _ => "pending"
+    };
+
+    bool IsItemProcessing(string value) => value is KvhSubscriptionOperationItemStatuses.Queued
+        or KvhSubscriptionOperationItemStatuses.WaitingCooldown
+        or KvhSubscriptionOperationItemStatuses.Submitting
+        or KvhSubscriptionOperationItemStatuses.Submitted
+        or KvhSubscriptionOperationItemStatuses.JobPending
+        or KvhSubscriptionOperationItemStatuses.JobSuccess
+        or KvhSubscriptionOperationItemStatuses.Verifying
+        or KvhSubscriptionOperationItemStatuses.RetryWait;
+
+    string ResultLabel(KvhSubscriptionOperationItemViewModel item)
+    {
+        if (item.Status is KvhSubscriptionOperationItemStatuses.Verified) return "success";
+        if (item.Status is KvhSubscriptionOperationItemStatuses.JobFailed
+            or KvhSubscriptionOperationItemStatuses.ValidationFailed
+            or KvhSubscriptionOperationItemStatuses.VerificationMismatch
+            or KvhSubscriptionOperationItemStatuses.Timeout) return "error";
+        if (item.Status is KvhSubscriptionOperationItemStatuses.Cancelled
+            or KvhSubscriptionOperationItemStatuses.Skipped) return "warning";
+        return "-";
+    }
+
+    string ResultClass(KvhSubscriptionOperationItemViewModel item) => ResultLabel(item) switch
+    {
+        "success" => "paid",
+        "error" => "void",
+        "warning" => "debit",
+        _ => "pending"
+    };
+
+    string ProcessText(KvhSubscriptionOperationItemViewModel item) => item.Status switch
+    {
+        KvhSubscriptionOperationItemStatuses.Draft => "Chưa kiểm tra",
+        KvhSubscriptionOperationItemStatuses.ValidationFailed => "Cần sửa dữ liệu",
+        KvhSubscriptionOperationItemStatuses.Ready => "Đã sẵn sàng gửi KVH",
+        KvhSubscriptionOperationItemStatuses.Queued => "Đang chờ worker nhận",
+        KvhSubscriptionOperationItemStatuses.WaitingCooldown => "Chờ đủ 5 phút giữa hai lệnh",
+        KvhSubscriptionOperationItemStatuses.Submitting => "Đang gửi yêu cầu sang KVH",
+        KvhSubscriptionOperationItemStatuses.Submitted => "Đã gửi, chờ Job ID",
+        KvhSubscriptionOperationItemStatuses.JobPending => "Đang poll trạng thái Job",
+        KvhSubscriptionOperationItemStatuses.JobSuccess => "Job xong, đang chờ xác minh subscription",
+        KvhSubscriptionOperationItemStatuses.Verifying => "Đang gọi lại Subscription API",
+        KvhSubscriptionOperationItemStatuses.Verified => "Subscription đã đúng trạng thái",
+        KvhSubscriptionOperationItemStatuses.VerificationMismatch => "KVH trả trạng thái chưa khớp",
+        KvhSubscriptionOperationItemStatuses.RetryWait => "Đang chờ retry",
+        KvhSubscriptionOperationItemStatuses.JobFailed => "KVH trả lỗi hoặc không có Job ID",
+        KvhSubscriptionOperationItemStatuses.Cancelled => "Đã dừng trước khi gửi",
+        _ => ItemStatusLabel(item.Status)
+    };
+
+    string TimelineClass(params string[] statuses) => statuses.Contains(Model.Status) ? "is-current" :
+        statuses.Any(status => status == KvhSubscriptionOperationBatchStatuses.Draft) && Model.Status != KvhSubscriptionOperationBatchStatuses.Draft ? "is-done" :
+        statuses.Any(status => status == KvhSubscriptionOperationBatchStatuses.Ready) && Model.Status is KvhSubscriptionOperationBatchStatuses.Queued or KvhSubscriptionOperationBatchStatuses.Running or KvhSubscriptionOperationBatchStatuses.Verifying or KvhSubscriptionOperationBatchStatuses.Completed or KvhSubscriptionOperationBatchStatuses.CompletedWithErrors ? "is-done" :
+        statuses.Any(status => status == KvhSubscriptionOperationBatchStatuses.Running) && Model.Status is KvhSubscriptionOperationBatchStatuses.Verifying or KvhSubscriptionOperationBatchStatuses.Completed or KvhSubscriptionOperationBatchStatuses.CompletedWithErrors ? "is-done" :
+        statuses.Any(status => status == KvhSubscriptionOperationBatchStatuses.Verifying) && Model.Status is KvhSubscriptionOperationBatchStatuses.Completed or KvhSubscriptionOperationBatchStatuses.CompletedWithErrors ? "is-done" :
+        string.Empty;
+}
+
+<div class="device-page">
+<div class="device-shell">
+  <partial name="_PortalNav" />
+<div class="device-dashboard kvh-page kvh-operation-detail" data-kvh-operation-id="@Model.Id" data-kvh-operation-live="@isLive.ToString().ToLowerInvariant()">
+  <nav class="portal-breadcrumb" aria-label="Breadcrumb">
+    <a asp-controller="Dashboard" asp-action="Index">Tổng quan</a>
+    <a asp-controller="KvhSubscriptionOperations" asp-action="Index">Lịch sử Pause/Resume</a>
+    <span>@Model.BatchCode</span>
+  </nav>
+
+  <section class="kvh-operation-hero">
+    <div class="kvh-operation-title">
+      <div class="device-brand">KVH OPERATIONS</div>
+      <h1>@Model.BatchName</h1>
+      <div class="kvh-operation-meta">
+        <span>@Model.BatchCode</span>
+        <span>@OperationLabel(Model.OperationType)</span>
+        <span class="status-pill @StatusClass(Model.Status)">@BatchStatusLabel(Model.Status)</span>
+      </div>
+    </div>
+    <div class="device-actions kvh-hero-actions">
+      <a class="btn-secondary" asp-controller="KvhSubscriptionOperations" asp-action="Index">Quay lại</a>
+      <a class="btn-secondary" asp-controller="KvhSubscriptionOperations" asp-action="Export" asp-route-id="@Model.Id">Xuất Excel</a>
+    </div>
+  </section>
+
+  @if (TempData["KvhSolutionSuccess"] is string successMessage)
+  {
+    <div class="tenant-alert success">@successMessage</div>
+  }
+  @if (TempData["KvhSolutionError"] is string errorMessage)
+  {
+    <div class="tenant-alert danger">@errorMessage</div>
+  }
+
+  <section class="kvh-operation-overview">
+    <div class="kvh-progress-panel">
+      <div class="kvh-progress-ring" style="--progress:@(Model.ProgressPercent * 3.6)deg">
+        <span data-kvh-operation-percent>@Model.ProgressPercent%</span>
+      </div>
+      <div class="kvh-progress-copy">
+        <div class="kvh-panel-eyebrow">Tiến độ batch</div>
+        <h2 data-kvh-operation-progress>@Model.CompletedItems / @Model.TotalItems thiết bị đã kết thúc</h2>
+        <p>@(isLive ? "Hệ thống đang cập nhật trạng thái định kỳ mỗi 15 giây." : "Batch đang ở trạng thái ổn định, có thể xem kết quả hoặc retry các dòng lỗi.")</p>
+        @if (isLive)
+        {
+          <div class="kvh-live-query"><span></span>Đang truy vấn tiến độ batch...</div>
+        }
+      </div>
+    </div>
+
+    <div class="kvh-stat-grid">
+      <div class="kvh-stat-card">
+        <span>Tổng thiết bị</span>
+        <strong data-kvh-total>@Model.TotalItems</strong>
+        <small>Trong batch</small>
+      </div>
+      <div class="kvh-stat-card">
+        <span>Đang xử lý</span>
+        <strong data-kvh-processing>@processingItems</strong>
+        <small>Queue, Job, Verify</small>
+      </div>
+      <div class="kvh-stat-card">
+        <span>Thành công</span>
+        <strong data-kvh-verified>@Model.VerifiedItems</strong>
+        <small>Đã xác minh</small>
+      </div>
+      <div class="kvh-stat-card">
+        <span>Lỗi</span>
+        <strong data-kvh-failed>@failedItems</strong>
+        <small>Job fail hoặc mismatch</small>
+      </div>
+      <div class="kvh-stat-card">
+        <span>Chưa gửi</span>
+        <strong data-kvh-waiting>@waitingItems</strong>
+        <small>Nháp hoặc sẵn sàng</small>
+      </div>
+    </div>
+  </section>
+
+  <section class="kvh-operation-flow" aria-label="Luồng xử lý batch">
+    <div class="kvh-flow-step @TimelineClass(KvhSubscriptionOperationBatchStatuses.Draft, KvhSubscriptionOperationBatchStatuses.Validating)">
+      <span>1</span>
+      <strong>Chuẩn bị</strong>
+      <small>Thêm thiết bị và kiểm tra dữ liệu</small>
+    </div>
+    <div class="kvh-flow-step @TimelineClass(KvhSubscriptionOperationBatchStatuses.Ready)">
+      <span>2</span>
+      <strong>Sẵn sàng</strong>
+      <small>Danh sách hợp lệ để chạy</small>
+    </div>
+    <div class="kvh-flow-step @TimelineClass(KvhSubscriptionOperationBatchStatuses.Queued, KvhSubscriptionOperationBatchStatuses.Running)">
+      <span>3</span>
+      <strong>Gửi KVH</strong>
+      <small>Worker gửi lệnh Pause/Resume</small>
+    </div>
+    <div class="kvh-flow-step @TimelineClass(KvhSubscriptionOperationBatchStatuses.Verifying)">
+      <span>4</span>
+      <strong>Xác minh</strong>
+      <small>Gọi lại Subscription API</small>
+    </div>
+    <div class="kvh-flow-step @(Model.Status is KvhSubscriptionOperationBatchStatuses.Completed or KvhSubscriptionOperationBatchStatuses.CompletedWithErrors ? "is-current" : string.Empty)">
+      <span>5</span>
+      <strong>Kết thúc</strong>
+      <small>Tổng hợp kết quả batch</small>
+    </div>
+  </section>
+
+  <section class="device-card kvh-operation-card">
+    <header class="device-card-head">
+      <div>
+        <h2>Thông tin vận hành</h2>
+        <p>Phạm vi, người tạo và thao tác batch.</p>
+      </div>
+      @if (Model.CanManage)
+      {
+        <div class="device-actions kvh-operation-actions">
+          @if (Model.CanEdit)
+          {
+            <form asp-controller="KvhSubscriptionOperations" asp-action="ValidateBatch" asp-route-id="@Model.Id" method="post">
+              @Html.AntiForgeryToken()
+              <button type="submit" class="btn-secondary">Kiểm tra danh sách</button>
+            </form>
+          }
+          @if (Model.CanStart)
+          {
+            <form asp-controller="KvhSubscriptionOperations" asp-action="Start" asp-route-id="@Model.Id" method="post">
+              @Html.AntiForgeryToken()
+              <button type="submit" class="btn-primary">Bắt đầu xử lý</button>
+            </form>
+          }
+          @if (Model.CanCancel)
+          {
+            <form asp-controller="KvhSubscriptionOperations" asp-action="Cancel" asp-route-id="@Model.Id" method="post">
+              @Html.AntiForgeryToken()
+              <button type="submit" class="btn-danger">Hủy batch</button>
+            </form>
+          }
+          <form asp-controller="KvhSubscriptionOperations" asp-action="RetryFailed" asp-route-id="@Model.Id" method="post">
+            @Html.AntiForgeryToken()
+            <button type="submit" class="btn-secondary">Chạy lại dòng lỗi</button>
+          </form>
+        </div>
+      }
+    </header>
+    <div class="kvh-info-grid">
+      <div><span>Tenant</span><strong>@(string.IsNullOrWhiteSpace(Model.TenantName) ? "Tất cả tenant được phép" : Model.TenantName)</strong></div>
+      <div><span>Người tạo</span><strong>@Model.RequestedBy</strong></div>
+      <div><span>Ngày tạo</span><strong>@Model.CreatedDisplay</strong></div>
+      <div><span>Dự kiến chạy</span><strong>@Model.ScheduledStartDisplay</strong></div>
+      <div><span>Loại thao tác</span><strong>@ShortOperationLabel(Model.OperationType)</strong></div>
+      <div><span>Trạng thái</span><strong>@BatchStatusLabel(Model.Status)</strong></div>
+      @if (!string.IsNullOrWhiteSpace(Model.Description))
+      {
+        <div class="is-wide"><span>Ghi chú</span><strong>@Model.Description</strong></div>
+      }
+    </div>
+  </section>
+
+  @if (Model.CanEdit)
+  {
+    <section class="device-card kvh-operation-card">
+      <header class="device-card-head">
+        <div>
+          <h2>Thêm thiết bị vào batch</h2>
+          <p>Chọn trực tiếp thiết bị KVH hoặc import bằng file Excel template.</p>
+        </div>
+        <a class="btn-secondary compact" asp-controller="KvhSubscriptionOperations" asp-action="DownloadTemplate">Tải template</a>
+      </header>
+      <form asp-controller="KvhSubscriptionOperations" asp-action="AddDevices" asp-route-id="@Model.Id" method="post">
+        @Html.AntiForgeryToken()
+        <div class="device-table-wrap kvh-table-wrap kvh-device-picker">
+          <table class="device-table subscription-table kvh-table">
+            <thead>
+              <tr>
+                <th>Chọn</th>
+                <th>KIT Number</th>
+                <th>Tàu</th>
+                <th>Tenant</th>
+                <th>Traffic ID</th>
+                <th>Region</th>
+                <th>Subscription</th>
+              </tr>
+            </thead>
+            <tbody>
+            @foreach (var device in Model.DeviceOptions)
+            {
+              <tr>
+                <td><input type="checkbox" name="DeviceIds" value="@device.DeviceId" /></td>
+                <td>@device.KitNumber<br /><small>@device.TerminalId</small></td>
+                <td>@device.VesselName</td>
+                <td>@device.TenantName</td>
+                <td>@device.TrafficId</td>
+                <td>@device.Region</td>
+                <td>@device.SubscriptionStatus</td>
+              </tr>
+            }
+            @if (Model.DeviceOptions.Count == 0)
+            {
+              <tr><td colspan="7" class="empty-cell">Không còn thiết bị phù hợp để thêm vào batch.</td></tr>
+            }
+            </tbody>
+          </table>
+        </div>
+        <div class="kvh-form-actions">
+          <button type="submit" class="btn-primary">Thêm thiết bị đã chọn</button>
+        </div>
+      </form>
+
+      <form asp-controller="KvhSubscriptionOperations" asp-action="ImportPreview" asp-route-id="@Model.Id" method="post" enctype="multipart/form-data" class="kvh-import-form">
+        @Html.AntiForgeryToken()
+        <label>
+          <span>Import Excel</span>
+          <input type="file" name="file" accept=".xlsx" required />
+        </label>
+        <button type="submit" class="btn-secondary">Đọc và kiểm tra file</button>
+      </form>
+    </section>
+  }
+
+  @if (preview is not null)
+  {
+    <section class="device-card kvh-operation-card">
+      <header class="device-card-head">
+        <div>
+          <h2>Kết quả kiểm tra file import</h2>
+          <p>Tổng @preview.TotalRows dòng, hợp lệ @preview.ValidRows, lỗi @preview.ErrorRows, trùng @preview.DuplicateRows.</p>
+        </div>
+        @if (preview.ValidRows > 0)
+        {
+          <form asp-controller="KvhSubscriptionOperations" asp-action="ConfirmImport" asp-route-id="@Model.Id" method="post">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="previewJson" value="@previewJson" />
+            <button type="submit" class="btn-primary">Xác nhận import</button>
+          </form>
+        }
+      </header>
+      <div class="device-table-wrap kvh-table-wrap">
+        <table class="device-table subscription-table kvh-table">
+          <thead>
+            <tr>
+              <th>Dòng</th>
+              <th>KIT Number</th>
+              <th>Thao tác</th>
+              <th>Tàu</th>
+              <th>Tenant</th>
+              <th>Kết quả</th>
+            </tr>
+          </thead>
+          <tbody>
+          @foreach (var row in preview.Rows.Take(100))
+          {
+            <tr>
+              <td>@row.RowNumber</td>
+              <td>@row.KitNumber</td>
+              <td>@ShortOperationLabel(row.OperationType)</td>
+              <td>@row.VesselName</td>
+              <td>@row.TenantName</td>
+              <td>@(string.IsNullOrWhiteSpace(row.Message) ? "Hợp lệ" : row.Message)</td>
+            </tr>
+          }
+          </tbody>
+        </table>
+      </div>
+    </section>
+  }
+
+  <section class="device-card kvh-operation-card">
+    <header class="device-card-head">
+      <div>
+        <h2>Tiến độ từng thiết bị</h2>
+        <p>Theo dõi queue, Job ID, kết quả xác minh và lỗi của từng KIT.</p>
+      </div>
+      @if (isLive)
+      {
+        <div class="kvh-live-query"><span></span>Đang cập nhật</div>
+      }
+    </header>
+    <div class="device-table-wrap kvh-table-wrap">
+      <table class="device-table subscription-table kvh-table kvh-operation-items-table">
+        <thead>
+          <tr>
+            <th>KIT Number</th>
+            <th>Tàu / Tenant</th>
+            <th>Traffic / Region</th>
+            <th>Thao tác</th>
+            <th>Tiến trình</th>
+            <th>Job ID</th>
+            <th>Command</th>
+            <th>Lỗi</th>
+            <th>Cập nhật</th>
+            <th>Log</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+        @foreach (var item in Model.Items)
+        {
+          var itemProcessing = IsItemProcessing(item.Status);
+          <tr class="@(itemProcessing ? "is-processing" : string.Empty)">
+            <td>
+              <strong>@item.KitNumber</strong>
+              <small>@item.TerminalId</small>
+            </td>
+            <td>
+              <strong>@item.VesselName</strong>
+              <small>@item.TenantName</small>
+            </td>
+            <td>
+              <strong>@(string.IsNullOrWhiteSpace(item.TrafficId) ? "-" : item.TrafficId)</strong>
+              <small>@(string.IsNullOrWhiteSpace(item.Region) ? "-" : item.Region)</small>
+            </td>
+            <td>@ShortOperationLabel(item.OperationType)</td>
+            <td>
+              <div class="kvh-item-progress">
+                @if (itemProcessing)
+                {
+                  <span class="kvh-row-spinner" aria-hidden="true"></span>
+                }
+                <div>
+                  <span class="status-pill @StatusClass(item.Status)">@ItemStatusLabel(item.Status)</span>
+                  <small>@ProcessText(item)</small>
+                </div>
+              </div>
+            </td>
+            <td>@(string.IsNullOrWhiteSpace(item.JobId) ? "-" : item.JobId)</td>
+            <td>@(item.KvhCommandId?.ToString() ?? "-")</td>
+            <td>
+              @if (ResultLabel(item) == "-")
+              {
+                <span>-</span>
+              }
+              else
+              {
+                <span class="status-pill @ResultClass(item)">@ResultLabel(item)</span>
+              }
+            </td>
+            <td>@item.UpdatedDisplay</td>
+            <td>
+              <button type="button"
+                      class="kvh-log-button"
+                      title="Xem log lỗi"
+                      data-kvh-log-open
+                      data-kit="@item.KitNumber"
+                      data-status="@ItemStatusLabel(item.Status)"
+                      data-process="@ProcessText(item)"
+                      data-error-code="@item.ErrorCode"
+                      data-error-message="@item.ErrorMessage"
+                      data-http-status="@item.HttpStatusCode"
+                      data-command-id="@(item.KvhCommandId?.ToString() ?? string.Empty)"
+                      data-job-id="@item.JobId"
+                      data-request-json="@item.RequestJson"
+                      data-submit-response="@(!string.IsNullOrWhiteSpace(item.CommandSubmitResponseJson) ? item.CommandSubmitResponseJson : item.SubmitResponseJson)"
+                      data-job-response="@item.JobResponseJson"
+                      data-verification-response="@item.VerificationResponseJson"
+                      data-operation-log="@item.OperationLogJson"
+                      aria-label="Xem log lỗi @item.KitNumber">
+                <span aria-hidden="true">!</span>
+              </button>
+            </td>
+            <td>
+              @if (Model.CanEdit)
+              {
+                <form asp-controller="KvhSubscriptionOperations" asp-action="RemoveItem" asp-route-id="@Model.Id" method="post">
+                  @Html.AntiForgeryToken()
+                  <input type="hidden" name="ItemId" value="@item.Id" />
+                  <button type="submit" class="btn-danger compact">Xóa</button>
+                </form>
+              }
+            </td>
+          </tr>
+        }
+        @if (Model.Items.Count == 0)
+        {
+          <tr><td colspan="11" class="empty-cell">Chưa có thiết bị trong batch.</td></tr>
+        }
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="kvh-log-modal" id="kvhOperationLogModal" hidden>
+    <div class="kvh-log-backdrop" data-kvh-log-close></div>
+    <div class="kvh-log-panel" role="dialog" aria-modal="true" aria-labelledby="kvhOperationLogTitle">
+      <header class="device-modal-head">
+        <div>
+          <h2 id="kvhOperationLogTitle">Log thực hiện</h2>
+          <p id="kvhOperationLogSubtitle">-</p>
+        </div>
+        <button type="button" class="device-modal-close" data-kvh-log-close aria-label="Đóng">×</button>
+      </header>
+      <div class="kvh-log-summary">
+        <div><span>Trạng thái</span><strong data-log-status>-</strong></div>
+        <div><span>Tiến trình</span><strong data-log-process>-</strong></div>
+        <div><span>HTTP</span><strong data-log-http>-</strong></div>
+        <div><span>Command</span><strong data-log-command>-</strong></div>
+        <div><span>Job ID</span><strong data-log-job>-</strong></div>
+        <div><span>Error code</span><strong data-log-error-code>-</strong></div>
+      </div>
+      <div class="kvh-log-message" data-log-error-message></div>
+      <div class="kvh-log-tabs">
+        <button type="button" class="is-active" data-log-tab="operation">Operation log</button>
+        <button type="button" data-log-tab="request">Request</button>
+        <button type="button" data-log-tab="submit">Submit response</button>
+        <button type="button" data-log-tab="job">Job response</button>
+        <button type="button" data-log-tab="verify">Verify response</button>
+      </div>
+      <pre class="kvh-log-json" data-log-content>Không có log.</pre>
+      <footer class="device-modal-actions">
+        <button type="button" class="btn-secondary" data-log-copy>Sao chép log</button>
+        <button type="button" class="btn-primary" data-kvh-log-close>Đóng</button>
+      </footer>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+@section Scripts {
+  <script>
+    (() => {
+      const root = document.querySelector('[data-kvh-operation-id]');
+      const logModal = document.querySelector('#kvhOperationLogModal');
+      const logState = { payloads: {} };
+      const pretty = (value) => {
+        if (!value) return 'Không có dữ liệu.';
+        try { return JSON.stringify(JSON.parse(value), null, 2); } catch { return value; }
+      };
+      const setText = (selector, value) => {
+        const node = logModal?.querySelector(selector);
+        if (node) node.textContent = value || '-';
+      };
+      const setLogTab = (name) => {
+        if (!logModal) return;
+        logModal.querySelectorAll('[data-log-tab]').forEach((button) => button.classList.toggle('is-active', button.dataset.logTab === name));
+        const content = logModal.querySelector('[data-log-content]');
+        if (content) content.textContent = pretty(logState.payloads[name]);
+      };
+      document.querySelectorAll('[data-kvh-log-open]').forEach((button) => {
+        button.addEventListener('click', () => {
+          if (!logModal) return;
+          logState.payloads = {
+            operation: button.dataset.operationLog,
+            request: button.dataset.requestJson,
+            submit: button.dataset.submitResponse,
+            job: button.dataset.jobResponse,
+            verify: button.dataset.verificationResponse
+          };
+          setText('#kvhOperationLogSubtitle', button.dataset.kit);
+          setText('[data-log-status]', button.dataset.status);
+          setText('[data-log-process]', button.dataset.process);
+          setText('[data-log-http]', button.dataset.httpStatus);
+          setText('[data-log-command]', button.dataset.commandId);
+          setText('[data-log-job]', button.dataset.jobId);
+          setText('[data-log-error-code]', button.dataset.errorCode);
+          setText('[data-log-error-message]', button.dataset.errorMessage || 'Không có thông báo lỗi.');
+          setLogTab('operation');
+          logModal.hidden = false;
+        });
+      });
+      logModal?.querySelectorAll('[data-kvh-log-close]').forEach((button) => button.addEventListener('click', () => { logModal.hidden = true; }));
+      logModal?.querySelectorAll('[data-log-tab]').forEach((button) => button.addEventListener('click', () => setLogTab(button.dataset.logTab)));
+      logModal?.querySelector('[data-log-copy]')?.addEventListener('click', async () => {
+        const content = logModal?.querySelector('[data-log-content]')?.textContent || '';
+        try { await navigator.clipboard.writeText(content); } catch {}
+      });
+
+      if (!root || root.dataset.kvhOperationLive !== 'true') return;
+      const id = root.dataset.kvhOperationId;
+      const terminalStatuses = new Set(['COMPLETED', 'COMPLETED_WITH_ERRORS', 'FAILED', 'CANCELLED']);
+      const timer = window.setInterval(async () => {
+        try {
+          const response = await fetch(`/KvhSolutions/SubscriptionOperations/${id}/Status`, { headers: { 'Accept': 'application/json' } });
+          if (!response.ok) return;
+          const data = await response.json();
+          const processing = (data.queuedItems || 0) + (data.pendingItems || 0) + (data.jobSuccessItems || 0);
+          const failed = (data.jobFailedItems || 0) + (data.verificationMismatchItems || 0);
+          const waiting = Math.max(0, (data.totalItems || 0) - (data.completedItems || 0) - processing);
+
+          const progress = root.querySelector('[data-kvh-operation-progress]');
+          const percent = root.querySelector('[data-kvh-operation-percent]');
+          const ring = root.querySelector('.kvh-progress-ring');
+          const total = root.querySelector('[data-kvh-total]');
+          const processingNode = root.querySelector('[data-kvh-processing]');
+          const verified = root.querySelector('[data-kvh-verified]');
+          const failedNode = root.querySelector('[data-kvh-failed]');
+          const waitingNode = root.querySelector('[data-kvh-waiting]');
+
+          if (progress) progress.textContent = `${data.completedItems} / ${data.totalItems} thiết bị đã kết thúc`;
+          if (percent) percent.textContent = `${data.progressPercent}%`;
+          if (ring) ring.style.setProperty('--progress', `${data.progressPercent * 3.6}deg`);
+          if (total) total.textContent = data.totalItems;
+          if (processingNode) processingNode.textContent = processing;
+          if (verified) verified.textContent = data.verifiedItems;
+          if (failedNode) failedNode.textContent = failed;
+          if (waitingNode) waitingNode.textContent = waiting;
+
+          if (terminalStatuses.has(data.status)) {
+            window.clearInterval(timer);
+            window.location.reload();
+          }
+        } catch {
+        }
+      }, 15000);
+    })();
+  </script>
+}

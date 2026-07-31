@@ -1,0 +1,210 @@
+@model KvhSubscriptionOperationIndexViewModel
+@{
+    ViewData["ActiveNav"] = "kvhsolutions";
+    ViewData["Title"] = "Lịch sử Pause/Resume KVH";
+
+    string TypeLabel(string value) => value == KvhSubscriptionOperationTypes.Resume ? "Khôi phục" : "Tạm dừng";
+    string StatusLabel(string value) => value switch
+    {
+        KvhSubscriptionOperationBatchStatuses.Draft => "Nháp",
+        KvhSubscriptionOperationBatchStatuses.Validating => "Đang kiểm tra",
+        KvhSubscriptionOperationBatchStatuses.Ready => "Sẵn sàng",
+        KvhSubscriptionOperationBatchStatuses.Queued => "Đang chờ",
+        KvhSubscriptionOperationBatchStatuses.Running => "Đang chạy",
+        KvhSubscriptionOperationBatchStatuses.Verifying => "Đang xác minh",
+        KvhSubscriptionOperationBatchStatuses.Completed => "Hoàn tất",
+        KvhSubscriptionOperationBatchStatuses.CompletedWithErrors => "Hoàn tất có lỗi",
+        KvhSubscriptionOperationBatchStatuses.CancelRequested => "Đang hủy",
+        KvhSubscriptionOperationBatchStatuses.Cancelled => "Đã hủy",
+        _ => string.IsNullOrWhiteSpace(value) ? "Chưa xác định" : value
+    };
+    string StatusClass(string value) => value switch
+    {
+        KvhSubscriptionOperationBatchStatuses.Completed => "paid",
+        KvhSubscriptionOperationBatchStatuses.CompletedWithErrors => "debit",
+        KvhSubscriptionOperationBatchStatuses.Failed or KvhSubscriptionOperationBatchStatuses.Cancelled => "void",
+        KvhSubscriptionOperationBatchStatuses.Ready => "active",
+        _ => "pending"
+    };
+}
+
+<div class="device-page">
+<div class="device-shell">
+  <partial name="_PortalNav" />
+<div class="device-dashboard kvh-page">
+  <nav class="portal-breadcrumb" aria-label="Breadcrumb">
+    <a asp-controller="Dashboard" asp-action="Index">Tổng quan</a>
+    <a asp-controller="KvhSolutions" asp-action="Index">KVH Solutions</a>
+    <span>Lịch sử Pause/Resume</span>
+  </nav>
+
+  <section class="device-hero kvh-hero">
+    <div>
+      <div class="device-brand">KVH OPERATIONS</div>
+      <h1>Lịch sử Pause/Resume</h1>
+      <p>Quản lý các batch thao tác subscription KVH, theo dõi Job ID, trạng thái từng thiết bị và xuất kết quả vận hành.</p>
+    </div>
+    <div class="device-actions kvh-hero-actions">
+      <a class="btn-secondary" asp-controller="KvhSubscriptionOperations" asp-action="DownloadTemplate">Tải template</a>
+    </div>
+  </section>
+
+  @if (TempData["KvhSolutionSuccess"] is string successMessage)
+  {
+    <div class="tenant-alert success">@successMessage</div>
+  }
+  @if (TempData["KvhSolutionError"] is string errorMessage)
+  {
+    <div class="tenant-alert danger">@errorMessage</div>
+  }
+
+  <nav class="kvh-tabs" role="tablist" aria-label="Tab KVH Solutions">
+    <a class="kvh-tab-button" asp-controller="KvhSolutions" asp-action="Index">Thiết bị KVH</a>
+    <a class="kvh-tab-button" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="history">Lịch sử đồng bộ</a>
+    <a class="kvh-tab-button" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="batches">Batch đồng bộ gần đây</a>
+    <a class="kvh-tab-button is-active" asp-controller="KvhSubscriptionOperations" asp-action="Index">Lịch sử Pause/Resume</a>
+  </nav>
+
+  @if (Model.CanManage)
+  {
+    <section class="device-card kvh-operation-card">
+      <header class="device-card-head">
+        <div>
+          <h2>Tạo batch mới</h2>
+          <p>Tạo một batch Pause/Resume, sau đó thêm thiết bị trực tiếp hoặc import bằng Excel.</p>
+        </div>
+      </header>
+      <form asp-controller="KvhSubscriptionOperations" asp-action="Create" method="post" class="kvh-filter-bar">
+        @Html.AntiForgeryToken()
+        <label>
+          <span>Tên batch</span>
+          <input type="text" name="BatchName" placeholder="Ví dụ: Pause KVH tháng 08" required />
+        </label>
+        <label>
+          <span>Thao tác</span>
+          <select name="OperationType">
+            <option value="@KvhSubscriptionOperationTypes.Pause">Tạm dừng</option>
+            <option value="@KvhSubscriptionOperationTypes.Resume">Khôi phục</option>
+          </select>
+        </label>
+        <label>
+          <span>Tenant</span>
+          <select name="TenantId" disabled="@Model.IsTenantScoped">
+            <option value="">Tất cả tenant được phép</option>
+            @foreach (var tenant in Model.Tenants)
+            {
+              <option value="@tenant.Id">@tenant.TenantName</option>
+            }
+          </select>
+        </label>
+        <label>
+          <span>Ghi chú</span>
+          <input type="text" name="Description" placeholder="Ghi chú nội bộ" />
+        </label>
+        <button type="submit" class="btn-primary">Tạo batch</button>
+      </form>
+    </section>
+  }
+
+  <section class="device-card kvh-operation-card">
+    <header class="device-card-head">
+      <div>
+        <h2>Danh sách batch Pause/Resume</h2>
+        <p>Hiển thị @Model.StartItem-@Model.EndItem / @Model.TotalItems batch</p>
+      </div>
+    </header>
+
+    <form asp-controller="KvhSubscriptionOperations" asp-action="Index" method="get" class="kvh-filter-bar">
+      <label>
+        <span>Tìm kiếm</span>
+        <input type="search" name="search" value="@Model.Filter.Search" placeholder="Batch, KIT, người tạo" />
+      </label>
+      <label>
+        <span>Thao tác</span>
+        <select name="operationType">
+          <option value="">Tất cả</option>
+          <option value="@KvhSubscriptionOperationTypes.Pause" selected="@(Model.Filter.OperationType == KvhSubscriptionOperationTypes.Pause)">Tạm dừng</option>
+          <option value="@KvhSubscriptionOperationTypes.Resume" selected="@(Model.Filter.OperationType == KvhSubscriptionOperationTypes.Resume)">Khôi phục</option>
+        </select>
+      </label>
+      <label>
+        <span>Trạng thái</span>
+        <select name="status">
+          <option value="">Tất cả</option>
+          @foreach (var status in new[] { KvhSubscriptionOperationBatchStatuses.Draft, KvhSubscriptionOperationBatchStatuses.Ready, KvhSubscriptionOperationBatchStatuses.Queued, KvhSubscriptionOperationBatchStatuses.Running, KvhSubscriptionOperationBatchStatuses.Verifying, KvhSubscriptionOperationBatchStatuses.Completed, KvhSubscriptionOperationBatchStatuses.CompletedWithErrors, KvhSubscriptionOperationBatchStatuses.Cancelled })
+          {
+            <option value="@status" selected="@(Model.Filter.Status == status)">@StatusLabel(status)</option>
+          }
+        </select>
+      </label>
+      <label>
+        <span>Tenant</span>
+        <select name="tenantId" disabled="@Model.IsTenantScoped">
+          <option value="">Tất cả</option>
+          @foreach (var tenant in Model.Tenants)
+          {
+            <option value="@tenant.Id" selected="@(Model.Filter.TenantId == tenant.Id)">@tenant.TenantName</option>
+          }
+        </select>
+      </label>
+      <button type="submit" class="btn-primary">Lọc</button>
+      <a class="btn-secondary" asp-controller="KvhSubscriptionOperations" asp-action="Index">Reset</a>
+    </form>
+
+    <div class="device-table-wrap kvh-table-wrap">
+      <table class="device-table subscription-table kvh-table">
+        <thead>
+          <tr>
+            <th>Batch</th>
+            <th>Thao tác</th>
+            <th>Trạng thái</th>
+            <th>Tenant</th>
+            <th>Tiến độ</th>
+            <th>Thành công</th>
+            <th>Lỗi</th>
+            <th>Người tạo</th>
+            <th>Ngày tạo</th>
+            <th>Tác vụ</th>
+          </tr>
+        </thead>
+        <tbody>
+        @foreach (var item in Model.Items)
+        {
+          <tr>
+            <td>
+              <a asp-controller="KvhSubscriptionOperations" asp-action="Details" asp-route-id="@item.Id">@item.BatchCode</a>
+              <small>@item.BatchName</small>
+            </td>
+            <td>@TypeLabel(item.OperationType)</td>
+            <td><span class="status-pill @StatusClass(item.Status)">@StatusLabel(item.Status)</span></td>
+            <td>@(string.IsNullOrWhiteSpace(item.TenantName) ? "-" : item.TenantName)</td>
+            <td>
+              <span>@item.CompletedItems / @item.TotalItems</span>
+              <div class="kvh-progress"><span style="width:@item.ProgressPercent%"></span></div>
+            </td>
+            <td>@item.VerifiedItems</td>
+            <td>@(item.JobFailedItems + item.VerificationMismatchItems)</td>
+            <td>@item.RequestedBy</td>
+            <td>@item.CreatedDisplay</td>
+            <td><a class="btn-secondary compact" asp-controller="KvhSubscriptionOperations" asp-action="Details" asp-route-id="@item.Id">Chi tiết</a></td>
+          </tr>
+        }
+        @if (Model.Items.Count == 0)
+        {
+          <tr><td colspan="10" class="empty-cell">Chưa có batch Pause/Resume.</td></tr>
+        }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="device-pagination">
+      <span>Trang @Model.CurrentPage / @(Model.TotalPages <= 0 ? 1 : Model.TotalPages)</span>
+      <div class="pager-actions">
+        <a class="btn-secondary compact @(Model.HasPreviousPage ? string.Empty : "disabled")" asp-controller="KvhSubscriptionOperations" asp-action="Index" asp-route-page="@(Model.CurrentPage - 1)" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-operationType="@Model.Filter.OperationType" asp-route-status="@Model.Filter.Status" asp-route-tenantId="@Model.Filter.TenantId">Trước</a>
+        <a class="btn-secondary compact @(Model.HasNextPage ? string.Empty : "disabled")" asp-controller="KvhSubscriptionOperations" asp-action="Index" asp-route-page="@(Model.CurrentPage + 1)" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-operationType="@Model.Filter.OperationType" asp-route-status="@Model.Filter.Status" asp-route-tenantId="@Model.Filter.TenantId">Sau</a>
+      </div>
+    </div>
+  </section>
+</div>
+</div>
+</div>

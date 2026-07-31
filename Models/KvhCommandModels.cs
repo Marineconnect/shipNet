@@ -48,6 +48,7 @@ public static class KvhErrorCodes
 {
     public const string TerminalCommandCooldown = "kvh_terminal_command_cooldown";
     public const string CommandSubmitFailed = "kvh_command_submit_failed";
+    public const string StateConflict = "kvh_state_conflict";
     public const string MissingJobId = "missing_kvh_job_id";
     public const string JobNotFound = "kvh_job_not_found";
     public const string JobApiError = "kvh_job_api_error";
@@ -147,6 +148,7 @@ public sealed class KvhJobMonitorOptions
     public int WorkerIntervalSeconds { get; set; } = 10;
     public int BatchSize { get; set; } = 20;
     public int InitialPollDelaySeconds { get; set; } = 5;
+    public int JobPollIntervalSeconds { get; set; } = 120;
     public int MaxPollCount { get; set; } = 40;
     public int CommandTimeoutMinutes { get; set; } = 15;
     public int TerminalCommandCooldownMinutes { get; set; } = 5;
