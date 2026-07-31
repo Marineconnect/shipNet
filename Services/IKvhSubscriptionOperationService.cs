@@ -19,5 +19,6 @@ public interface IKvhSubscriptionOperationService
     byte[] BuildTemplate();
     Task<IReadOnlyList<long>> ClaimQueuedItemsAsync(int batchSize, CancellationToken cancellationToken = default);
     Task SubmitItemAsync(long itemId, int? userId, string requestedBy, CancellationToken cancellationToken = default);
+    Task MonitorWaitingEffectiveAsync(CancellationToken cancellationToken = default);
     Task SyncCommandStatusesAsync(CancellationToken cancellationToken = default);
 }

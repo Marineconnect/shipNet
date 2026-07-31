@@ -15,6 +15,7 @@ public static class KvhCommandStatuses
     public const string Submitting = "SUBMITTING";
     public const string Submitted = "SUBMITTED";
     public const string Pending = "PENDING";
+    public const string Waiting = "WAITING";
     public const string Success = "SUCCESS";
     public const string Failed = "FAILED";
     public const string Timeout = "TIMEOUT";
@@ -31,6 +32,7 @@ public static class KvhJobStatuses
     public const string Pending = "Pending";
     public const string Success = "Success";
     public const string Failed = "Failed";
+    public const string NotRequired = "NOT_REQUIRED";
     public const string Unknown = "Unknown";
 }
 
@@ -39,6 +41,11 @@ public static class KvhVerificationStatuses
     public const string Pending = "Pending";
     public const string Success = "Success";
     public const string Failed = "Failed";
+    public const string VerifiedScheduled = "VERIFIED_SCHEDULED";
+    public const string VerifiedEffective = "VERIFIED_EFFECTIVE";
+    public const string WaitingEffective = "WAITING_EFFECTIVE";
+    public const string Conflict = "CONFLICT";
+    public const string StateChangedUnexpectedly = "STATE_CHANGED_UNEXPECTEDLY";
     public const string Mismatch = "Mismatch";
     public const string Timeout = "Timeout";
     public const string Unknown = "Unknown";
@@ -49,6 +56,13 @@ public static class KvhErrorCodes
     public const string TerminalCommandCooldown = "kvh_terminal_command_cooldown";
     public const string CommandSubmitFailed = "kvh_command_submit_failed";
     public const string StateConflict = "kvh_state_conflict";
+    public const string StateConflictUnresolved = "kvh_state_conflict_unresolved";
+    public const string ConflictingScheduledResume = "kvh_conflicting_scheduled_resume";
+    public const string ConflictingScheduledPause = "kvh_conflicting_scheduled_pause";
+    public const string SubscriptionRegionNotFound = "kvh_subscription_region_not_found";
+    public const string SubscriptionAlreadyScheduled = "kvh_subscription_already_scheduled";
+    public const string SubscriptionAlreadyEffective = "kvh_subscription_already_effective";
+    public const string SubscriptionStateUnexpected = "kvh_subscription_state_unexpected";
     public const string MissingJobId = "missing_kvh_job_id";
     public const string JobNotFound = "kvh_job_not_found";
     public const string JobApiError = "kvh_job_api_error";

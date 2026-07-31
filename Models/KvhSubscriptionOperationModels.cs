@@ -43,13 +43,16 @@ public static class KvhSubscriptionOperationItemStatuses
     public const string Verified = "VERIFIED";
     public const string VerificationMismatch = "VERIFICATION_MISMATCH";
     public const string RetryWait = "RETRY_WAIT";
+    public const string WaitingEffective = "WAITING_EFFECTIVE";
+    public const string WaitingProcessing = "WAITING_PROCESSING";
+    public const string Conflict = "CONFLICT";
     public const string Skipped = "SKIPPED";
     public const string Cancelled = "CANCELLED";
     public const string Timeout = "TIMEOUT";
 
     public static readonly HashSet<string> TerminalStates = new(StringComparer.OrdinalIgnoreCase)
     {
-        Verified, JobFailed, VerificationMismatch, ValidationFailed, Skipped, Cancelled, Timeout
+        Verified, JobFailed, VerificationMismatch, ValidationFailed, Conflict, Skipped, Cancelled, Timeout
     };
 }
 
@@ -69,6 +72,9 @@ public sealed class KvhSubscriptionOperationOptions
     public int CommandTimeoutMinutes { get; set; } = 60;
     public int MaxVerificationAttempts { get; set; } = 10;
     public int TerminalCommandCooldownMinutes { get; set; } = 5;
+    public bool StateMonitorEnabled { get; set; } = true;
+    public int StateMonitorCheckIntervalMinutes { get; set; } = 30;
+    public int StateMonitorBatchSize { get; set; } = 20;
     public int MaxImportRows { get; set; } = 5000;
     public int MaxImportFileSizeMb { get; set; } = 5;
 }
@@ -215,6 +221,14 @@ public sealed class KvhSubscriptionOperationItemViewModel
     public string JobId { get; set; } = string.Empty;
     public string JobStatus { get; set; } = string.Empty;
     public string VerificationStatus { get; set; } = string.Empty;
+    public string CurrentSubscriptionStatus { get; set; } = string.Empty;
+    public string CurrentScheduledAction { get; set; } = string.Empty;
+    public string CurrentScheduleId { get; set; } = string.Empty;
+    public DateTime? CurrentScheduledEffectiveDateUtc { get; set; }
+    public DateTime? LastSubscriptionCheckedAtUtc { get; set; }
+    public string ReconciliationStatus { get; set; } = string.Empty;
+    public string ReconciliationMessage { get; set; } = string.Empty;
+    public string SubscriptionResponseJson { get; set; } = string.Empty;
     public int AttemptCount { get; set; }
     public int PollCount { get; set; }
     public DateTime UpdatedAtUtc { get; set; }

@@ -24,12 +24,14 @@ public sealed class KvhSubscriptionOperationWorker(
                 var service = scope.ServiceProvider.GetRequiredService<IKvhSubscriptionOperationService>();
 
                 await service.SyncCommandStatusesAsync(stoppingToken);
+                await service.MonitorWaitingEffectiveAsync(stoppingToken);
                 var ids = await service.ClaimQueuedItemsAsync(Math.Max(1, options.Value.BatchSize), stoppingToken);
                 foreach (var id in ids)
                 {
                     await service.SubmitItemAsync(id, null, "KVH Operation Worker", stoppingToken);
                 }
                 await service.SyncCommandStatusesAsync(stoppingToken);
+                await service.MonitorWaitingEffectiveAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

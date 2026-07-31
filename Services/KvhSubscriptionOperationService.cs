@@ -542,6 +542,14 @@ public sealed class KvhSubscriptionOperationService(
             return;
         }
 
+        var preSubmitSnapshot = await SyncAndResolveSubscriptionSnapshotAsync(item, cancellationToken);
+        var preSubmitDecision = EvaluateSubscriptionState(item, preSubmitSnapshot, afterStateConflict: false);
+        if (!preSubmitDecision.ShouldSubmit)
+        {
+            await MarkItemReconciledAsync(item, preSubmitDecision, preSubmitSnapshot, requestedBy, "Pre-submit subscription state reconciliation.", cancellationToken);
+            return;
+        }
+
         var request = new KvhSolutionCommandRequest { DeviceId = item.DeviceId, KvhSubscriptionId = item.KvhSubscriptionId };
         KvhCommandSubmitResult result;
         try
@@ -568,6 +576,17 @@ public sealed class KvhSubscriptionOperationService(
             await MarkItemSubmittedAsync(itemId, result, cancellationToken);
             logger.LogInformation("Submitted KVH operation item {ItemId}, command {CommandId}, job {JobId}.", itemId, result.CommandId, result.JobId);
             return;
+        }
+
+        if (result.HttpStatusCode == 409 || string.Equals(result.ErrorCode, KvhErrorCodes.StateConflict, StringComparison.OrdinalIgnoreCase))
+        {
+            var conflictSnapshot = await SyncAndResolveSubscriptionSnapshotAsync(item, cancellationToken);
+            var conflictDecision = EvaluateSubscriptionState(item, conflictSnapshot, afterStateConflict: true);
+            if (!conflictDecision.ShouldSubmit)
+            {
+                await MarkItemReconciledAsync(item, conflictDecision, conflictSnapshot, requestedBy, "KVH returned 409 State Conflict; reconciled with current subscription state.", cancellationToken, result);
+                return;
+            }
         }
 
         if (result.ErrorCode is "kvh_command_cooldown" or "kvh_terminal_command_cooldown" && result.NextAllowedAtUtc.HasValue)
@@ -649,6 +668,56 @@ public sealed class KvhSubscriptionOperationService(
         foreach (var batchId in batchIds)
         {
             await RefreshCountersAsync(connection, batchId, cancellationToken);
+        }
+    }
+
+    public async Task MonitorWaitingEffectiveAsync(CancellationToken cancellationToken = default)
+    {
+        if (!options.Value.StateMonitorEnabled) return;
+
+        var items = new List<OperationItemSubmitContext>();
+        await using (var connection = new SqlConnection(_connectionString))
+        {
+            await connection.OpenAsync(cancellationToken);
+            const string sql = """
+                SELECT TOP (@batchSize) i.*, b.[Status] AS [BatchStatus], b.[TenantId], d.[TokenString]
+                FROM [dbo].[TblKvhSubscriptionOperationItem] i WITH (READPAST)
+                INNER JOIN [dbo].[TblKvhSubscriptionOperationBatch] b ON b.[ID] = i.[BatchId]
+                LEFT JOIN [dbo].[TblDevices] d ON d.[ID] = i.[DeviceId]
+                WHERE i.[Status] = 'WAITING_EFFECTIVE'
+                  AND (i.[NextVerificationAtUtc] IS NULL OR i.[NextVerificationAtUtc] <= SYSUTCDATETIME())
+                  AND b.[Status] IN ('QUEUED', 'RUNNING', 'VERIFYING')
+                ORDER BY i.[NextVerificationAtUtc], i.[ID]
+                """;
+            await using var command = new SqlCommand(sql, connection);
+            command.Parameters.Add("@batchSize", SqlDbType.Int).Value = Math.Max(1, options.Value.StateMonitorBatchSize);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                items.Add(new OperationItemSubmitContext
+                {
+                    Id = Convert.ToInt64(reader["ID"]),
+                    BatchId = Convert.ToInt64(reader["BatchId"]),
+                    BatchStatus = reader["BatchStatus"]?.ToString() ?? string.Empty,
+                    DeviceId = Convert.ToInt32(reader["DeviceId"]),
+                    TerminalId = reader["TerminalId"]?.ToString() ?? string.Empty,
+                    TrafficId = reader["TrafficId"]?.ToString() ?? string.Empty,
+                    Region = reader["Region"]?.ToString() ?? string.Empty,
+                    KvhSubscriptionId = Convert.ToInt64(reader["KvhSubscriptionId"]),
+                    OperationType = reader["OperationType"]?.ToString() ?? string.Empty,
+                    AttemptCount = Convert.ToInt32(reader["AttemptCount"]),
+                    MaxAttemptCount = Convert.ToInt32(reader["MaxAttemptCount"]),
+                    AccessToken = reader["TokenString"]?.ToString() ?? string.Empty,
+                    AllowedTenantId = reader["TenantId"] == DBNull.Value ? null : Convert.ToInt32(reader["TenantId"])
+                });
+            }
+        }
+
+        foreach (var item in items)
+        {
+            var snapshot = await SyncAndResolveSubscriptionSnapshotAsync(item, cancellationToken);
+            var decision = EvaluateWaitingEffectiveState(item, snapshot);
+            await MarkItemReconciledAsync(item, decision, snapshot, "KVH State Monitor", "Periodic WAITING_EFFECTIVE reconciliation.", cancellationToken);
         }
     }
 
@@ -806,6 +875,14 @@ public sealed class KvhSubscriptionOperationService(
                 JobId = reader["JobId"]?.ToString() ?? string.Empty,
                 JobStatus = reader["JobStatus"]?.ToString() ?? string.Empty,
                 VerificationStatus = reader["VerificationStatus"]?.ToString() ?? string.Empty,
+                CurrentSubscriptionStatus = reader["CurrentSubscriptionStatus"]?.ToString() ?? string.Empty,
+                CurrentScheduledAction = reader["CurrentScheduledAction"]?.ToString() ?? string.Empty,
+                CurrentScheduleId = reader["CurrentScheduleId"]?.ToString() ?? string.Empty,
+                CurrentScheduledEffectiveDateUtc = reader["CurrentScheduledEffectiveDateUtc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["CurrentScheduledEffectiveDateUtc"]), DateTimeKind.Utc),
+                LastSubscriptionCheckedAtUtc = reader["LastSubscriptionCheckedAtUtc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["LastSubscriptionCheckedAtUtc"]), DateTimeKind.Utc),
+                ReconciliationStatus = reader["ReconciliationStatus"]?.ToString() ?? string.Empty,
+                ReconciliationMessage = reader["ReconciliationMessage"]?.ToString() ?? string.Empty,
+                SubscriptionResponseJson = reader["SubscriptionResponseJson"]?.ToString() ?? string.Empty,
                 AttemptCount = Convert.ToInt32(reader["AttemptCount"]),
                 PollCount = Convert.ToInt32(reader["PollCount"]),
                 UpdatedAtUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["UpdatedAtUtc"]), DateTimeKind.Utc),
@@ -1126,7 +1203,7 @@ public sealed class KvhSubscriptionOperationService(
                     SUM(CASE WHEN [Status] = 'READY' THEN 1 ELSE 0 END) AS ReadyItems,
                     SUM(CASE WHEN [Status] = 'QUEUED' THEN 1 ELSE 0 END) AS QueuedItems,
                     SUM(CASE WHEN [Status] = 'SUBMITTING' THEN 1 ELSE 0 END) AS SubmittingItems,
-                    SUM(CASE WHEN [Status] IN ('SUBMITTED','JOB_PENDING','WAITING_COOLDOWN','RETRY_WAIT') THEN 1 ELSE 0 END) AS PendingItems,
+                    SUM(CASE WHEN [Status] IN ('SUBMITTED','JOB_PENDING','WAITING_COOLDOWN','RETRY_WAIT','WAITING_EFFECTIVE','WAITING_PROCESSING') THEN 1 ELSE 0 END) AS PendingItems,
                     SUM(CASE WHEN [Status] = 'JOB_SUCCESS' THEN 1 ELSE 0 END) AS JobSuccessItems,
                     SUM(CASE WHEN [Status] = 'JOB_FAILED' THEN 1 ELSE 0 END) AS JobFailedItems,
                     SUM(CASE WHEN [Status] = 'VERIFYING' THEN 1 ELSE 0 END) AS VerifyingItems,
@@ -1134,8 +1211,8 @@ public sealed class KvhSubscriptionOperationService(
                     SUM(CASE WHEN [Status] = 'VERIFICATION_MISMATCH' THEN 1 ELSE 0 END) AS VerificationMismatchItems,
                     SUM(CASE WHEN [Status] = 'SKIPPED' THEN 1 ELSE 0 END) AS SkippedItems,
                     SUM(CASE WHEN [Status] = 'CANCELLED' THEN 1 ELSE 0 END) AS CancelledItems,
-                    SUM(CASE WHEN [Status] IN ('VERIFIED','JOB_FAILED','VERIFICATION_MISMATCH','VALIDATION_FAILED','SKIPPED','CANCELLED','TIMEOUT') THEN 1 ELSE 0 END) AS TerminalItems,
-                    SUM(CASE WHEN [Status] IN ('JOB_FAILED','VERIFICATION_MISMATCH','VALIDATION_FAILED','TIMEOUT') THEN 1 ELSE 0 END) AS ErrorItems
+                    SUM(CASE WHEN [Status] IN ('VERIFIED','JOB_FAILED','VERIFICATION_MISMATCH','VALIDATION_FAILED','CONFLICT','SKIPPED','CANCELLED','TIMEOUT') THEN 1 ELSE 0 END) AS TerminalItems,
+                    SUM(CASE WHEN [Status] IN ('JOB_FAILED','VERIFICATION_MISMATCH','VALIDATION_FAILED','CONFLICT','TIMEOUT') THEN 1 ELSE 0 END) AS ErrorItems
                 FROM [dbo].[TblKvhSubscriptionOperationItem]
                 WHERE [BatchId] = @batchId
                 GROUP BY [BatchId]
@@ -1177,9 +1254,10 @@ public sealed class KvhSubscriptionOperationService(
     private async Task<OperationItemSubmitContext> GetSubmitContextAsync(SqlConnection connection, long itemId, CancellationToken cancellationToken)
     {
         const string sql = """
-            SELECT i.*, b.[Status] AS [BatchStatus], b.[TenantId]
+            SELECT i.*, b.[Status] AS [BatchStatus], b.[TenantId], d.[TokenString]
             FROM [dbo].[TblKvhSubscriptionOperationItem] i
             INNER JOIN [dbo].[TblKvhSubscriptionOperationBatch] b ON b.[ID] = i.[BatchId]
+            LEFT JOIN [dbo].[TblDevices] d ON d.[ID] = i.[DeviceId]
             WHERE i.[ID] = @itemId
             """;
         await using var command = new SqlCommand(sql, connection);
@@ -1192,10 +1270,14 @@ public sealed class KvhSubscriptionOperationService(
             BatchId = Convert.ToInt64(reader["BatchId"]),
             BatchStatus = reader["BatchStatus"]?.ToString() ?? string.Empty,
             DeviceId = Convert.ToInt32(reader["DeviceId"]),
+            TerminalId = reader["TerminalId"]?.ToString() ?? string.Empty,
+            TrafficId = reader["TrafficId"]?.ToString() ?? string.Empty,
+            Region = reader["Region"]?.ToString() ?? string.Empty,
             KvhSubscriptionId = Convert.ToInt64(reader["KvhSubscriptionId"]),
             OperationType = reader["OperationType"]?.ToString() ?? string.Empty,
             AttemptCount = Convert.ToInt32(reader["AttemptCount"]),
             MaxAttemptCount = Convert.ToInt32(reader["MaxAttemptCount"]),
+            AccessToken = reader["TokenString"]?.ToString() ?? string.Empty,
             AllowedTenantId = reader["TenantId"] == DBNull.Value ? null : Convert.ToInt32(reader["TenantId"]),
             AllowedDeviceId = null
         };
@@ -1222,6 +1304,287 @@ public sealed class KvhSubscriptionOperationService(
         command.Parameters.Add("@submitResponse", SqlDbType.NVarChar, -1).Value = result.RawResponse ?? string.Empty;
         command.Parameters.Add("@pollSeconds", SqlDbType.Int).Value = Math.Max(120, options.Value.JobPollIntervalSeconds);
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private async Task<SubscriptionStateSnapshot?> SyncAndResolveSubscriptionSnapshotAsync(OperationItemSubmitContext item, CancellationToken cancellationToken)
+    {
+        KvhSubscriptionSyncResult? syncResult = null;
+        if (!string.IsNullOrWhiteSpace(item.AccessToken))
+        {
+            syncResult = await kvhSubscriptionService.SyncForDeviceAsync(item.DeviceId, item.TerminalId, item.AccessToken, item.TrafficId, cancellationToken);
+        }
+
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        var snapshot = await GetSubscriptionSnapshotAsync(connection, item, cancellationToken);
+        if (snapshot is not null && syncResult is not null)
+        {
+            snapshot.SubscriptionResponseJson = string.IsNullOrWhiteSpace(syncResult.RawResponse)
+                ? snapshot.SubscriptionResponseJson
+                : syncResult.RawResponse;
+            snapshot.SyncSuccess = syncResult.Success;
+            snapshot.SyncErrorCode = syncResult.ErrorCode;
+            snapshot.SyncMessage = syncResult.MessageEn;
+        }
+
+        return snapshot;
+    }
+
+    private static async Task<SubscriptionStateSnapshot?> GetSubscriptionSnapshotAsync(SqlConnection connection, OperationItemSubmitContext item, CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT TOP 1 [ID], [Status], [ScheduledAction], [ScheduleId], [ScheduledEffectiveDateUtc], [PlanName], [Region], [EffectiveDateUtc], [RawSubscriptionJson], [UpdatedAtUtc]
+            FROM [dbo].[TblKvhSubscription]
+            WHERE [DeviceId] = @deviceId
+              AND NULLIF(LTRIM(RTRIM([TrafficId])), '') = NULLIF(LTRIM(RTRIM(@trafficId)), '')
+              AND ISNULL(NULLIF(LTRIM(RTRIM([Region])), ''), '') = ISNULL(NULLIF(LTRIM(RTRIM(@region)), ''), '')
+            ORDER BY CASE WHEN [ID] = @subscriptionId THEN 0 ELSE 1 END, [IsCurrent] DESC, [UpdatedAtUtc] DESC, [ID] DESC
+            """;
+        await using var command = new SqlCommand(sql, connection);
+        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = item.DeviceId;
+        command.Parameters.Add("@trafficId", SqlDbType.NVarChar, 200).Value = Db(item.TrafficId);
+        command.Parameters.Add("@region", SqlDbType.NVarChar, 120).Value = Db(item.Region);
+        command.Parameters.Add("@subscriptionId", SqlDbType.BigInt).Value = item.KvhSubscriptionId;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return new SubscriptionStateSnapshot
+        {
+            KvhSubscriptionId = Convert.ToInt64(reader["ID"]),
+            Status = reader["Status"]?.ToString() ?? string.Empty,
+            ScheduledAction = reader["ScheduledAction"]?.ToString() ?? string.Empty,
+            ScheduleId = reader["ScheduleId"]?.ToString() ?? string.Empty,
+            ScheduledEffectiveDateUtc = reader["ScheduledEffectiveDateUtc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["ScheduledEffectiveDateUtc"]), DateTimeKind.Utc),
+            PlanName = reader["PlanName"]?.ToString() ?? string.Empty,
+            Region = reader["Region"]?.ToString() ?? string.Empty,
+            EffectiveDateUtc = reader["EffectiveDateUtc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["EffectiveDateUtc"]), DateTimeKind.Utc),
+            SubscriptionResponseJson = reader["RawSubscriptionJson"]?.ToString() ?? string.Empty
+        };
+    }
+
+    private StateReconcileDecision EvaluateSubscriptionState(OperationItemSubmitContext item, SubscriptionStateSnapshot? snapshot, bool afterStateConflict)
+    {
+        if (snapshot is null)
+        {
+            return StateReconcileDecision.Stop(
+                KvhSubscriptionOperationItemStatuses.ValidationFailed,
+                KvhCommandStatuses.Failed,
+                KvhJobStatuses.NotRequired,
+                KvhVerificationStatuses.Failed,
+                KvhErrorCodes.SubscriptionRegionNotFound,
+                "Khong tim thay subscription dung Traffic ID va Region.",
+                "Subscription region was not found.",
+                KvhVerificationStatuses.Unknown);
+        }
+
+        var status = NormalizeState(snapshot.Status);
+        var scheduledAction = NormalizeState(snapshot.ScheduledAction);
+        var isPause = item.OperationType == KvhSubscriptionOperationTypes.Pause;
+        var targetScheduledAction = isPause ? "PAUSE" : "RESUME";
+        var conflictScheduledAction = isPause ? "RESUME" : "PAUSE";
+        var targetEffectiveStatus = isPause ? "PAUSED" : "ACTIVE";
+
+        if (scheduledAction == targetScheduledAction && (!string.IsNullOrWhiteSpace(snapshot.ScheduleId) || snapshot.ScheduledEffectiveDateUtc.HasValue))
+        {
+            var dateText = FormatDate(snapshot.ScheduledEffectiveDateUtc);
+            var vi = isPause
+                ? $"Subscription da co mot yeu cau Pause truoc do va dang cho hieu luc vao ngay {dateText}. He thong se tiep tuc theo doi trang thai, khong gui them lenh Pause."
+                : $"Subscription da co mot yeu cau Resume truoc do va dang cho hieu luc vao ngay {dateText}. He thong se tiep tuc theo doi trang thai, khong gui them lenh Resume.";
+            var en = isPause
+                ? $"A previous Pause request already exists and is waiting to become effective on {dateText}. No additional Pause command was submitted."
+                : $"A previous Resume request already exists and is waiting to become effective on {dateText}. No additional Resume command was submitted.";
+            return StateReconcileDecision.Stop(
+                KvhSubscriptionOperationItemStatuses.WaitingEffective,
+                KvhCommandStatuses.Waiting,
+                KvhJobStatuses.NotRequired,
+                KvhVerificationStatuses.VerifiedScheduled,
+                KvhErrorCodes.SubscriptionAlreadyScheduled,
+                vi,
+                en,
+                KvhVerificationStatuses.VerifiedScheduled,
+                NextVerificationAtUtc());
+        }
+
+        if (StatusMatches(status, targetEffectiveStatus))
+        {
+            var vi = isPause ? "Subscription da o trang thai tam dung." : "Subscription da o trang thai hoat dong.";
+            var en = isPause ? "The subscription is already paused." : "The subscription is already active.";
+            return StateReconcileDecision.Stop(
+                KvhSubscriptionOperationItemStatuses.Verified,
+                KvhCommandStatuses.Verified,
+                KvhJobStatuses.NotRequired,
+                KvhVerificationStatuses.VerifiedEffective,
+                KvhErrorCodes.SubscriptionAlreadyEffective,
+                vi,
+                en,
+                KvhVerificationStatuses.VerifiedEffective);
+        }
+
+        if (scheduledAction == conflictScheduledAction)
+        {
+            var errorCode = isPause ? KvhErrorCodes.ConflictingScheduledResume : KvhErrorCodes.ConflictingScheduledPause;
+            var vi = isPause
+                ? "Subscription dang co yeu cau Resume, khong the gui Pause."
+                : "Subscription dang co yeu cau Pause, khong the gui Resume.";
+            var en = isPause
+                ? "The subscription has a pending Resume request, so Pause cannot be submitted."
+                : "The subscription has a pending Pause request, so Resume cannot be submitted.";
+            return StateReconcileDecision.Stop(
+                KvhSubscriptionOperationItemStatuses.Conflict,
+                KvhCommandStatuses.Failed,
+                KvhJobStatuses.NotRequired,
+                KvhVerificationStatuses.Conflict,
+                errorCode,
+                vi,
+                en,
+                KvhVerificationStatuses.Conflict);
+        }
+
+        if (!afterStateConflict && ((isPause && StatusMatches(status, "ACTIVE")) || (!isPause && StatusMatches(status, "PAUSED"))))
+        {
+            return StateReconcileDecision.Submit();
+        }
+
+        if (afterStateConflict)
+        {
+            return StateReconcileDecision.Submit(KvhErrorCodes.StateConflictUnresolved);
+        }
+
+        return StateReconcileDecision.Stop(
+            KvhSubscriptionOperationItemStatuses.ValidationFailed,
+            KvhCommandStatuses.Failed,
+            KvhJobStatuses.NotRequired,
+            KvhVerificationStatuses.Failed,
+            KvhErrorCodes.SubscriptionStateUnexpected,
+            "Trang thai subscription hien tai khong phu hop de gui lenh.",
+            "The current subscription state is not valid for this command.",
+            KvhVerificationStatuses.Unknown);
+    }
+
+    private async Task MarkItemReconciledAsync(OperationItemSubmitContext item, StateReconcileDecision decision, SubscriptionStateSnapshot? snapshot, string requestedBy, string message, CancellationToken cancellationToken, KvhCommandSubmitResult? sourceResult = null)
+    {
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        var commandId = await UpsertReconciledCommandAsync(connection, transaction, item, decision, snapshot, requestedBy, sourceResult?.CommandId, cancellationToken);
+
+        const string sql = """
+            UPDATE [dbo].[TblKvhSubscriptionOperationItem]
+            SET [Status] = @status,
+                [KvhCommandId] = @commandId,
+                [JobId] = NULL,
+                [JobStatus] = @jobStatus,
+                [VerificationStatus] = @verificationStatus,
+                [ErrorCode] = NULLIF(@errorCode, ''),
+                [ErrorMessage] = NULLIF(@errorMessage, ''),
+                [HttpStatusCode] = COALESCE(@httpStatusCode, [HttpStatusCode]),
+                [SubmitResponseJson] = COALESCE(NULLIF(@submitResponse, ''), [SubmitResponseJson]),
+                [CurrentSubscriptionStatus] = NULLIF(@subscriptionStatus, ''),
+                [CurrentScheduledAction] = NULLIF(@scheduledAction, ''),
+                [CurrentScheduleId] = NULLIF(@scheduleId, ''),
+                [CurrentScheduledEffectiveDateUtc] = @scheduledEffectiveDate,
+                [LastSubscriptionCheckedAtUtc] = SYSUTCDATETIME(),
+                [ReconciliationStatus] = NULLIF(@reconciliationStatus, ''),
+                [ReconciliationMessage] = NULLIF(@reconciliationMessage, ''),
+                [SubscriptionResponseJson] = COALESCE(NULLIF(@subscriptionResponse, ''), [SubscriptionResponseJson]),
+                [OperationLogJson] = NULLIF(@operationLog, ''),
+                [NextVerificationAtUtc] = @nextVerification,
+                [VerifiedAtUtc] = CASE WHEN @status = 'VERIFIED' THEN COALESCE([VerifiedAtUtc], SYSUTCDATETIME()) ELSE [VerifiedAtUtc] END,
+                [UpdatedAtUtc] = SYSUTCDATETIME()
+            WHERE [ID] = @id
+            """;
+        await using (var command = new SqlCommand(sql, connection, transaction))
+        {
+            command.Parameters.Add("@id", SqlDbType.BigInt).Value = item.Id;
+            command.Parameters.Add("@status", SqlDbType.NVarChar, 40).Value = decision.ItemStatus;
+            command.Parameters.Add("@commandId", SqlDbType.BigInt).Value = commandId;
+            command.Parameters.Add("@jobStatus", SqlDbType.NVarChar, 40).Value = decision.JobStatus;
+            command.Parameters.Add("@verificationStatus", SqlDbType.NVarChar, 40).Value = decision.VerificationStatus;
+            command.Parameters.Add("@errorCode", SqlDbType.NVarChar, 100).Value = decision.ErrorCode;
+            command.Parameters.Add("@errorMessage", SqlDbType.NVarChar, -1).Value = decision.MessageEn;
+            command.Parameters.Add("@httpStatusCode", SqlDbType.Int).Value = (object?)sourceResult?.HttpStatusCode ?? DBNull.Value;
+            command.Parameters.Add("@submitResponse", SqlDbType.NVarChar, -1).Value = sourceResult?.RawResponse ?? string.Empty;
+            command.Parameters.Add("@subscriptionStatus", SqlDbType.NVarChar, 80).Value = snapshot?.Status ?? string.Empty;
+            command.Parameters.Add("@scheduledAction", SqlDbType.NVarChar, 120).Value = snapshot?.ScheduledAction ?? string.Empty;
+            command.Parameters.Add("@scheduleId", SqlDbType.NVarChar, 200).Value = snapshot?.ScheduleId ?? string.Empty;
+            command.Parameters.Add("@scheduledEffectiveDate", SqlDbType.DateTime2).Value = (object?)snapshot?.ScheduledEffectiveDateUtc ?? DBNull.Value;
+            command.Parameters.Add("@reconciliationStatus", SqlDbType.NVarChar, 80).Value = decision.ReconciliationStatus;
+            command.Parameters.Add("@reconciliationMessage", SqlDbType.NVarChar, -1).Value = decision.MessageEn;
+            command.Parameters.Add("@subscriptionResponse", SqlDbType.NVarChar, -1).Value = snapshot?.SubscriptionResponseJson ?? string.Empty;
+            command.Parameters.Add("@operationLog", SqlDbType.NVarChar, -1).Value = BuildReconciliationLog(item, decision, snapshot, sourceResult, requestedBy, message);
+            command.Parameters.Add("@nextVerification", SqlDbType.DateTime2).Value = (object?)decision.NextVerificationAtUtc ?? DBNull.Value;
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await RefreshCountersAsync(connection, item.BatchId, transaction, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    private static async Task<long> UpsertReconciledCommandAsync(SqlConnection connection, SqlTransaction transaction, OperationItemSubmitContext item, StateReconcileDecision decision, SubscriptionStateSnapshot? snapshot, string requestedBy, long? sourceCommandId, CancellationToken cancellationToken)
+    {
+        if (sourceCommandId.HasValue)
+        {
+            const string updateSql = """
+                UPDATE [dbo].[TblKvhCommand]
+                SET [CommandStatus] = @commandStatus,
+                    [JobStatus] = @jobStatus,
+                    [VerificationStatus] = @verificationStatus,
+                    [ScheduleId] = NULLIF(@scheduleId, ''),
+                    [CompletedAtUtc] = CASE WHEN @commandStatus <> 'WAITING' THEN COALESCE([CompletedAtUtc], SYSUTCDATETIME()) ELSE [CompletedAtUtc] END,
+                    [VerifiedAtUtc] = CASE WHEN @verificationStatus IN ('VERIFIED_SCHEDULED', 'VERIFIED_EFFECTIVE') THEN COALESCE([VerifiedAtUtc], SYSUTCDATETIME()) ELSE [VerifiedAtUtc] END,
+                    [ErrorCode] = NULLIF(@errorCode, ''),
+                    [ErrorMessage] = NULLIF(@errorMessage, ''),
+                    [VerificationResponseJson] = COALESCE(NULLIF(@subscriptionResponse, ''), [VerificationResponseJson])
+                WHERE [ID] = @id;
+                SELECT @id;
+                """;
+            await using var command = new SqlCommand(updateSql, connection, transaction);
+            AddReconciledCommandParameters(command, item, decision, snapshot, requestedBy, sourceCommandId.Value);
+            return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
+        }
+
+        const string insertSql = """
+            INSERT INTO [dbo].[TblKvhCommand]
+                ([DeviceId], [TerminalId], [KvhDeviceId], [TrafficId], [Region], [ScheduleId], [KvhSubscriptionId], [CooldownUntilUtc],
+                 [CommandType], [RequestedValue], [CommandStatus], [JobStatus], [VerificationStatus], [RequestJson], [RequestedBy], [RequestedAtUtc],
+                 [CompletedAtUtc], [VerifiedAtUtc], [ErrorCode], [ErrorMessage], [VerificationResponseJson])
+            OUTPUT INSERTED.[ID]
+            VALUES
+                (@deviceId, @terminalId, NULL, @trafficId, @region, NULLIF(@scheduleId, ''), @subscriptionId, @cooldownUntil,
+                 @commandType, @requestJson, @commandStatus, @jobStatus, @verificationStatus, @requestJson, @requestedBy, SYSUTCDATETIME(),
+                 CASE WHEN @commandStatus <> 'WAITING' THEN SYSUTCDATETIME() ELSE NULL END,
+                 CASE WHEN @verificationStatus IN ('VERIFIED_SCHEDULED', 'VERIFIED_EFFECTIVE') THEN SYSUTCDATETIME() ELSE NULL END,
+                 NULLIF(@errorCode, ''), NULLIF(@errorMessage, ''), NULLIF(@subscriptionResponse, ''))
+            """;
+        await using (var command = new SqlCommand(insertSql, connection, transaction))
+        {
+            AddReconciledCommandParameters(command, item, decision, snapshot, requestedBy, null);
+            return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
+        }
+    }
+
+    private static void AddReconciledCommandParameters(SqlCommand command, OperationItemSubmitContext item, StateReconcileDecision decision, SubscriptionStateSnapshot? snapshot, string requestedBy, long? id)
+    {
+        if (id.HasValue) command.Parameters.Add("@id", SqlDbType.BigInt).Value = id.Value;
+        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = item.DeviceId;
+        command.Parameters.Add("@terminalId", SqlDbType.NVarChar, 200).Value = Db(item.TerminalId);
+        command.Parameters.Add("@trafficId", SqlDbType.NVarChar, 200).Value = Db(item.TrafficId);
+        command.Parameters.Add("@region", SqlDbType.NVarChar, 120).Value = Db(item.Region);
+        command.Parameters.Add("@scheduleId", SqlDbType.NVarChar, 200).Value = snapshot?.ScheduleId ?? string.Empty;
+        command.Parameters.Add("@subscriptionId", SqlDbType.BigInt).Value = item.KvhSubscriptionId;
+        command.Parameters.Add("@cooldownUntil", SqlDbType.DateTime2).Value = DateTime.UtcNow.AddMinutes(5);
+        command.Parameters.Add("@commandType", SqlDbType.NVarChar, 50).Value = item.OperationType == KvhSubscriptionOperationTypes.Resume ? KvhCommandTypes.SubscriptionResume : KvhCommandTypes.SubscriptionPause;
+        command.Parameters.Add("@requestJson", SqlDbType.NVarChar, -1).Value = JsonSerializer.Serialize(new { item.DeviceId, item.TerminalId, item.TrafficId, item.Region, item.KvhSubscriptionId, item.OperationType, reconciliation = decision.ReconciliationStatus });
+        command.Parameters.Add("@commandStatus", SqlDbType.NVarChar, 30).Value = decision.CommandStatus;
+        command.Parameters.Add("@jobStatus", SqlDbType.NVarChar, 30).Value = decision.JobStatus;
+        command.Parameters.Add("@verificationStatus", SqlDbType.NVarChar, 40).Value = decision.VerificationStatus;
+        command.Parameters.Add("@requestedBy", SqlDbType.NVarChar, 250).Value = NormalizeUser(requestedBy);
+        command.Parameters.Add("@errorCode", SqlDbType.NVarChar, 100).Value = decision.ErrorCode;
+        command.Parameters.Add("@errorMessage", SqlDbType.NVarChar, -1).Value = decision.MessageEn;
+        command.Parameters.Add("@subscriptionResponse", SqlDbType.NVarChar, -1).Value = snapshot?.SubscriptionResponseJson ?? string.Empty;
     }
 
     private async Task MarkItemAsync(
@@ -1306,6 +1669,144 @@ public sealed class KvhSubscriptionOperationService(
         }, new JsonSerializerOptions { WriteIndented = true });
     }
 
+    private static string BuildReconciliationLog(OperationItemSubmitContext item, StateReconcileDecision decision, SubscriptionStateSnapshot? snapshot, KvhCommandSubmitResult? sourceResult, string requestedBy, string message)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            generatedAtUtc = DateTime.UtcNow,
+            message,
+            requestedBy,
+            item = new
+            {
+                item.Id,
+                item.BatchId,
+                item.DeviceId,
+                item.TerminalId,
+                item.TrafficId,
+                item.Region,
+                item.KvhSubscriptionId,
+                item.OperationType,
+                item.AttemptCount,
+                item.MaxAttemptCount
+            },
+            decision,
+            snapshot = snapshot is null
+                ? null
+                : new
+                {
+                    snapshot.KvhSubscriptionId,
+                    snapshot.Status,
+                    snapshot.ScheduledAction,
+                    snapshot.ScheduleId,
+                    snapshot.ScheduledEffectiveDateUtc,
+                    snapshot.PlanName,
+                    snapshot.Region,
+                    snapshot.EffectiveDateUtc,
+                    snapshot.SyncSuccess,
+                    snapshot.SyncErrorCode,
+                    snapshot.SyncMessage
+                },
+            sourceResult = sourceResult is null
+                ? null
+                : new
+                {
+                    sourceResult.Success,
+                    sourceResult.ErrorCode,
+                    sourceResult.Message,
+                    sourceResult.MessageEn,
+                    sourceResult.CommandId,
+                    sourceResult.JobId,
+                    sourceResult.HttpStatusCode,
+                    sourceResult.RawResponse
+                }
+        }, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private StateReconcileDecision EvaluateWaitingEffectiveState(OperationItemSubmitContext item, SubscriptionStateSnapshot? snapshot)
+    {
+        if (snapshot is null)
+        {
+            return StateReconcileDecision.Stop(
+                KvhSubscriptionOperationItemStatuses.VerificationMismatch,
+                KvhCommandStatuses.VerificationMismatch,
+                KvhJobStatuses.NotRequired,
+                KvhVerificationStatuses.StateChangedUnexpectedly,
+                KvhErrorCodes.SubscriptionRegionNotFound,
+                "Khong tim thay subscription dung region khi kiem tra hieu luc.",
+                "Subscription region was not found while monitoring the scheduled action.",
+                KvhVerificationStatuses.StateChangedUnexpectedly);
+        }
+
+        var isPause = item.OperationType == KvhSubscriptionOperationTypes.Pause;
+        var status = NormalizeState(snapshot.Status);
+        var scheduledAction = NormalizeState(snapshot.ScheduledAction);
+        var targetScheduledAction = isPause ? "PAUSE" : "RESUME";
+        var targetEffectiveStatus = isPause ? "PAUSED" : "ACTIVE";
+
+        if (StatusMatches(status, targetEffectiveStatus))
+        {
+            var message = isPause ? "Subscription da tam dung sau khi lich Pause co hieu luc." : "Subscription da hoat dong sau khi lich Resume co hieu luc.";
+            return StateReconcileDecision.Stop(
+                KvhSubscriptionOperationItemStatuses.Verified,
+                KvhCommandStatuses.Verified,
+                KvhJobStatuses.NotRequired,
+                KvhVerificationStatuses.VerifiedEffective,
+                KvhErrorCodes.SubscriptionAlreadyEffective,
+                message,
+                message,
+                KvhVerificationStatuses.VerifiedEffective);
+        }
+
+        if (scheduledAction == targetScheduledAction)
+        {
+            var dateText = FormatDate(snapshot.ScheduledEffectiveDateUtc);
+            var message = isPause
+                ? $"Dang cho Pause co hieu luc vao ngay {dateText}."
+                : $"Dang cho Resume co hieu luc vao ngay {dateText}.";
+            return StateReconcileDecision.Stop(
+                KvhSubscriptionOperationItemStatuses.WaitingEffective,
+                KvhCommandStatuses.Waiting,
+                KvhJobStatuses.NotRequired,
+                KvhVerificationStatuses.VerifiedScheduled,
+                KvhErrorCodes.SubscriptionAlreadyScheduled,
+                message,
+                message,
+                KvhVerificationStatuses.VerifiedScheduled,
+                NextVerificationAtUtc());
+        }
+
+        return StateReconcileDecision.Stop(
+            KvhSubscriptionOperationItemStatuses.VerificationMismatch,
+            KvhCommandStatuses.VerificationMismatch,
+            KvhJobStatuses.NotRequired,
+            KvhVerificationStatuses.StateChangedUnexpectedly,
+            KvhErrorCodes.SubscriptionStateUnexpected,
+            "Lich thao tac khong con ton tai nhung subscription chua dat trang thai muc tieu.",
+            "The scheduled action disappeared before the subscription reached the target state.",
+            KvhVerificationStatuses.StateChangedUnexpectedly);
+    }
+
+    private DateTime NextVerificationAtUtc() =>
+        DateTime.UtcNow.AddMinutes(Math.Max(1, options.Value.StateMonitorCheckIntervalMinutes));
+
+    private static string NormalizeState(string? value) => (value ?? string.Empty).Trim().ToUpperInvariant().Replace(" ", "_");
+
+    private static bool StatusMatches(string normalizedStatus, string expected)
+    {
+        expected = NormalizeState(expected);
+        if (expected == "PAUSED")
+        {
+            return normalizedStatus.Contains("PAUSE", StringComparison.OrdinalIgnoreCase) ||
+                   normalizedStatus.Contains("SUSPEND", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return normalizedStatus == expected || normalizedStatus.Contains(expected, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string FormatDate(DateTime? value) => value.HasValue
+        ? TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(value.Value, DateTimeKind.Utc), TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")).ToString("dd/MM/yyyy HH:mm")
+        : "-";
+
     private static bool IsRetryable(string errorCode, int? httpStatusCode) =>
         httpStatusCode is 429 or >= 500 ||
         errorCode.Contains("timeout", StringComparison.OrdinalIgnoreCase) ||
@@ -1386,11 +1887,61 @@ public sealed class KvhSubscriptionOperationService(
         public long BatchId { get; set; }
         public string BatchStatus { get; set; } = string.Empty;
         public int DeviceId { get; set; }
+        public string TerminalId { get; set; } = string.Empty;
+        public string TrafficId { get; set; } = string.Empty;
+        public string Region { get; set; } = string.Empty;
         public long KvhSubscriptionId { get; set; }
         public string OperationType { get; set; } = string.Empty;
         public int AttemptCount { get; set; }
         public int MaxAttemptCount { get; set; }
+        public string AccessToken { get; set; } = string.Empty;
         public int? AllowedTenantId { get; set; }
         public int? AllowedDeviceId { get; set; }
+    }
+
+    private sealed class SubscriptionStateSnapshot
+    {
+        public long KvhSubscriptionId { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public string ScheduledAction { get; set; } = string.Empty;
+        public string ScheduleId { get; set; } = string.Empty;
+        public DateTime? ScheduledEffectiveDateUtc { get; set; }
+        public string PlanName { get; set; } = string.Empty;
+        public string Region { get; set; } = string.Empty;
+        public DateTime? EffectiveDateUtc { get; set; }
+        public string SubscriptionResponseJson { get; set; } = string.Empty;
+        public bool? SyncSuccess { get; set; }
+        public string SyncErrorCode { get; set; } = string.Empty;
+        public string SyncMessage { get; set; } = string.Empty;
+    }
+
+    private sealed class StateReconcileDecision
+    {
+        public bool ShouldSubmit { get; init; }
+        public string ItemStatus { get; init; } = string.Empty;
+        public string CommandStatus { get; init; } = string.Empty;
+        public string JobStatus { get; init; } = string.Empty;
+        public string VerificationStatus { get; init; } = string.Empty;
+        public string ErrorCode { get; init; } = string.Empty;
+        public string Message { get; init; } = string.Empty;
+        public string MessageEn { get; init; } = string.Empty;
+        public string ReconciliationStatus { get; init; } = string.Empty;
+        public DateTime? NextVerificationAtUtc { get; init; }
+
+        public static StateReconcileDecision Submit(string errorCode = "") => new() { ShouldSubmit = true, ErrorCode = errorCode };
+
+        public static StateReconcileDecision Stop(string itemStatus, string commandStatus, string jobStatus, string verificationStatus, string errorCode, string message, string messageEn, string reconciliationStatus, DateTime? nextVerificationAtUtc = null) => new()
+        {
+            ShouldSubmit = false,
+            ItemStatus = itemStatus,
+            CommandStatus = commandStatus,
+            JobStatus = jobStatus,
+            VerificationStatus = verificationStatus,
+            ErrorCode = errorCode,
+            Message = message,
+            MessageEn = messageEn,
+            ReconciliationStatus = reconciliationStatus,
+            NextVerificationAtUtc = nextVerificationAtUtc
+        };
     }
 }

@@ -8,6 +8,7 @@ public class KvhSubscriptionOperationTests
     public void OperationHistoryMigrationCreatesExpectedTablesAndIndexes()
     {
         var script = File.ReadAllText(Path.Combine(ProjectRoot, "Database", "Scripts", "20260731_AddKvhSubscriptionOperationHistory.sql"));
+        var reconcileScript = File.ReadAllText(Path.Combine(ProjectRoot, "Database", "Scripts", "20260731_AddKvhSubscriptionStateReconcile.sql"));
 
         Assert.Contains("TblKvhSubscriptionOperationBatch", script);
         Assert.Contains("TblKvhSubscriptionOperationItem", script);
@@ -15,6 +16,14 @@ public class KvhSubscriptionOperationTests
         Assert.Contains("UQ_KvhSubOperationItem_Batch_Kit", script);
         Assert.Contains("IX_KvhSubOperationItem_Status_NextSubmit", script);
         Assert.Contains("FK_KvhSubOperationItem_KvhCommand", script);
+        Assert.Contains("CurrentSubscriptionStatus", reconcileScript);
+        Assert.Contains("CurrentScheduledAction", reconcileScript);
+        Assert.Contains("CurrentScheduleId", reconcileScript);
+        Assert.Contains("CurrentScheduledEffectiveDateUtc", reconcileScript);
+        Assert.Contains("LastSubscriptionCheckedAtUtc", reconcileScript);
+        Assert.Contains("ReconciliationStatus", reconcileScript);
+        Assert.Contains("SubscriptionResponseJson", reconcileScript);
+        Assert.Contains("IX_KvhSubOperationItem_WaitingEffective", reconcileScript);
     }
 
     [Fact]
@@ -27,6 +36,7 @@ public class KvhSubscriptionOperationTests
         Assert.Contains("ClaimQueuedItemsAsync", worker);
         Assert.Contains("SubmitItemAsync", worker);
         Assert.Contains("SyncCommandStatusesAsync", worker);
+        Assert.Contains("MonitorWaitingEffectiveAsync", worker);
     }
 
     [Fact]
@@ -69,6 +79,26 @@ public class KvhSubscriptionOperationTests
     }
 
     [Fact]
+    public void SubscriptionOperationsReconcileStateConflictBeforeRetrying()
+    {
+        var models = File.ReadAllText(Path.Combine(ProjectRoot, "Models", "KvhSubscriptionOperationModels.cs"));
+        var service = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "KvhSubscriptionOperationService.cs"));
+        var view = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "KvhSolutions", "SubscriptionOperations", "Details.cshtml"));
+
+        Assert.Contains("WaitingEffective = \"WAITING_EFFECTIVE\"", models);
+        Assert.Contains("Conflict = \"CONFLICT\"", models);
+        Assert.Contains("SyncAndResolveSubscriptionSnapshotAsync", service);
+        Assert.Contains("EvaluateSubscriptionState", service);
+        Assert.Contains("afterStateConflict: true", service);
+        Assert.Contains("KvhErrorCodes.StateConflictUnresolved", service);
+        Assert.Contains("KvhVerificationStatuses.VerifiedScheduled", service);
+        Assert.Contains("KvhJobStatuses.NotRequired", service);
+        Assert.Contains("StateMonitorCheckIntervalMinutes", service);
+        Assert.Contains("OperationStateText", view);
+        Assert.Contains("DisplayScheduledAction", view);
+    }
+
+    [Fact]
     public void KvhSubscriptionSyncUpsertsByDeviceTrafficAndRegion()
     {
         var subscriptionService = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "KvhSubscriptionService.cs"));
@@ -89,7 +119,7 @@ public class KvhSubscriptionOperationTests
 
         Assert.Contains("KvhSubscriptionOperations", index);
         Assert.Contains("Lịch sử Pause/Resume", operationIndex);
-        Assert.Contains("Kết quả kiểm tra file import", operationDetails);
+        Assert.Contains("ImportPreview", operationDetails);
         Assert.Contains("kvh-stat-grid", operationDetails);
         Assert.Contains("kvh-flow-step", operationDetails);
         Assert.Contains("kvh-row-spinner", operationDetails);
