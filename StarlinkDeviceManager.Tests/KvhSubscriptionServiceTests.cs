@@ -37,6 +37,7 @@ public sealed class KvhSubscriptionServiceTests
         var getSolutionsBody = ExtractMethodBody(ServiceSource, "GetSolutionsAsync");
         var whereBuilder = ExtractMethodBody(ServiceSource, "private static string BuildSolutionWhere");
 
+        Assert.Contains("pageSize = pageSize is 20 or 50 or 100 or 140 ? pageSize : 20;", getSolutionsBody);
         Assert.Contains("filter.TenantId = allowedTenantId;", getSolutionsBody);
         Assert.Contains("\"(@allowedTenantId IS NULL OR d.[TenantID] = @allowedTenantId)\"", whereBuilder);
         Assert.Contains("\"(@allowedDeviceId IS NULL OR d.[ID] = @allowedDeviceId)\"", whereBuilder);
@@ -44,6 +45,38 @@ public sealed class KvhSubscriptionServiceTests
         Assert.Contains("OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY", getSolutionsBody);
         Assert.Contains("command.Parameters.Add(\"@offset\", SqlDbType.Int).Value = (page - 1) * pageSize;", getSolutionsBody);
         Assert.Contains("command.Parameters.Add(\"@pageSize\", SqlDbType.Int).Value = pageSize;", getSolutionsBody);
+    }
+
+    [Fact]
+    public void GetSolutionsAsync_CountsDistinctDevicesAndUsesOneSubscriptionPerDevice()
+    {
+        var getSolutionsBody = ExtractMethodBody(ServiceSource, "GetSolutionsAsync");
+
+        Assert.Contains("SELECT COUNT(DISTINCT d.[ID])", getSolutionsBody);
+        Assert.Contains("OUTER APPLY (", getSolutionsBody);
+        Assert.Contains("SELECT TOP 1 *", getSolutionsBody);
+        Assert.Contains("sx.[DeviceId] = d.[ID]", getSolutionsBody);
+        Assert.Contains("ORDER BY sx.[LastSeenAtUtc] DESC, sx.[ID] DESC", getSolutionsBody);
+        Assert.Contains("ORDER BY d.[VesselName], d.[DeviceCode], d.[ID]", getSolutionsBody);
+    }
+
+    [Fact]
+    public void KvhSolutionPageResult_ComputesVisibleRange()
+    {
+        var firstPage = new KvhSolutionPageResult { CurrentPage = 1, PageSize = 20, TotalItems = 140 };
+        var secondPage = new KvhSolutionPageResult { CurrentPage = 2, PageSize = 20, TotalItems = 140 };
+        var fiftyRows = new KvhSolutionPageResult { CurrentPage = 1, PageSize = 50, TotalItems = 140 };
+        var allRows = new KvhSolutionPageResult { CurrentPage = 1, PageSize = 140, TotalItems = 140 };
+
+        Assert.Equal(7, firstPage.TotalPages);
+        Assert.Equal(1, firstPage.StartItem);
+        Assert.Equal(20, firstPage.EndItem);
+        Assert.Equal(21, secondPage.StartItem);
+        Assert.Equal(40, secondPage.EndItem);
+        Assert.Equal(3, fiftyRows.TotalPages);
+        Assert.Equal(50, fiftyRows.EndItem);
+        Assert.Equal(1, allRows.TotalPages);
+        Assert.Equal(140, allRows.EndItem);
     }
 
     [Fact]

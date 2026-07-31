@@ -1,4 +1,4 @@
-@using StarlinkDeviceManager.Models
+﻿@using StarlinkDeviceManager.Models
 @{
     var activeNav = ViewData["ActiveNav"]?.ToString() ?? string.Empty;
     var showLanguageSwitch = !string.Equals(ViewData["ShowLanguageSwitch"]?.ToString(), "false", StringComparison.OrdinalIgnoreCase);
@@ -87,7 +87,7 @@
       else if (canAccessKvhSolutions)
       {
         <details class="portal-nav-group">
-          <summary class="portal-nav-link portal-nav-summary@(ActiveClass("kvhsolutions"))">Váº­n hÃ nh / Operations</summary>
+          <summary class="portal-nav-link portal-nav-summary@(ActiveClass("kvhsolutions"))">Vận hành / Operations</summary>
           <div class="portal-nav-submenu">
             <a asp-controller="KvhSolutions" asp-action="Index" class="portal-nav-subitem@(ActiveClass("kvhsolutions"))">KVH Solutions</a>
           </div>

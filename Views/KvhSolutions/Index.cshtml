@@ -25,20 +25,23 @@
 
     string SyncStateLabel(string? value) => value switch
     {
-        "not_synced" => "Chua dong bo / Not synced",
-        "syncing" => "Dang dong bo / Syncing",
-        "success" => "Thanh cong / Success",
-        "empty" => "Khong co du lieu / Empty",
-        "sync_failed" => "That bai / Failed",
-        "missing_traffic" => "Thieu Traffic ID / Missing Traffic ID",
-        _ => "Tat ca / All"
+        "not_synced" => "Chưa đồng bộ / Not synced",
+        "syncing" => "Đang đồng bộ / Syncing",
+        "success" => "Thành công / Success",
+        "empty" => "Không có subscription / No subscription",
+        "sync_failed" => "Thất bại / Failed",
+        "missing_traffic" => "Thiếu Traffic ID / Missing Traffic ID",
+        _ => "Tất cả / All"
     };
 }
 
+<div class="device-page">
+<div class="device-shell">
+  <partial name="_PortalNav" />
 <div class="device-dashboard kvh-page">
   <nav class="portal-breadcrumb" aria-label="Breadcrumb">
-    <a asp-controller="Dashboard" asp-action="Index">Tong quan / Dashboard</a>
-    <span>Van hanh / Operations</span>
+    <a asp-controller="Dashboard" asp-action="Index">Tổng quan / Dashboard</a>
+    <span>Vận hành / Operations</span>
     <span>KVH Solutions</span>
   </nav>
 
@@ -46,7 +49,7 @@
     <div>
       <div class="device-brand">SHIPNET PORTAL</div>
       <h1>KVH Solutions</h1>
-      <p>Quan ly trang thai subscription KVH, Traffic ID, lenh Pause/Resume va tien do dong bo.</p>
+      <p>Quản lý subscription KVH, Traffic ID, lệnh Pause/Resume và tiến độ đồng bộ. / Manage KVH subscriptions, Traffic ID, Pause/Resume commands and sync progress.</p>
     </div>
     @if (Model.CanManageSolutions)
     {
@@ -74,7 +77,7 @@
     <header class="device-card-head kvh-card-head">
       <div>
         <h2>KVH Subscription Inventory</h2>
-        <p>Tong so thiet bi / Total devices: @Model.TotalItems</p>
+        <p>Tổng số thiết bị / Total devices: @Model.TotalItems</p>
       </div>
       <form asp-controller="KvhSolutions" asp-action="Index" method="get" class="device-search kvh-search">
         <input type="hidden" name="status" value="@Model.Filter.Status" />
@@ -83,8 +86,8 @@
         <input type="hidden" name="syncState" value="@Model.Filter.SyncState" />
         <input type="hidden" name="pageSize" value="@Model.PageSize" />
         <label class="device-search-field">
-          <input class="device-search-input" type="search" name="search" value="@Model.Filter.Search" placeholder="Terminal, vessel, KIT, Traffic ID" />
-          <button type="submit" class="device-search-icon-btn" aria-label="Search">
+          <input class="device-search-input" type="search" name="search" value="@Model.Filter.Search" placeholder="Terminal, tàu, KIT, Traffic ID / Terminal, vessel, KIT, Traffic ID" />
+          <button type="submit" class="device-search-icon-btn" aria-label="Tìm kiếm / Search">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 3a6.5 6.5 0 0 1 5.18 10.43l4.45 4.45-1.41 1.41-4.45-4.45A6.5 6.5 0 1 1 9.5 3Zm0 2a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Z"/></svg>
           </button>
         </label>
@@ -94,9 +97,9 @@
     <form asp-controller="KvhSolutions" asp-action="Index" method="get" class="kvh-filter-bar">
       <input type="hidden" name="pageSize" value="@Model.PageSize" />
       <label>
-        <span>Trang thai / Status</span>
+        <span>Trạng thái subscription / Subscription status</span>
         <select name="status">
-          <option value="">Tat ca / All</option>
+          <option value="">Tất cả / All</option>
           <option value="ACTIVE" selected="@(Model.Filter.Status == "ACTIVE")">ACTIVE</option>
           <option value="SUSPEND" selected="@(Model.Filter.Status == "SUSPEND")">SUSPEND</option>
           <option value="PAUSED" selected="@(Model.Filter.Status == "PAUSED")">PAUSED</option>
@@ -112,7 +115,7 @@
         <label>
           <span>Tenant</span>
           <select name="tenantId">
-            <option value="">Tat ca tenant / All tenants</option>
+            <option value="">Tất cả tenant / All tenants</option>
             @foreach (var tenant in Model.Tenants)
             {
               <option value="@tenant.Id" selected="@(Model.Filter.TenantId == tenant.Id)">@tenant.TenantName</option>
@@ -121,7 +124,7 @@
         </label>
       }
       <label>
-        <span>Trang thai sync / Sync state</span>
+        <span>Trạng thái sync / Sync state</span>
         <select name="syncState">
           <option value="">@SyncStateLabel(null)</option>
           <option value="not_synced" selected="@(Model.Filter.SyncState == "not_synced")">@SyncStateLabel("not_synced")</option>
@@ -132,13 +135,10 @@
           <option value="missing_traffic" selected="@(Model.Filter.SyncState == "missing_traffic")">@SyncStateLabel("missing_traffic")</option>
         </select>
       </label>
-      <label>
-        <span>Tim kiem / Search</span>
-        <input type="search" name="search" value="@Model.Filter.Search" placeholder="Terminal, vessel, KIT, Traffic ID" />
-      </label>
+      <input type="hidden" name="search" value="@Model.Filter.Search" />
       <div class="kvh-filter-actions">
-        <button type="submit" class="btn-primary">Loc / Filter</button>
-        <a asp-controller="KvhSolutions" asp-action="Index" class="btn-secondary">Dat lai / Reset</a>
+        <button type="submit" class="btn-primary">Lọc / Filter</button>
+        <a asp-controller="KvhSolutions" asp-action="Index" class="btn-secondary">Đặt lại / Reset</a>
       </div>
     </form>
 
@@ -147,9 +147,9 @@
       <div class="kvh-bulk-toolbar">
         <label class="kvh-check-control">
           <input type="checkbox" id="kvhSelectAll" />
-          <span>Chon trang / Select page</span>
+          <span>Chọn tất cả trang / Select page</span>
         </label>
-        <span class="kvh-selected-count"><strong id="kvhSelectedCount">0</strong> selected</span>
+        <span class="kvh-selected-count">Đã chọn / Selected: <strong id="kvhSelectedCount">0</strong></span>
         <form id="kvhSyncSelectedForm" asp-controller="KvhSolutions" asp-action="CreateSyncBatch" method="post">
           @Html.AntiForgeryToken()
           <input type="hidden" name="Mode" value="SYNC_SELECTED" />
@@ -177,23 +177,23 @@
       </div>
     }
 
-    <div class="device-table-wrap">
+    <div class="device-table-wrap kvh-table-wrap">
       <table class="device-table subscription-table kvh-table">
         <thead>
           <tr>
             <th></th>
-            <th>Device / Terminal</th>
-            <th>Vessel</th>
+            <th>Thiết bị / Terminal</th>
+            <th>Tên tàu / Vessel</th>
             <th>Tenant</th>
             <th>KIT Number</th>
             <th>Traffic ID</th>
             <th>KVH Plan</th>
             <th>Region</th>
-            <th>Subscription</th>
+            <th>Subscription Status</th>
             <th>Scheduled</th>
             <th>Allowance</th>
-            <th>Terminal status</th>
-            <th>Sync result</th>
+            <th>Terminal Status</th>
+            <th>Sync Result</th>
             <th>Command</th>
             <th>Actions</th>
           </tr>
@@ -203,7 +203,7 @@
           {
             <tr>
               <td colspan="15" class="tenant-empty">
-                Khong co thiet bi KVH phu hop / No KVH devices match the current filters.
+                Không có thiết bị KVH phù hợp / No KVH devices match the current filters.
               </td>
             </tr>
           }
@@ -216,7 +216,7 @@
               <td>
                 @if (Model.CanManageSolutions)
                 {
-                  <input type="checkbox" class="kvh-device-checkbox" value="@item.DeviceId" aria-label="Select @item.DeviceName" />
+                  <input type="checkbox" class="kvh-device-checkbox" value="@item.DeviceId" aria-label="Chọn @item.DeviceName / Select @item.DeviceName" />
                 }
               </td>
               <td>
@@ -235,7 +235,7 @@
               <td>
                 @if (item.MissingTrafficId)
                 {
-                  <span class="subscription-status debit">Missing Traffic ID</span>
+                  <span class="subscription-status debit">Thiếu Traffic ID / Missing Traffic ID</span>
                 }
                 else
                 {
@@ -280,7 +280,7 @@
                 <details class="kvh-action-menu">
                   <summary aria-label="Open actions">...</summary>
                   <div class="kvh-action-panel">
-                    <a asp-controller="KvhSolutions" asp-action="Details" asp-route-deviceId="@item.DeviceId">Chi tiet / Detail</a>
+                    <a asp-controller="KvhSolutions" asp-action="Details" asp-route-deviceId="@item.DeviceId">Xem chi tiết / Detail</a>
                     <form asp-controller="KvhSolutions" asp-action="Sync" method="post">
                       @Html.AntiForgeryToken()
                       <input type="hidden" name="deviceId" value="@item.DeviceId" />
@@ -318,28 +318,30 @@
 
     <footer class="device-pagination">
       <div class="device-pagination-meta">
-        <span>So dong / Rows</span>
+        <span>Số dòng / Rows</span>
         <form asp-controller="KvhSolutions" asp-action="Index" method="get" class="kvh-page-size-form">
+          <input type="hidden" name="page" value="1" />
           <input type="hidden" name="search" value="@Model.Filter.Search" />
           <input type="hidden" name="status" value="@Model.Filter.Status" />
           <input type="hidden" name="region" value="@Model.Filter.Region" />
           <input type="hidden" name="tenantId" value="@Model.Filter.TenantId" />
           <input type="hidden" name="syncState" value="@Model.Filter.SyncState" />
           <select class="page-size-select" name="pageSize" onchange="this.form.submit()">
-            <option value="10" selected="@(Model.PageSize == 10)">10</option>
             <option value="20" selected="@(Model.PageSize == 20)">20</option>
             <option value="50" selected="@(Model.PageSize == 50)">50</option>
             <option value="100" selected="@(Model.PageSize == 100)">100</option>
+            <option value="140" selected="@(Model.PageSize == 140)">140</option>
           </select>
         </form>
+        <span>Đang hiển thị / Showing @Model.StartItem-@Model.EndItem trên / of @Model.TotalItems</span>
         <span>Trang / Page @Model.CurrentPage / @(Model.TotalPages == 0 ? 1 : Model.TotalPages)</span>
       </div>
       <div class="device-pagination-actions">
-        <a class="pagination-btn @(Model.HasPreviousPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-page="1" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState">Dau</a>
-        <a class="pagination-btn @(Model.HasPreviousPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-page="@previousPage" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState">Truoc</a>
-        <span class="pagination-btn is-active">@Model.CurrentPage</span>
-        <a class="pagination-btn @(Model.HasNextPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-page="@nextPage" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState">Sau</a>
-        <a class="pagination-btn @(Model.HasNextPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-page="@(Model.TotalPages == 0 ? 1 : Model.TotalPages)" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState">Cuoi</a>
+        <a class="pagination-btn @(Model.HasPreviousPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-page="1" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState">Đầu / First</a>
+        <a class="pagination-btn @(Model.HasPreviousPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-page="@previousPage" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState">Trước / Previous</a>
+        <span class="pagination-btn is-active" aria-current="page">@Model.CurrentPage</span>
+        <a class="pagination-btn @(Model.HasNextPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-page="@nextPage" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState">Sau / Next</a>
+        <a class="pagination-btn @(Model.HasNextPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-page="@(Model.TotalPages == 0 ? 1 : Model.TotalPages)" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState">Cuối / Last</a>
       </div>
     </footer>
   </section>
@@ -348,10 +350,10 @@
     <header class="device-card-head">
       <div>
         <h2>Recent Sync Batches</h2>
-        <p>Tien do dong bo KVH subscription nen / Background synchronization progress.</p>
+        <p>Tiến độ đồng bộ KVH subscription nền / Background synchronization progress.</p>
       </div>
     </header>
-    <div class="device-table-wrap">
+    <div class="device-table-wrap kvh-table-wrap">
       <table class="device-table subscription-table kvh-table">
         <thead>
           <tr>
@@ -370,7 +372,7 @@
         <tbody>
           @if (Model.RecentBatches.Count == 0)
           {
-            <tr><td colspan="10" class="tenant-empty">Chua co batch dong bo KVH / No KVH sync batches yet.</td></tr>
+            <tr><td colspan="10" class="tenant-empty">Chưa có batch đồng bộ KVH / No KVH sync batches yet.</td></tr>
           }
           @foreach (var batch in Model.RecentBatches)
           {
@@ -418,20 +420,22 @@
   <div class="kvh-modal-backdrop" data-kvh-sync-all-modal hidden>
     <div class="kvh-modal" role="dialog" aria-modal="true" aria-labelledby="kvhSyncAllTitle">
       <header>
-        <h2 id="kvhSyncAllTitle">Xac nhan Sync all</h2>
+        <h2 id="kvhSyncAllTitle">Xác nhận Sync all / Confirm Sync all</h2>
         <button type="button" class="kvh-modal-close" data-kvh-close-modal aria-label="Close">x</button>
       </header>
-      <p>He thong se tao batch dong bo cho cac thiet bi KVH dang co trong pham vi truy cap. Qua trinh nay co the mat vai phut.</p>
+      <p>Hệ thống sẽ tạo batch đồng bộ cho các thiết bị KVH trong phạm vi truy cập. Quá trình này có thể mất vài phút. / The system will create a sync batch for accessible KVH devices. This may take several minutes.</p>
       <div class="device-modal-actions">
-        <button type="button" class="btn-secondary" data-kvh-close-modal>Huy / Cancel</button>
+        <button type="button" class="btn-secondary" data-kvh-close-modal>Hủy / Cancel</button>
         <form asp-controller="KvhSolutions" asp-action="CreateSyncBatch" method="post">
           @Html.AntiForgeryToken()
           <input type="hidden" name="Mode" value="SYNC_ALL" />
-          <button type="submit" class="btn-primary">Dong y Sync all</button>
+          <button type="submit" class="btn-primary">Đồng ý Sync all / Confirm Sync all</button>
         </form>
       </div>
     </div>
   </div>
+</div>
+</div>
 </div>
 
 @section Scripts {

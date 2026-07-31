@@ -1,4 +1,4 @@
-@model KvhSolutionDetailViewModel
+﻿@model KvhSolutionDetailViewModel
 @{
     ViewData["ActiveNav"] = "kvhsolutions";
     ViewData["Title"] = "KVH Solution Detail";
@@ -25,10 +25,13 @@
     string FormatDateTime(DateTime? value) => value.HasValue ? value.Value.ToString("dd/MM/yyyy HH:mm:ss") : "-";
 }
 
+<div class="device-page">
+<div class="device-shell">
+  <partial name="_PortalNav" />
 <div class="device-dashboard kvh-page">
   <nav class="portal-breadcrumb" aria-label="Breadcrumb">
-    <a asp-controller="Dashboard" asp-action="Index">Tong quan / Dashboard</a>
-    <span>Van hanh / Operations</span>
+    <a asp-controller="Dashboard" asp-action="Index">Tổng quan / Dashboard</a>
+    <span>Vận hành / Operations</span>
     <a asp-controller="KvhSolutions" asp-action="Index">KVH Solutions</a>
     <span>@title</span>
   </nav>
@@ -37,7 +40,7 @@
     <div>
       <div class="device-brand">SHIPNET PORTAL</div>
       <h1>KVH Solution Detail</h1>
-      <p>@title · @(string.IsNullOrWhiteSpace(Model.TerminalId) ? "No terminal ID" : Model.TerminalId) · Traffic ID: @(string.IsNullOrWhiteSpace(Model.TrafficId) ? "Missing" : Model.TrafficId)</p>
+      <p>@title Â· @(string.IsNullOrWhiteSpace(Model.TerminalId) ? "No terminal ID" : Model.TerminalId) Â· Traffic ID: @(string.IsNullOrWhiteSpace(Model.TrafficId) ? "Missing" : Model.TrafficId)</p>
     </div>
     <div class="device-actions kvh-hero-actions">
       <a asp-controller="KvhSolutions" asp-action="Index" class="btn-secondary">Back</a>
@@ -85,7 +88,7 @@
     <header class="device-card-head">
       <div>
         <h2>ShipNet Identity</h2>
-        <p>Dinh danh thiet bi, tau va goi KVH / Device, vessel and KVH identifiers.</p>
+        <p>Định danh thiết bị, tàu và gói KVH / Device, vessel and KVH identifiers.</p>
       </div>
     </header>
     <div class="kvh-identity-grid">
@@ -109,7 +112,7 @@
         <p>Du lieu subscription hien hanh tra ve tu KVH / Current provider entries.</p>
       </div>
     </header>
-    <div class="device-table-wrap">
+    <div class="device-table-wrap kvh-table-wrap">
       <table class="device-table subscription-table kvh-table">
         <thead>
           <tr>
@@ -130,7 +133,7 @@
             var lastLog = Model.SyncLogs.FirstOrDefault();
             <tr>
               <td colspan="9" class="tenant-empty">
-                Chua co subscription KVH hien hanh / No current KVH subscription entry.
+                Chưa có subscription KVH hiện hành / No current KVH subscription entry.
                 <div class="muted">Last sync: @(lastLog is null ? "Not synced" : lastLog.StartedDisplay)</div>
                 <div class="muted">Result: @(lastLog is null ? "Not synced" : lastLog.Success && lastLog.ReturnedCount == 0 ? "Empty" : lastLog.Success ? "Success" : $"Failed {lastLog.ErrorCode}")</div>
               </td>
@@ -209,10 +212,10 @@
     <header class="device-card-head">
       <div>
         <h2>Recent Sync Logs</h2>
-        <p>Lich su goi API KVH gan nhat / Recent synchronization logs.</p>
+        <p>Lịch sử gọi API KVH gần nhất / Recent synchronization logs.</p>
       </div>
     </header>
-    <div class="device-table-wrap">
+    <div class="device-table-wrap kvh-table-wrap">
       <table class="device-table subscription-table kvh-table">
         <thead>
           <tr>
@@ -229,7 +232,7 @@
         <tbody>
           @if (Model.SyncLogs.Count == 0)
           {
-            <tr><td colspan="8" class="tenant-empty">Chua co log dong bo / No sync log has been recorded.</td></tr>
+            <tr><td colspan="8" class="tenant-empty">Chưa có log đồng bộ / No sync log has been recorded.</td></tr>
           }
           @foreach (var log in Model.SyncLogs)
           {
@@ -271,10 +274,10 @@
     <header class="device-card-head">
       <div>
         <h2>Recent KVH Commands</h2>
-        <p>Lenh Pause/Resume/Cancel da gui gan day / Recent command status.</p>
+        <p>Lệnh Pause/Resume/Cancel đã gửi gần đây / Recent command status.</p>
       </div>
     </header>
-    <div class="device-table-wrap">
+    <div class="device-table-wrap kvh-table-wrap">
       <table class="device-table subscription-table kvh-table">
         <thead>
           <tr>
@@ -291,7 +294,7 @@
         <tbody>
           @if (Model.RecentCommands.Count == 0)
           {
-            <tr><td colspan="8" class="tenant-empty">Chua co lenh KVH / No recent KVH commands for this device.</td></tr>
+            <tr><td colspan="8" class="tenant-empty">Chưa có lệnh KVH / No recent KVH commands for this device.</td></tr>
           }
           @foreach (var command in Model.RecentCommands)
           {
@@ -326,10 +329,12 @@
       <pre id="kvhJsonContent"></pre>
       <div class="device-modal-actions">
         <button type="button" class="btn-secondary" data-kvh-copy-json>Copy JSON</button>
-        <button type="button" class="btn-primary" data-kvh-close-modal>Dong / Close</button>
+        <button type="button" class="btn-primary" data-kvh-close-modal>Đóng / Close</button>
       </div>
     </div>
   </div>
+</div>
+</div>
 </div>
 
 @section Scripts {

@@ -27,7 +27,7 @@ public class KvhSolutionsController(
             CanManageSolutions(currentUser),
             HttpContext.RequestAborted);
         model.RecentBatches = (await kvhBulkSyncService.GetRecentBatchesAsync(GetAllowedTenantId(currentUser), HttpContext.RequestAborted)).ToList();
-        return View("~/Views/KvhSolutions/Index.cshtml", model);
+        return View(model);
     }
 
     [HttpGet]
@@ -35,7 +35,7 @@ public class KvhSolutionsController(
     {
         var currentUser = await GetCurrentUserAsync();
         var detail = await kvhSubscriptionService.GetSolutionDetailAsync(deviceId, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), CanManageSolutions(currentUser), HttpContext.RequestAborted);
-        return detail is null ? NotFound() : View("~/Views/KvhSolutions/Details.cshtml", detail);
+        return detail is null ? NotFound() : View(detail);
     }
 
     [HttpPost]

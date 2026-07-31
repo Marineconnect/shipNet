@@ -96,6 +96,64 @@
     if (value) await navigator.clipboard?.writeText(value);
   });
 
+  const actionMenus = Array.from(document.querySelectorAll(".kvh-action-menu"));
+  function closeActionMenu(menu) {
+    const panel = menu.querySelector(".kvh-action-panel");
+    const summary = menu.querySelector("summary");
+    if (panel?.classList.contains("is-portaled")) {
+      panel.classList.remove("is-portaled");
+      panel.removeAttribute("style");
+      menu.appendChild(panel);
+    }
+    menu.open = false;
+    summary?.setAttribute("aria-expanded", "false");
+  }
+
+  function positionActionMenu(menu) {
+    const summary = menu.querySelector("summary");
+    const panel = menu.querySelector(".kvh-action-panel");
+    if (!summary || !panel || !menu.open) return;
+    const rect = summary.getBoundingClientRect();
+    if (!panel.classList.contains("is-portaled")) {
+      document.body.appendChild(panel);
+      panel.classList.add("is-portaled");
+    }
+    const width = Math.max(170, panel.offsetWidth || 170);
+    const left = Math.max(10, Math.min(rect.right - width, window.innerWidth - width - 10));
+    panel.style.position = "fixed";
+    panel.style.top = `${Math.min(rect.bottom + 6, window.innerHeight - 10)}px`;
+    panel.style.left = `${left}px`;
+    panel.style.width = `${width}px`;
+    summary.setAttribute("aria-expanded", "true");
+  }
+
+  actionMenus.forEach((menu) => {
+    menu.querySelector("summary")?.setAttribute("aria-haspopup", "menu");
+    menu.addEventListener("toggle", () => {
+      if (!menu.open) {
+        closeActionMenu(menu);
+        return;
+      }
+      actionMenus.forEach((other) => {
+        if (other !== menu && other.open) closeActionMenu(other);
+      });
+      positionActionMenu(menu);
+    });
+  });
+
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    actionMenus.forEach((menu) => {
+      const panel = document.body.querySelector(".kvh-action-panel.is-portaled");
+      if (menu.contains(target) || panel?.contains(target)) return;
+      if (menu.open) closeActionMenu(menu);
+    });
+  });
+
+  window.addEventListener("resize", () => actionMenus.forEach((menu) => positionActionMenu(menu)));
+  window.addEventListener("scroll", () => actionMenus.forEach((menu) => positionActionMenu(menu)), true);
+
   const runningRows = Array.from(document.querySelectorAll(".kvh-batch-row[data-kvh-running='true']"));
   if (runningRows.length === 0) return;
 

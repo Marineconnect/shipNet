@@ -179,7 +179,7 @@ public sealed class KvhSubscriptionService(
     public async Task<KvhSolutionPageResult> GetSolutionsAsync(KvhSolutionFilter filter, int page, int pageSize, int? allowedTenantId = null, int? allowedDeviceId = null, bool canManage = false, CancellationToken cancellationToken = default)
     {
         page = page < 1 ? 1 : page;
-        pageSize = pageSize <= 0 ? 20 : pageSize;
+        pageSize = pageSize is 20 or 50 or 100 or 140 ? pageSize : 20;
         filter.Search = NormalizeNullable(filter.Search);
         filter.Status = NormalizeNullable(filter.Status);
         filter.Region = NormalizeNullable(filter.Region);
@@ -195,10 +195,18 @@ public sealed class KvhSubscriptionService(
 
         var where = BuildSolutionWhere(filter, allowedTenantId, allowedDeviceId);
         var countSql = $"""
-            SELECT COUNT(1)
+            SELECT COUNT(DISTINCT d.[ID])
             FROM [dbo].[TblDevices] d
             LEFT JOIN [dbo].[TblTenant] t ON t.[ID] = d.[TenantID]
-            LEFT JOIN [dbo].[TblKvhSubscription] s ON s.[DeviceId] = d.[ID] AND s.[IsCurrent] = 1
+            OUTER APPLY (
+                SELECT TOP 1 *
+                FROM [dbo].[TblKvhSubscription] sx
+                WHERE sx.[DeviceId] = d.[ID]
+                  AND sx.[IsCurrent] = 1
+                  AND (@status IS NULL OR sx.[Status] = @status)
+                  AND (@region IS NULL OR sx.[Region] = @region)
+                ORDER BY sx.[LastSeenAtUtc] DESC, sx.[ID] DESC
+            ) s
             OUTER APPLY (SELECT TOP 1 * FROM [dbo].[TblKvhSubscriptionSyncLog] l WHERE l.[DeviceId] = d.[ID] ORDER BY l.[StartedAtUtc] DESC, l.[ID] DESC) log
             OUTER APPLY (
                 SELECT TOP 1 CAST(1 AS bit) AS [HasPendingCommand], [CooldownUntilUtc]
@@ -214,6 +222,12 @@ public sealed class KvhSubscriptionService(
         {
             AddSolutionParameters(countCommand, filter, allowedTenantId, allowedDeviceId);
             var total = Convert.ToInt32(await countCommand.ExecuteScalarAsync(cancellationToken) ?? 0);
+            var totalPages = pageSize <= 0 ? 0 : (int)Math.Ceiling(total / (double)pageSize);
+            if (totalPages > 0 && page > totalPages)
+            {
+                page = totalPages;
+            }
+
             var query = $"""
                 SELECT d.[ID], d.[DeviceName], d.[DeviceCode], d.[VesselName], d.[TenantID], t.[TenantName], d.[KITNumber], d.[Availability], d.[LastUpdateTime], d.[TrafficId],
                        s.[ID] AS [KvhSubscriptionId], s.[Region], s.[PlanName], s.[Status], s.[ScheduledAction], s.[ScheduleId], s.[ScheduledEffectiveDateUtc],
@@ -221,7 +235,15 @@ public sealed class KvhSubscriptionService(
                        pending.[HasPendingCommand], pending.[CooldownUntilUtc]
                 FROM [dbo].[TblDevices] d
                 LEFT JOIN [dbo].[TblTenant] t ON t.[ID] = d.[TenantID]
-                LEFT JOIN [dbo].[TblKvhSubscription] s ON s.[DeviceId] = d.[ID] AND s.[IsCurrent] = 1
+                OUTER APPLY (
+                    SELECT TOP 1 *
+                    FROM [dbo].[TblKvhSubscription] sx
+                    WHERE sx.[DeviceId] = d.[ID]
+                      AND sx.[IsCurrent] = 1
+                      AND (@status IS NULL OR sx.[Status] = @status)
+                      AND (@region IS NULL OR sx.[Region] = @region)
+                    ORDER BY sx.[LastSeenAtUtc] DESC, sx.[ID] DESC
+                ) s
                 OUTER APPLY (SELECT TOP 1 * FROM [dbo].[TblKvhSubscriptionSyncLog] l WHERE l.[DeviceId] = d.[ID] ORDER BY l.[StartedAtUtc] DESC, l.[ID] DESC) log
                 OUTER APPLY (
                     SELECT TOP 1 CAST(1 AS bit) AS [HasPendingCommand], [CooldownUntilUtc]
@@ -232,7 +254,7 @@ public sealed class KvhSubscriptionService(
                     ORDER BY c.[RequestedAtUtc] DESC, c.[ID] DESC
                 ) pending
                 WHERE {where}
-                ORDER BY d.[VesselName], d.[DeviceCode], s.[Region]
+                ORDER BY d.[VesselName], d.[DeviceCode], d.[ID]
                 OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
                 """;
             await using var command = new SqlCommand(query, connection);
