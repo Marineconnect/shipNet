@@ -15,8 +15,25 @@ public class KvhSolutionsController(
     ILogger<KvhSolutionsController> logger) : Controller
 {
     [HttpGet]
-    public async Task<IActionResult> Index(int page = 1, int pageSize = 20, string? search = null, string? status = null, string? region = null, int? tenantId = null, string? syncState = null)
+    public async Task<IActionResult> Index(
+        string tab = "devices",
+        int page = 1,
+        int pageSize = 20,
+        string? search = null,
+        string? status = null,
+        string? region = null,
+        int? tenantId = null,
+        string? syncState = null,
+        int historyPage = 1,
+        int historyPageSize = 20,
+        string? historySearch = null,
+        int? historyTenantId = null,
+        string? historyResult = null,
+        string? historySource = null,
+        DateTime? historyDateFrom = null,
+        DateTime? historyDateTo = null)
     {
+        tab = NormalizeTab(tab);
         var currentUser = await GetCurrentUserAsync();
         var model = await kvhSubscriptionService.GetSolutionsAsync(
             new KvhSolutionFilter { Search = search, Status = status, Region = region, TenantId = tenantId, SyncState = syncState },
@@ -26,7 +43,40 @@ public class KvhSolutionsController(
             GetAllowedDeviceId(currentUser),
             CanManageSolutions(currentUser),
             HttpContext.RequestAborted);
-        model.RecentBatches = (await kvhBulkSyncService.GetRecentBatchesAsync(GetAllowedTenantId(currentUser), HttpContext.RequestAborted)).ToList();
+        model.ActiveTab = tab;
+        model.SyncHistory = tab == "history"
+            ? await kvhSubscriptionService.GetSyncHistoryAsync(
+                new KvhSyncHistoryFilter
+                {
+                    Search = historySearch,
+                    TenantId = historyTenantId,
+                    Result = historyResult,
+                    SyncSource = historySource,
+                    DateFrom = historyDateFrom,
+                    DateTo = historyDateTo
+                },
+                historyPage,
+                historyPageSize,
+                GetAllowedTenantId(currentUser),
+                GetAllowedDeviceId(currentUser),
+                HttpContext.RequestAborted)
+            : new KvhSyncHistoryPageResult
+            {
+                Filter = new KvhSyncHistoryFilter
+                {
+                    Search = historySearch,
+                    TenantId = historyTenantId,
+                    Result = historyResult,
+                    SyncSource = historySource,
+                    DateFrom = historyDateFrom,
+                    DateTo = historyDateTo
+                },
+                CurrentPage = historyPage < 1 ? 1 : historyPage,
+                PageSize = historyPageSize is 20 or 50 or 100 ? historyPageSize : 20
+            };
+        model.RecentBatches = tab is "devices" or "batches"
+            ? (await kvhBulkSyncService.GetRecentBatchesAsync(GetAllowedTenantId(currentUser), HttpContext.RequestAborted)).ToList()
+            : [];
         return View(model);
     }
 
@@ -208,4 +258,9 @@ public class KvhSolutionsController(
     {
         return user is not null && !user.IsViewOnly;
     }
+
+    private static string NormalizeTab(string? tab) =>
+        string.Equals(tab, "history", StringComparison.OrdinalIgnoreCase) ? "history" :
+        string.Equals(tab, "batches", StringComparison.OrdinalIgnoreCase) ? "batches" :
+        "devices";
 }

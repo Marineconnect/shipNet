@@ -42,7 +42,7 @@
       await navigator.clipboard?.writeText(value);
       button.classList.add("is-copied");
       const original = button.textContent;
-      button.textContent = "Copied";
+      button.textContent = "Đã sao chép";
       window.setTimeout(() => {
         button.classList.remove("is-copied");
         button.textContent = original;
@@ -76,14 +76,27 @@
   const jsonModal = document.querySelector("[data-kvh-json-modal]");
   const jsonTitle = document.getElementById("kvhJsonTitle");
   const jsonContent = document.getElementById("kvhJsonContent");
+  function sanitizeJson(value) {
+    if (Array.isArray(value)) return value.map((item) => sanitizeJson(item));
+    if (!value || typeof value !== "object") return value;
+
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => {
+      const normalized = key.toLowerCase();
+      if (normalized.includes("token") || normalized.includes("authorization") || normalized.includes("secret") || normalized.includes("password")) {
+        return [key, "***"];
+      }
+      return [key, sanitizeJson(entry)];
+    }));
+  }
+
   document.querySelectorAll("[data-kvh-json]").forEach((button) => {
     button.addEventListener("click", () => {
       if (!jsonModal || !jsonContent) return;
-      const title = button.getAttribute("data-kvh-json-title") || "Payload JSON";
+      const title = button.getAttribute("data-kvh-json-title") || "Nội dung JSON";
       const raw = button.getAttribute("data-kvh-json") || "";
       if (jsonTitle) jsonTitle.textContent = title;
       try {
-        jsonContent.textContent = JSON.stringify(JSON.parse(raw), null, 2);
+        jsonContent.textContent = JSON.stringify(sanitizeJson(JSON.parse(raw)), null, 2);
       } catch {
         jsonContent.textContent = raw;
       }
@@ -97,8 +110,11 @@
   });
 
   const actionMenus = Array.from(document.querySelectorAll(".kvh-action-menu"));
-  function closeActionMenu(menu) {
-    const panel = menu.querySelector(".kvh-action-panel");
+  const actionPanels = new WeakMap();
+  let activeActionMenu = null;
+
+  function closeActionMenu(menu, restoreFocus = false) {
+    const panel = actionPanels.get(menu) ?? menu.querySelector(".kvh-action-panel");
     const summary = menu.querySelector("summary");
     if (panel?.classList.contains("is-portaled")) {
       panel.classList.remove("is-portaled");
@@ -107,27 +123,50 @@
     }
     menu.open = false;
     summary?.setAttribute("aria-expanded", "false");
+    if (activeActionMenu === menu) activeActionMenu = null;
+    if (restoreFocus) summary?.focus();
   }
 
   function positionActionMenu(menu) {
     const summary = menu.querySelector("summary");
-    const panel = menu.querySelector(".kvh-action-panel");
+    const panel = actionPanels.get(menu) ?? menu.querySelector(".kvh-action-panel");
     if (!summary || !panel || !menu.open) return;
     const rect = summary.getBoundingClientRect();
     if (!panel.classList.contains("is-portaled")) {
       document.body.appendChild(panel);
       panel.classList.add("is-portaled");
     }
-    const width = Math.max(170, panel.offsetWidth || 170);
-    const left = Math.max(10, Math.min(rect.right - width, window.innerWidth - width - 10));
+
     panel.style.position = "fixed";
-    panel.style.top = `${Math.min(rect.bottom + 6, window.innerHeight - 10)}px`;
+    panel.style.visibility = "hidden";
+    panel.style.left = "0px";
+    panel.style.top = "0px";
+    panel.style.width = "max-content";
+
+    const panelRect = panel.getBoundingClientRect();
+    const width = Math.max(180, panelRect.width || 180);
+    const height = Math.max(40, panelRect.height || 40);
+    const margin = 10;
+    let left = rect.right - width;
+    let top = rect.bottom + 8;
+
+    if (left < margin) left = rect.left;
+    if (left + width > window.innerWidth - margin) left = window.innerWidth - width - margin;
+    if (left < margin) left = margin;
+    if (top + height > window.innerHeight - margin) top = rect.top - height - 8;
+    if (top < margin) top = margin;
+
+    panel.style.position = "fixed";
+    panel.style.top = `${top}px`;
     panel.style.left = `${left}px`;
     panel.style.width = `${width}px`;
+    panel.style.visibility = "visible";
     summary.setAttribute("aria-expanded", "true");
   }
 
   actionMenus.forEach((menu) => {
+    const panel = menu.querySelector(".kvh-action-panel");
+    if (panel) actionPanels.set(menu, panel);
     menu.querySelector("summary")?.setAttribute("aria-haspopup", "menu");
     menu.addEventListener("toggle", () => {
       if (!menu.open) {
@@ -137,6 +176,7 @@
       actionMenus.forEach((other) => {
         if (other !== menu && other.open) closeActionMenu(other);
       });
+      activeActionMenu = menu;
       positionActionMenu(menu);
     });
   });
@@ -145,14 +185,25 @@
     const target = event.target;
     if (!(target instanceof Node)) return;
     actionMenus.forEach((menu) => {
-      const panel = document.body.querySelector(".kvh-action-panel.is-portaled");
+      const panel = actionPanels.get(menu) ?? menu.querySelector(".kvh-action-panel");
       if (menu.contains(target) || panel?.contains(target)) return;
       if (menu.open) closeActionMenu(menu);
     });
   });
 
-  window.addEventListener("resize", () => actionMenus.forEach((menu) => positionActionMenu(menu)));
-  window.addEventListener("scroll", () => actionMenus.forEach((menu) => positionActionMenu(menu)), true);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && activeActionMenu?.open) {
+      event.preventDefault();
+      closeActionMenu(activeActionMenu, true);
+    }
+  });
+
+  window.addEventListener("resize", () => {
+    if (activeActionMenu?.open) positionActionMenu(activeActionMenu);
+  });
+  window.addEventListener("scroll", () => {
+    if (activeActionMenu?.open) positionActionMenu(activeActionMenu);
+  }, true);
 
   const runningRows = Array.from(document.querySelectorAll(".kvh-batch-row[data-kvh-running='true']"));
   if (runningRows.length === 0) return;

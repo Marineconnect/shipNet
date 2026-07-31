@@ -284,6 +284,88 @@ public sealed class KvhSubscriptionService(
         }
     }
 
+    public async Task<KvhSyncHistoryPageResult> GetSyncHistoryAsync(KvhSyncHistoryFilter filter, int page, int pageSize, int? allowedTenantId = null, int? allowedDeviceId = null, CancellationToken cancellationToken = default)
+    {
+        page = page < 1 ? 1 : page;
+        pageSize = pageSize is 20 or 50 or 100 ? pageSize : 20;
+        filter.Search = NormalizeNullable(filter.Search);
+        filter.Result = NormalizeNullable(filter.Result);
+        filter.SyncSource = NormalizeNullable(filter.SyncSource);
+        if (allowedTenantId.HasValue)
+        {
+            filter.TenantId = allowedTenantId;
+        }
+
+        var items = new List<KvhSyncHistoryItemViewModel>();
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var where = BuildHistoryWhere(filter, allowedTenantId, allowedDeviceId);
+        var countSql = $"""
+            SELECT COUNT(1)
+            FROM [dbo].[TblKvhSubscriptionSyncLog] l
+            LEFT JOIN [dbo].[TblDevices] d ON d.[ID] = l.[DeviceId]
+            LEFT JOIN [dbo].[TblTenant] t ON t.[ID] = d.[TenantID]
+            WHERE {where}
+            """;
+        await using var countCommand = new SqlCommand(countSql, connection);
+        AddHistoryParameters(countCommand, filter, allowedTenantId, allowedDeviceId);
+        var total = Convert.ToInt32(await countCommand.ExecuteScalarAsync(cancellationToken) ?? 0);
+        var totalPages = pageSize <= 0 ? 0 : (int)Math.Ceiling(total / (double)pageSize);
+        if (totalPages > 0 && page > totalPages)
+        {
+            page = totalPages;
+        }
+
+        var query = $"""
+            SELECT l.[ID], l.[DeviceId], ISNULL(d.[DeviceName], '') AS [DeviceName], ISNULL(d.[VesselName], '') AS [VesselName],
+                   ISNULL(t.[TenantName], '') AS [TenantName], l.[TerminalId], l.[TrafficId], l.[StartedAtUtc], l.[CompletedAtUtc],
+                   l.[Success], l.[ErrorCode], l.[ErrorMessage], l.[ResponseJson], l.[ReturnedCount], l.[HttpStatusCode], l.[SyncSource]
+            FROM [dbo].[TblKvhSubscriptionSyncLog] l
+            LEFT JOIN [dbo].[TblDevices] d ON d.[ID] = l.[DeviceId]
+            LEFT JOIN [dbo].[TblTenant] t ON t.[ID] = d.[TenantID]
+            WHERE {where}
+            ORDER BY l.[StartedAtUtc] DESC, l.[ID] DESC
+            OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
+            """;
+        await using var command = new SqlCommand(query, connection);
+        AddHistoryParameters(command, filter, allowedTenantId, allowedDeviceId);
+        command.Parameters.Add("@offset", SqlDbType.Int).Value = (page - 1) * pageSize;
+        command.Parameters.Add("@pageSize", SqlDbType.Int).Value = pageSize;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            items.Add(new KvhSyncHistoryItemViewModel
+            {
+                Id = Convert.ToInt64(reader["ID"]),
+                DeviceId = reader["DeviceId"] == DBNull.Value ? 0 : Convert.ToInt32(reader["DeviceId"]),
+                DeviceName = reader["DeviceName"]?.ToString() ?? string.Empty,
+                VesselName = reader["VesselName"]?.ToString() ?? string.Empty,
+                TenantName = reader["TenantName"]?.ToString() ?? string.Empty,
+                TerminalId = reader["TerminalId"]?.ToString() ?? string.Empty,
+                TrafficId = reader["TrafficId"]?.ToString() ?? string.Empty,
+                StartedAtUtc = DateTime.SpecifyKind(Convert.ToDateTime(reader["StartedAtUtc"]), DateTimeKind.Utc),
+                CompletedAtUtc = reader["CompletedAtUtc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["CompletedAtUtc"]), DateTimeKind.Utc),
+                Success = reader["Success"] != DBNull.Value && Convert.ToBoolean(reader["Success"]),
+                ErrorCode = reader["ErrorCode"]?.ToString() ?? string.Empty,
+                ErrorMessage = reader["ErrorMessage"]?.ToString() ?? string.Empty,
+                ResponseJson = reader["ResponseJson"]?.ToString() ?? string.Empty,
+                ReturnedCount = reader["ReturnedCount"] == DBNull.Value ? 0 : Convert.ToInt32(reader["ReturnedCount"]),
+                HttpStatusCode = reader["HttpStatusCode"] == DBNull.Value ? null : Convert.ToInt32(reader["HttpStatusCode"]),
+                SyncSource = reader["SyncSource"]?.ToString() ?? string.Empty
+            });
+        }
+
+        return new KvhSyncHistoryPageResult
+        {
+            Items = items,
+            Filter = filter,
+            CurrentPage = page,
+            PageSize = pageSize,
+            TotalItems = total
+        };
+    }
+
     public async Task<KvhSolutionDetailViewModel?> GetSolutionDetailAsync(int deviceId, int? allowedTenantId = null, int? allowedDeviceId = null, bool canManage = false, CancellationToken cancellationToken = default)
     {
         await using var connection = new SqlConnection(_connectionString);
@@ -971,6 +1053,53 @@ public sealed class KvhSubscriptionService(
         command.Parameters.Add("@tenantId", SqlDbType.Int).Value = (object?)filter.TenantId ?? DBNull.Value;
         command.Parameters.Add("@status", SqlDbType.NVarChar, 80).Value = (object?)filter.Status ?? DBNull.Value;
         command.Parameters.Add("@region", SqlDbType.NVarChar, 120).Value = (object?)filter.Region ?? DBNull.Value;
+        if (!string.IsNullOrWhiteSpace(filter.Search))
+        {
+            command.Parameters.Add("@search", SqlDbType.NVarChar, 260).Value = $"%{filter.Search}%";
+        }
+    }
+
+    private static string BuildHistoryWhere(KvhSyncHistoryFilter filter, int? allowedTenantId, int? allowedDeviceId)
+    {
+        var clauses = new List<string>
+        {
+            "(@allowedTenantId IS NULL OR d.[TenantID] = @allowedTenantId)",
+            "(@allowedDeviceId IS NULL OR l.[DeviceId] = @allowedDeviceId)",
+            "(@tenantId IS NULL OR d.[TenantID] = @tenantId)",
+            "(@source IS NULL OR l.[SyncSource] = @source)",
+            "(@dateFrom IS NULL OR l.[StartedAtUtc] >= @dateFrom)",
+            "(@dateTo IS NULL OR l.[StartedAtUtc] < DATEADD(day, 1, @dateTo))"
+        };
+
+        if (!string.IsNullOrWhiteSpace(filter.Search))
+        {
+            clauses.Add("(d.[DeviceName] LIKE @search OR d.[VesselName] LIKE @search OR d.[DeviceCode] LIKE @search OR d.[KITNumber] LIKE @search OR l.[TerminalId] LIKE @search OR l.[TrafficId] LIKE @search)");
+        }
+
+        if (string.Equals(filter.Result, "success", StringComparison.OrdinalIgnoreCase))
+        {
+            clauses.Add("l.[Success] = 1 AND ISNULL(l.[ReturnedCount], 0) > 0");
+        }
+        else if (string.Equals(filter.Result, "empty", StringComparison.OrdinalIgnoreCase))
+        {
+            clauses.Add("l.[Success] = 1 AND ISNULL(l.[ReturnedCount], 0) = 0");
+        }
+        else if (string.Equals(filter.Result, "failed", StringComparison.OrdinalIgnoreCase))
+        {
+            clauses.Add("ISNULL(l.[Success], 0) = 0");
+        }
+
+        return string.Join(" AND ", clauses);
+    }
+
+    private static void AddHistoryParameters(SqlCommand command, KvhSyncHistoryFilter filter, int? allowedTenantId, int? allowedDeviceId)
+    {
+        command.Parameters.Add("@allowedTenantId", SqlDbType.Int).Value = (object?)allowedTenantId ?? DBNull.Value;
+        command.Parameters.Add("@allowedDeviceId", SqlDbType.Int).Value = (object?)allowedDeviceId ?? DBNull.Value;
+        command.Parameters.Add("@tenantId", SqlDbType.Int).Value = (object?)filter.TenantId ?? DBNull.Value;
+        command.Parameters.Add("@source", SqlDbType.NVarChar, 40).Value = (object?)filter.SyncSource ?? DBNull.Value;
+        command.Parameters.Add("@dateFrom", SqlDbType.DateTime2).Value = (object?)filter.DateFrom ?? DBNull.Value;
+        command.Parameters.Add("@dateTo", SqlDbType.DateTime2).Value = (object?)filter.DateTo ?? DBNull.Value;
         if (!string.IsNullOrWhiteSpace(filter.Search))
         {
             command.Parameters.Add("@search", SqlDbType.NVarChar, 260).Value = $"%{filter.Search}%";

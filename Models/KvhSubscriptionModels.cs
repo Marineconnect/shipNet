@@ -29,11 +29,23 @@ public sealed class KvhSolutionFilter
     public string? SyncState { get; set; }
 }
 
+public sealed class KvhSyncHistoryFilter
+{
+    public string? Search { get; set; }
+    public int? TenantId { get; set; }
+    public string? Result { get; set; }
+    public string? SyncSource { get; set; }
+    public DateTime? DateFrom { get; set; }
+    public DateTime? DateTo { get; set; }
+}
+
 public sealed class KvhSolutionPageResult
 {
+    public string ActiveTab { get; set; } = "devices";
     public List<KvhSolutionListItemViewModel> Items { get; set; } = [];
     public List<KvhSyncBatchSummaryViewModel> RecentBatches { get; set; } = [];
     public List<DeviceTenantOptionViewModel> Tenants { get; set; } = [];
+    public KvhSyncHistoryPageResult SyncHistory { get; set; } = new();
     public int CurrentPage { get; set; } = 1;
     public int PageSize { get; set; } = 20;
     public int TotalItems { get; set; }
@@ -45,6 +57,49 @@ public sealed class KvhSolutionPageResult
     public bool HasNextPage => CurrentPage < TotalPages;
     public int StartItem => TotalItems == 0 ? 0 : ((CurrentPage - 1) * PageSize) + 1;
     public int EndItem => TotalItems == 0 ? 0 : Math.Min(CurrentPage * PageSize, TotalItems);
+}
+
+public sealed class KvhSyncHistoryPageResult
+{
+    public List<KvhSyncHistoryItemViewModel> Items { get; set; } = [];
+    public KvhSyncHistoryFilter Filter { get; set; } = new();
+    public int CurrentPage { get; set; } = 1;
+    public int PageSize { get; set; } = 20;
+    public int TotalItems { get; set; }
+    public int TotalPages => PageSize <= 0 ? 0 : (int)Math.Ceiling(TotalItems / (double)PageSize);
+    public bool HasPreviousPage => CurrentPage > 1;
+    public bool HasNextPage => CurrentPage < TotalPages;
+    public int StartItem => TotalItems == 0 ? 0 : ((CurrentPage - 1) * PageSize) + 1;
+    public int EndItem => TotalItems == 0 ? 0 : Math.Min(CurrentPage * PageSize, TotalItems);
+}
+
+public sealed class KvhSyncHistoryItemViewModel
+{
+    public long Id { get; set; }
+    public int DeviceId { get; set; }
+    public string DeviceName { get; set; } = string.Empty;
+    public string VesselName { get; set; } = string.Empty;
+    public string TenantName { get; set; } = string.Empty;
+    public string TerminalId { get; set; } = string.Empty;
+    public string TrafficId { get; set; } = string.Empty;
+    public DateTime StartedAtUtc { get; set; }
+    public DateTime? CompletedAtUtc { get; set; }
+    public bool Success { get; set; }
+    public string ErrorCode { get; set; } = string.Empty;
+    public string ErrorMessage { get; set; } = string.Empty;
+    public string ResponseJson { get; set; } = string.Empty;
+    public int ReturnedCount { get; set; }
+    public int? HttpStatusCode { get; set; }
+    public string SyncSource { get; set; } = string.Empty;
+
+    public string StartedDisplay => FormatUtc(StartedAtUtc);
+    public string CompletedDisplay => FormatUtc(CompletedAtUtc);
+    public string ResultKey => Success && ReturnedCount == 0 ? "Empty" : Success ? "Success" : "Failed";
+
+    private static string FormatUtc(DateTime? value) =>
+        value.HasValue
+            ? TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(value.Value, DateTimeKind.Utc), TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")).ToString("dd/MM/yyyy HH:mm:ss")
+            : "-";
 }
 
 public sealed class KvhSolutionListItemViewModel

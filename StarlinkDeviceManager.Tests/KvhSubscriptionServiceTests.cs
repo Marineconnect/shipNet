@@ -6,6 +6,9 @@ public sealed class KvhSubscriptionServiceTests
 {
     private static readonly string ProjectRoot = FindProjectRoot();
     private static readonly string ServiceSource = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "KvhSubscriptionService.cs"));
+    private static readonly string BulkSyncSource = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "KvhBulkSyncService.cs"));
+    private static readonly string KvhIndexView = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "KvhSolutions", "Index.cshtml"));
+    private static readonly string KvhScript = File.ReadAllText(Path.Combine(ProjectRoot, "wwwroot", "js", "kvh-solutions.js"));
 
     [Fact]
     public void GetSolutionsAsync_ClosesListReaderBeforeTenantQuery()
@@ -97,6 +100,71 @@ public sealed class KvhSubscriptionServiceTests
         Assert.Equal("Tenant A", model.Tenants[0].TenantName);
         Assert.Equal(0, model.TotalPages);
         Assert.False(model.HasNextPage);
+    }
+
+    [Fact]
+    public void KvhIndex_UsesSeparateTerminalSubscriptionSyncAndCommandMappers()
+    {
+        Assert.Contains("string TerminalStatusClass(string? availability)", KvhIndexView);
+        Assert.Contains("\"ONLINE\" or \"AVAILABLE\" => \"online\"", KvhIndexView);
+        Assert.Contains("\"OFFLINE\" => \"offline\"", KvhIndexView);
+        Assert.Contains("\"AGED\" => \"aged\"", KvhIndexView);
+        Assert.Contains("string SubscriptionStatusClass(string? status)", KvhIndexView);
+        Assert.Contains("\"ACTIVE\" => \"active\"", KvhIndexView);
+        Assert.Contains("\"PAUSED\" or \"SUSPEND\" or \"SUSPENDED\" => \"paused\"", KvhIndexView);
+        Assert.Contains("\"PAUSE_SCHEDULED\" => \"scheduled\"", KvhIndexView);
+        Assert.Contains("string SyncResultClass(string? result)", KvhIndexView);
+        Assert.Contains("string CommandStatusLabel(bool hasPendingCommand)", KvhIndexView);
+        Assert.DoesNotContain("StatusClass(availability", KvhIndexView);
+    }
+
+    [Fact]
+    public void KvhIndex_SplitsDevicesHistoryAndBatchesIntoBookmarkableTabs()
+    {
+        Assert.Contains("asp-route-tab=\"devices\"", KvhIndexView);
+        Assert.Contains("asp-route-tab=\"history\"", KvhIndexView);
+        Assert.Contains("asp-route-tab=\"batches\"", KvhIndexView);
+        Assert.Contains("id=\"kvh-tab-devices\"", KvhIndexView);
+        Assert.Contains("id=\"kvh-tab-history\"", KvhIndexView);
+        Assert.Contains("id=\"kvh-tab-batches\"", KvhIndexView);
+        Assert.Contains("Model.SyncHistory.Items", KvhIndexView);
+        Assert.Contains("TblKvhSubscriptionSyncLog", KvhIndexView);
+    }
+
+    [Fact]
+    public void KvhBulkSync_RetryFailedOnlyUsesFailedItemsForRequestedBatch()
+    {
+        var resolveBody = ExtractMethodBody(BulkSyncSource, "private async Task<List<int>> ResolveDeviceIdsAsync");
+
+        Assert.Contains("KvhBatchTypes.RetryFailed", resolveBody);
+        Assert.Contains("i.[BatchId] = @sourceBatchId AND i.[Status] = 'FAILED'", resolveBody);
+        Assert.DoesNotContain("i.[Status] = 'EMPTY'", resolveBody);
+    }
+
+    [Fact]
+    public void KvhBulkSync_SyncMissingDocumentsBackendCriteria()
+    {
+        var resolveBody = ExtractMethodBody(BulkSyncSource, "private async Task<List<int>> ResolveDeviceIdsAsync");
+
+        Assert.Contains("KvhBatchTypes.SyncMissing", resolveBody);
+        Assert.Contains("OUTER APPLY (SELECT TOP 1 l.[ID]", resolveBody);
+        Assert.Contains("NULLIF(LTRIM(RTRIM(ISNULL(d.[DeviceCode], ''))), '') IS NOT NULL", resolveBody);
+        Assert.Contains("lastLog.[ID] IS NULL OR NOT EXISTS", resolveBody);
+        Assert.Contains("s.[IsCurrent] = 1", resolveBody);
+    }
+
+    [Fact]
+    public void KvhActionMenu_IsPortaledAndKeyboardDismissible()
+    {
+        Assert.Contains("document.body.appendChild(panel)", KvhScript);
+        Assert.Contains("getBoundingClientRect()", KvhScript);
+        Assert.Contains("window.innerHeight", KvhScript);
+        Assert.Contains("window.innerWidth", KvhScript);
+        Assert.Contains("event.key === \"Escape\"", KvhScript);
+        Assert.Contains("closeActionMenu(activeActionMenu, true)", KvhScript);
+        Assert.Contains("aria-expanded", KvhScript);
+        Assert.Contains("function sanitizeJson(value)", KvhScript);
+        Assert.Contains("normalized.includes(\"token\")", KvhScript);
     }
 
     private static string ReadProjectFile(string relativePath)

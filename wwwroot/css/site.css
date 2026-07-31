@@ -37,6 +37,45 @@
   align-items:center;
 }
 
+.kvh-tabs{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+  border-bottom:1px solid rgba(90,120,180,.18);
+}
+
+.kvh-tab-button{
+  min-height:42px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:0 18px;
+  border:1px solid rgba(88,130,199,.24);
+  border-bottom:0;
+  border-radius:12px 12px 0 0;
+  background:rgba(9,22,48,.72);
+  color:#a9bce0;
+  text-decoration:none;
+  font-weight:800;
+}
+
+.kvh-tab-button:hover,
+.kvh-tab-button:focus-visible,
+.kvh-tab-button.is-active{
+  color:#eaf5ff;
+  border-color:rgba(52,198,255,.42);
+  background:rgba(52,198,255,.14);
+}
+
+.kvh-tab-panel{
+  display:none;
+}
+
+.kvh-tab-panel.is-active{
+  display:block;
+}
+
 .kvh-inventory-card,
 .kvh-detail-card,
 .kvh-batches-card{
@@ -207,18 +246,43 @@
   text-transform:capitalize;
 }
 
+.kvh-status-dot,
 .kvh-terminal-status::before{
-  content:"";
   width:8px;
   height:8px;
+  flex:0 0 8px;
   border-radius:999px;
   background:#94a3b8;
+}
+
+.kvh-terminal-status::before{
+  content:"";
+  display:none;
 }
 
 .kvh-terminal-status.active::before,
 .kvh-terminal-status.paid::before{
   background:#22c55e;
   box-shadow:0 0 12px rgba(34,197,94,.55);
+}
+
+.kvh-terminal-status.online .kvh-status-dot{
+  background:#22c55e;
+  box-shadow:0 0 12px rgba(34,197,94,.55);
+}
+
+.kvh-terminal-status.offline .kvh-status-dot{
+  background:#fb7185;
+  box-shadow:0 0 12px rgba(251,113,133,.38);
+}
+
+.kvh-terminal-status.aged .kvh-status-dot{
+  background:#f59e0b;
+  box-shadow:0 0 12px rgba(245,158,11,.35);
+}
+
+.kvh-terminal-status.unknown .kvh-status-dot{
+  background:#94a3b8;
 }
 
 .kvh-terminal-status.pending::before{
@@ -233,6 +297,54 @@
   background:rgba(148,163,184,.14);
   color:#cbd5e1;
   border:1px solid rgba(148,163,184,.20);
+}
+
+.subscription-status.paused,
+.subscription-status.scheduled{
+  background:rgba(245,158,11,.16);
+  color:#fbbf24;
+  border:1px solid rgba(245,158,11,.26);
+}
+
+.subscription-status.pending{
+  background:rgba(59,130,246,.16);
+  color:#bfdbfe;
+  border:1px solid rgba(59,130,246,.26);
+}
+
+.kvh-history-card{
+  min-width:0;
+}
+
+.kvh-history-filter{
+  grid-template-columns:repeat(6, minmax(150px, 1fr)) auto;
+}
+
+.kvh-history-table{
+  min-width:2100px;
+}
+
+.kvh-wrap-cell{
+  max-width:360px;
+  white-space:normal;
+  overflow-wrap:anywhere;
+}
+
+.kvh-json-modal{
+  width:min(760px, calc(100vw - 28px));
+}
+
+.kvh-json-content{
+  max-height:min(58vh, 560px);
+  margin:0;
+  padding:14px;
+  overflow:auto;
+  border:1px solid rgba(88,130,199,.24);
+  border-radius:12px;
+  background:#061022;
+  color:#dbeafe;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
 }
 
 .kvh-action-menu{
@@ -4014,8 +4126,19 @@ body.is-map-fullscreen{
   color:#c4b5fd;
   border:1px solid rgba(139,92,246,.26);
 }
+.subscription-status.paused,
+.subscription-status.scheduled{
+  background:rgba(245,158,11,.16);
+  color:#fbbf24;
+  border:1px solid rgba(245,158,11,.26);
+}
 .subscription-status.void,
 .subscription-status.terminated{
+  background:rgba(251,113,133,.16);
+  color:#fecdd3;
+  border:1px solid rgba(251,113,133,.26);
+}
+.subscription-status.unknown{
   background:rgba(148,163,184,.14);
   color:#cbd5e1;
   border:1px solid rgba(148,163,184,.20);
