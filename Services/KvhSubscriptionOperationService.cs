@@ -638,7 +638,11 @@ public sealed class KvhSubscriptionOperationService(
                 [JobCompletedAtUtc] = CASE WHEN c.[JobStatus] = 'Failed' THEN COALESCE(i.[JobCompletedAtUtc], c.[CompletedAtUtc]) ELSE i.[JobCompletedAtUtc] END,
                 [VerifiedAtUtc] = CASE WHEN c.[CommandStatus] = 'VERIFIED' THEN COALESCE(i.[VerifiedAtUtc], c.[VerifiedAtUtc], SYSUTCDATETIME()) ELSE i.[VerifiedAtUtc] END,
                 [Status] = CASE
+                    WHEN c.[VerificationStatus] = 'VERIFIED_EFFECTIVE' THEN 'VERIFIED'
+                    WHEN c.[VerificationStatus] = 'VERIFIED_SCHEDULED' THEN 'WAITING_EFFECTIVE'
+                    WHEN c.[VerificationStatus] = 'CONFLICT' THEN 'CONFLICT'
                     WHEN c.[CommandStatus] = 'VERIFIED' THEN 'VERIFIED'
+                    WHEN c.[CommandStatus] = 'COMPLETED' AND c.[VerificationStatus] = 'VERIFIED_SCHEDULED' THEN 'WAITING_EFFECTIVE'
                     WHEN c.[CommandStatus] = 'VERIFICATION_MISMATCH' THEN 'VERIFICATION_MISMATCH'
                     WHEN c.[CommandStatus] = 'VERIFICATION_TIMEOUT' THEN 'TIMEOUT'
                     WHEN c.[CommandStatus] = 'VERIFYING' THEN 'VERIFYING'
@@ -879,6 +883,8 @@ public sealed class KvhSubscriptionOperationService(
                 CurrentScheduledAction = reader["CurrentScheduledAction"]?.ToString() ?? string.Empty,
                 CurrentScheduleId = reader["CurrentScheduleId"]?.ToString() ?? string.Empty,
                 CurrentScheduledEffectiveDateUtc = reader["CurrentScheduledEffectiveDateUtc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["CurrentScheduledEffectiveDateUtc"]), DateTimeKind.Utc),
+                CurrentScheduledCreatedAtUtc = reader["CurrentScheduledCreatedAtUtc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["CurrentScheduledCreatedAtUtc"]), DateTimeKind.Utc),
+                OperationStatus = reader["OperationStatus"]?.ToString() ?? string.Empty,
                 LastSubscriptionCheckedAtUtc = reader["LastSubscriptionCheckedAtUtc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["LastSubscriptionCheckedAtUtc"]), DateTimeKind.Utc),
                 ReconciliationStatus = reader["ReconciliationStatus"]?.ToString() ?? string.Empty,
                 ReconciliationMessage = reader["ReconciliationMessage"]?.ToString() ?? string.Empty,
@@ -1165,13 +1171,11 @@ public sealed class KvhSubscriptionOperationService(
         if (!item.KvhSubscriptionId.HasValue) return "Không tìm thấy current subscription.";
         if (operation == KvhSubscriptionOperationTypes.Pause)
         {
-            if (!item.SubscriptionStatus.Equals("ACTIVE", StringComparison.OrdinalIgnoreCase)) return "PAUSE chỉ hợp lệ khi subscription ACTIVE.";
-            if (item.ScheduledAction.Contains("pause", StringComparison.OrdinalIgnoreCase) || item.ScheduledAction.Contains("suspend", StringComparison.OrdinalIgnoreCase)) return "Đã có lịch Pause/Suspend.";
+            if (string.IsNullOrWhiteSpace(item.SubscriptionStatus)) return "Không xác định trạng thái subscription.";
         }
         else if (operation == KvhSubscriptionOperationTypes.Resume)
         {
-            if (item.SubscriptionStatus.Equals("ACTIVE", StringComparison.OrdinalIgnoreCase)) return "Subscription đang ACTIVE, không gửi Resume.";
-            if (!item.SubscriptionStatus.Contains("SUSPEND", StringComparison.OrdinalIgnoreCase) && !item.SubscriptionStatus.Contains("PAUSE", StringComparison.OrdinalIgnoreCase)) return "RESUME chỉ hợp lệ khi subscription đang tạm dừng.";
+            if (string.IsNullOrWhiteSpace(item.SubscriptionStatus)) return "Không xác định trạng thái subscription.";
         }
         else
         {
@@ -1333,7 +1337,7 @@ public sealed class KvhSubscriptionOperationService(
     private static async Task<SubscriptionStateSnapshot?> GetSubscriptionSnapshotAsync(SqlConnection connection, OperationItemSubmitContext item, CancellationToken cancellationToken)
     {
         const string sql = """
-            SELECT TOP 1 [ID], [Status], [ScheduledAction], [ScheduleId], [ScheduledEffectiveDateUtc], [PlanName], [Region], [EffectiveDateUtc], [RawSubscriptionJson], [UpdatedAtUtc]
+            SELECT TOP 1 [ID], [Status], [ScheduledAction], [ScheduleId], [ScheduledEffectiveDateUtc], [ScheduledCreatedAtUtc], [ScheduledRawJson], [PlanName], [Region], [EffectiveDateUtc], [RawSubscriptionJson], [UpdatedAtUtc]
             FROM [dbo].[TblKvhSubscription]
             WHERE [DeviceId] = @deviceId
               AND NULLIF(LTRIM(RTRIM([TrafficId])), '') = NULLIF(LTRIM(RTRIM(@trafficId)), '')
@@ -1358,10 +1362,12 @@ public sealed class KvhSubscriptionOperationService(
             ScheduledAction = reader["ScheduledAction"]?.ToString() ?? string.Empty,
             ScheduleId = reader["ScheduleId"]?.ToString() ?? string.Empty,
             ScheduledEffectiveDateUtc = reader["ScheduledEffectiveDateUtc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["ScheduledEffectiveDateUtc"]), DateTimeKind.Utc),
+            ScheduledCreatedAtUtc = reader["ScheduledCreatedAtUtc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["ScheduledCreatedAtUtc"]), DateTimeKind.Utc),
             PlanName = reader["PlanName"]?.ToString() ?? string.Empty,
             Region = reader["Region"]?.ToString() ?? string.Empty,
             EffectiveDateUtc = reader["EffectiveDateUtc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["EffectiveDateUtc"]), DateTimeKind.Utc),
-            SubscriptionResponseJson = reader["RawSubscriptionJson"]?.ToString() ?? string.Empty
+            SubscriptionResponseJson = reader["RawSubscriptionJson"]?.ToString() ?? string.Empty,
+            ScheduledRawJson = reader["ScheduledRawJson"]?.ToString() ?? string.Empty
         };
     }
 
@@ -1381,11 +1387,11 @@ public sealed class KvhSubscriptionOperationService(
         }
 
         var status = NormalizeState(snapshot.Status);
-        var scheduledAction = NormalizeState(snapshot.ScheduledAction);
+        var scheduledAction = KvhJsonHelpers.NormalizeScheduledAction(snapshot.ScheduledAction);
         var isPause = item.OperationType == KvhSubscriptionOperationTypes.Pause;
-        var targetScheduledAction = isPause ? "PAUSE" : "RESUME";
-        var conflictScheduledAction = isPause ? "RESUME" : "PAUSE";
-        var targetEffectiveStatus = isPause ? "PAUSED" : "ACTIVE";
+        var targetScheduledAction = isPause ? "SUSPEND" : "RESUME";
+        var conflictScheduledAction = isPause ? "RESUME" : "SUSPEND";
+        var targetEffectiveStatus = isPause ? "SUSPEND" : "ACTIVE";
 
         if (scheduledAction == targetScheduledAction && (!string.IsNullOrWhiteSpace(snapshot.ScheduleId) || snapshot.ScheduledEffectiveDateUtc.HasValue))
         {
@@ -1398,13 +1404,13 @@ public sealed class KvhSubscriptionOperationService(
                 : $"A previous Resume request already exists and is waiting to become effective on {dateText}. No additional Resume command was submitted.";
             return StateReconcileDecision.Stop(
                 KvhSubscriptionOperationItemStatuses.WaitingEffective,
-                KvhCommandStatuses.Waiting,
-                KvhJobStatuses.NotRequired,
+                KvhCommandStatuses.Completed,
+                afterStateConflict ? KvhJobStatuses.NotRequired : KvhJobStatuses.Success,
                 KvhVerificationStatuses.VerifiedScheduled,
-                KvhErrorCodes.SubscriptionAlreadyScheduled,
+                string.Empty,
                 vi,
                 en,
-                KvhVerificationStatuses.VerifiedScheduled,
+                "SUCCESS",
                 NextVerificationAtUtc());
         }
 
@@ -1414,13 +1420,13 @@ public sealed class KvhSubscriptionOperationService(
             var en = isPause ? "The subscription is already paused." : "The subscription is already active.";
             return StateReconcileDecision.Stop(
                 KvhSubscriptionOperationItemStatuses.Verified,
-                KvhCommandStatuses.Verified,
+                KvhCommandStatuses.Completed,
                 KvhJobStatuses.NotRequired,
                 KvhVerificationStatuses.VerifiedEffective,
-                KvhErrorCodes.SubscriptionAlreadyEffective,
+                string.Empty,
                 vi,
                 en,
-                KvhVerificationStatuses.VerifiedEffective);
+                "SUCCESS");
         }
 
         if (scheduledAction == conflictScheduledAction)
@@ -1440,10 +1446,10 @@ public sealed class KvhSubscriptionOperationService(
                 errorCode,
                 vi,
                 en,
-                KvhVerificationStatuses.Conflict);
+                "CONFLICT");
         }
 
-        if (!afterStateConflict && ((isPause && StatusMatches(status, "ACTIVE")) || (!isPause && StatusMatches(status, "PAUSED"))))
+        if (!afterStateConflict && ((isPause && StatusMatches(status, "ACTIVE")) || (!isPause && StatusMatches(status, "SUSPEND"))))
         {
             return StateReconcileDecision.Submit();
         }
@@ -1461,7 +1467,7 @@ public sealed class KvhSubscriptionOperationService(
             KvhErrorCodes.SubscriptionStateUnexpected,
             "Trang thai subscription hien tai khong phu hop de gui lenh.",
             "The current subscription state is not valid for this command.",
-            KvhVerificationStatuses.Unknown);
+            "UNKNOWN");
     }
 
     private async Task MarkItemReconciledAsync(OperationItemSubmitContext item, StateReconcileDecision decision, SubscriptionStateSnapshot? snapshot, string requestedBy, string message, CancellationToken cancellationToken, KvhCommandSubmitResult? sourceResult = null)
@@ -1486,6 +1492,8 @@ public sealed class KvhSubscriptionOperationService(
                 [CurrentScheduledAction] = NULLIF(@scheduledAction, ''),
                 [CurrentScheduleId] = NULLIF(@scheduleId, ''),
                 [CurrentScheduledEffectiveDateUtc] = @scheduledEffectiveDate,
+                [CurrentScheduledCreatedAtUtc] = @scheduledCreatedAt,
+                [OperationStatus] = NULLIF(@operationStatus, ''),
                 [LastSubscriptionCheckedAtUtc] = SYSUTCDATETIME(),
                 [ReconciliationStatus] = NULLIF(@reconciliationStatus, ''),
                 [ReconciliationMessage] = NULLIF(@reconciliationMessage, ''),
@@ -1511,6 +1519,8 @@ public sealed class KvhSubscriptionOperationService(
             command.Parameters.Add("@scheduledAction", SqlDbType.NVarChar, 120).Value = snapshot?.ScheduledAction ?? string.Empty;
             command.Parameters.Add("@scheduleId", SqlDbType.NVarChar, 200).Value = snapshot?.ScheduleId ?? string.Empty;
             command.Parameters.Add("@scheduledEffectiveDate", SqlDbType.DateTime2).Value = (object?)snapshot?.ScheduledEffectiveDateUtc ?? DBNull.Value;
+            command.Parameters.Add("@scheduledCreatedAt", SqlDbType.DateTime2).Value = (object?)snapshot?.ScheduledCreatedAtUtc ?? DBNull.Value;
+            command.Parameters.Add("@operationStatus", SqlDbType.NVarChar, 80).Value = decision.OperationStatus;
             command.Parameters.Add("@reconciliationStatus", SqlDbType.NVarChar, 80).Value = decision.ReconciliationStatus;
             command.Parameters.Add("@reconciliationMessage", SqlDbType.NVarChar, -1).Value = decision.MessageEn;
             command.Parameters.Add("@subscriptionResponse", SqlDbType.NVarChar, -1).Value = snapshot?.SubscriptionResponseJson ?? string.Empty;
@@ -1739,22 +1749,22 @@ public sealed class KvhSubscriptionOperationService(
 
         var isPause = item.OperationType == KvhSubscriptionOperationTypes.Pause;
         var status = NormalizeState(snapshot.Status);
-        var scheduledAction = NormalizeState(snapshot.ScheduledAction);
-        var targetScheduledAction = isPause ? "PAUSE" : "RESUME";
-        var targetEffectiveStatus = isPause ? "PAUSED" : "ACTIVE";
+        var scheduledAction = KvhJsonHelpers.NormalizeScheduledAction(snapshot.ScheduledAction);
+        var targetScheduledAction = isPause ? "SUSPEND" : "RESUME";
+        var targetEffectiveStatus = isPause ? "SUSPEND" : "ACTIVE";
 
         if (StatusMatches(status, targetEffectiveStatus))
         {
             var message = isPause ? "Subscription da tam dung sau khi lich Pause co hieu luc." : "Subscription da hoat dong sau khi lich Resume co hieu luc.";
             return StateReconcileDecision.Stop(
                 KvhSubscriptionOperationItemStatuses.Verified,
-                KvhCommandStatuses.Verified,
+                KvhCommandStatuses.Completed,
                 KvhJobStatuses.NotRequired,
                 KvhVerificationStatuses.VerifiedEffective,
-                KvhErrorCodes.SubscriptionAlreadyEffective,
+                string.Empty,
                 message,
                 message,
-                KvhVerificationStatuses.VerifiedEffective);
+                "SUCCESS");
         }
 
         if (scheduledAction == targetScheduledAction)
@@ -1765,13 +1775,13 @@ public sealed class KvhSubscriptionOperationService(
                 : $"Dang cho Resume co hieu luc vao ngay {dateText}.";
             return StateReconcileDecision.Stop(
                 KvhSubscriptionOperationItemStatuses.WaitingEffective,
-                KvhCommandStatuses.Waiting,
+                KvhCommandStatuses.Completed,
                 KvhJobStatuses.NotRequired,
                 KvhVerificationStatuses.VerifiedScheduled,
-                KvhErrorCodes.SubscriptionAlreadyScheduled,
+                string.Empty,
                 message,
                 message,
-                KvhVerificationStatuses.VerifiedScheduled,
+                "SUCCESS",
                 NextVerificationAtUtc());
         }
 
@@ -1783,7 +1793,7 @@ public sealed class KvhSubscriptionOperationService(
             KvhErrorCodes.SubscriptionStateUnexpected,
             "Lich thao tac khong con ton tai nhung subscription chua dat trang thai muc tieu.",
             "The scheduled action disappeared before the subscription reached the target state.",
-            KvhVerificationStatuses.StateChangedUnexpectedly);
+            "STATE_CHANGED_UNEXPECTEDLY");
     }
 
     private DateTime NextVerificationAtUtc() =>
@@ -1794,7 +1804,7 @@ public sealed class KvhSubscriptionOperationService(
     private static bool StatusMatches(string normalizedStatus, string expected)
     {
         expected = NormalizeState(expected);
-        if (expected == "PAUSED")
+        if (expected is "PAUSED" or "SUSPEND" or "SUSPENDED")
         {
             return normalizedStatus.Contains("PAUSE", StringComparison.OrdinalIgnoreCase) ||
                    normalizedStatus.Contains("SUSPEND", StringComparison.OrdinalIgnoreCase);
@@ -1803,9 +1813,8 @@ public sealed class KvhSubscriptionOperationService(
         return normalizedStatus == expected || normalizedStatus.Contains(expected, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string FormatDate(DateTime? value) => value.HasValue
-        ? TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(value.Value, DateTimeKind.Utc), TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")).ToString("dd/MM/yyyy HH:mm")
-        : "-";
+    private static string FormatDate(DateTime? value) =>
+        ShipNetTimeZone.FormatVietnam(value, includeSeconds: false, includeSuffix: true);
 
     private static bool IsRetryable(string errorCode, int? httpStatusCode) =>
         httpStatusCode is 429 or >= 500 ||
@@ -1906,6 +1915,8 @@ public sealed class KvhSubscriptionOperationService(
         public string ScheduledAction { get; set; } = string.Empty;
         public string ScheduleId { get; set; } = string.Empty;
         public DateTime? ScheduledEffectiveDateUtc { get; set; }
+        public DateTime? ScheduledCreatedAtUtc { get; set; }
+        public string ScheduledRawJson { get; set; } = string.Empty;
         public string PlanName { get; set; } = string.Empty;
         public string Region { get; set; } = string.Empty;
         public DateTime? EffectiveDateUtc { get; set; }
@@ -1926,6 +1937,7 @@ public sealed class KvhSubscriptionOperationService(
         public string Message { get; init; } = string.Empty;
         public string MessageEn { get; init; } = string.Empty;
         public string ReconciliationStatus { get; init; } = string.Empty;
+        public string OperationStatus { get; init; } = string.Empty;
         public DateTime? NextVerificationAtUtc { get; init; }
 
         public static StateReconcileDecision Submit(string errorCode = "") => new() { ShouldSubmit = true, ErrorCode = errorCode };
@@ -1941,6 +1953,7 @@ public sealed class KvhSubscriptionOperationService(
             Message = message,
             MessageEn = messageEn,
             ReconciliationStatus = reconciliationStatus,
+            OperationStatus = itemStatus,
             NextVerificationAtUtc = nextVerificationAtUtc
         };
     }

@@ -61,6 +61,7 @@ builder.Services.Configure<KvhJobMonitorOptions>(builder.Configuration.GetSectio
 builder.Services.Configure<KvhBulkSyncOptions>(builder.Configuration.GetSection(KvhBulkSyncOptions.SectionName));
 builder.Services.Configure<KvhSubscriptionOperationOptions>(builder.Configuration.GetSection(KvhSubscriptionOperationOptions.SectionName));
 builder.Services.AddScoped<IKvhCommandService, KvhCommandService>();
+builder.Services.AddScoped<IKvhSubscriptionActionPolicy, KvhSubscriptionActionPolicy>();
 builder.Services.AddScoped<IKvhSubscriptionService, KvhSubscriptionService>();
 builder.Services.AddScoped<IKvhBulkSyncService, KvhBulkSyncService>();
 builder.Services.AddScoped<IKvhSubscriptionOperationService, KvhSubscriptionOperationService>();

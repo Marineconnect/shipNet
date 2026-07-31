@@ -168,12 +168,12 @@ public sealed class KvhJobService(
         };
 
         var finalStatus = result.Success
-            ? KvhCommandStatuses.Verified
+            ? (string.IsNullOrWhiteSpace(result.CommandStatus) ? KvhCommandStatuses.Verified : result.CommandStatus)
             : result.Timeout
                 ? KvhCommandStatuses.VerificationTimeout
                 : KvhCommandStatuses.VerificationMismatch;
         var verificationStatus = result.Success
-            ? KvhVerificationStatuses.Success
+            ? (string.IsNullOrWhiteSpace(result.VerificationStatus) ? KvhVerificationStatuses.Success : result.VerificationStatus)
             : result.Timeout
                 ? KvhVerificationStatuses.Timeout
                 : KvhVerificationStatuses.Mismatch;
@@ -292,30 +292,34 @@ public sealed class KvhJobService(
                 }
 
                 var status = KvhJsonHelpers.FindStringValue(entry, "status", "state");
-                var scheduledAction = KvhJsonHelpers.FindStringValue(entry, "scheduled_action", "scheduledAction", "schedule_action", "action");
-                var scheduleId = KvhJsonHelpers.FindStringValue(entry, "schedule_id", "scheduleId");
+                var scheduled = KvhJsonHelpers.ResolveScheduledAction(entry);
+                var scheduledAction = scheduled?.Type ?? KvhJsonHelpers.NormalizeScheduledAction(KvhJsonHelpers.FindStringValue(entry, "scheduled_action", "scheduledAction", "schedule_action", "action"));
+                var scheduleId = scheduled?.ScheduleId ?? KvhJsonHelpers.FindStringValue(entry, "schedule_id", "scheduleId");
 
                 if (expectedAction == "resume" &&
                     (status.Equals("ACTIVE", StringComparison.OrdinalIgnoreCase) ||
-                     scheduledAction.Contains("resume", StringComparison.OrdinalIgnoreCase)))
+                     scheduledAction.Equals("RESUME", StringComparison.OrdinalIgnoreCase)))
                 {
-                    return VerificationResult.Ok(response.RawResponse);
+                    return status.Equals("ACTIVE", StringComparison.OrdinalIgnoreCase)
+                        ? VerificationResult.Ok(response.RawResponse, KvhCommandStatuses.Completed, KvhVerificationStatuses.VerifiedEffective)
+                        : VerificationResult.Ok(response.RawResponse, KvhCommandStatuses.Completed, KvhVerificationStatuses.VerifiedScheduled);
                 }
 
                 if (expectedAction == "pause" &&
-                    (scheduledAction.Contains("pause", StringComparison.OrdinalIgnoreCase) ||
-                     scheduledAction.Contains("suspend", StringComparison.OrdinalIgnoreCase) ||
+                    (scheduledAction.Equals("SUSPEND", StringComparison.OrdinalIgnoreCase) ||
                      status.Contains("SUSPEND", StringComparison.OrdinalIgnoreCase) ||
                      status.Contains("PAUSE", StringComparison.OrdinalIgnoreCase)))
                 {
-                    return VerificationResult.Ok(response.RawResponse);
+                    return status.Contains("SUSPEND", StringComparison.OrdinalIgnoreCase) || status.Contains("PAUSE", StringComparison.OrdinalIgnoreCase)
+                        ? VerificationResult.Ok(response.RawResponse, KvhCommandStatuses.Completed, KvhVerificationStatuses.VerifiedEffective)
+                        : VerificationResult.Ok(response.RawResponse, KvhCommandStatuses.Completed, KvhVerificationStatuses.VerifiedScheduled);
                 }
 
                 if (expectedAction == "cancel" &&
                     (string.IsNullOrWhiteSpace(command.ScheduleId) ||
                      !string.Equals(scheduleId, command.ScheduleId, StringComparison.OrdinalIgnoreCase)))
                 {
-                    return VerificationResult.Ok(response.RawResponse);
+                    return VerificationResult.Ok(response.RawResponse, KvhCommandStatuses.Completed, KvhVerificationStatuses.VerifiedEffective);
                 }
             }
 
@@ -674,8 +678,10 @@ public sealed class KvhJobService(
         public string ErrorCode { get; set; } = string.Empty;
         public string Message { get; set; } = string.Empty;
         public string ResponseJson { get; set; } = string.Empty;
+        public string CommandStatus { get; set; } = string.Empty;
+        public string VerificationStatus { get; set; } = string.Empty;
 
-        public static VerificationResult Ok(string responseJson) => new() { Success = true, ResponseJson = responseJson };
+        public static VerificationResult Ok(string responseJson, string commandStatus = "", string verificationStatus = "") => new() { Success = true, ResponseJson = responseJson, CommandStatus = commandStatus, VerificationStatus = verificationStatus };
         public static VerificationResult Mismatch(string errorCode, string message, string responseJson = "") => new() { Success = false, ErrorCode = errorCode, Message = message, ResponseJson = responseJson };
         public static VerificationResult TimedOut(string message, string responseJson = "") => new() { Success = false, Timeout = true, ErrorCode = KvhErrorCodes.VerificationFailed, Message = message, ResponseJson = responseJson };
     }

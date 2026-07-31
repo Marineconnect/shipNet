@@ -30,6 +30,20 @@ END
 GO
 
 IF OBJECT_ID(N'[dbo].[TblKvhSubscriptionOperationItem]', N'U') IS NOT NULL
+   AND COL_LENGTH(N'[dbo].[TblKvhSubscriptionOperationItem]', N'CurrentScheduledCreatedAtUtc') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[TblKvhSubscriptionOperationItem] ADD [CurrentScheduledCreatedAtUtc] datetime2 NULL;
+END
+GO
+
+IF OBJECT_ID(N'[dbo].[TblKvhSubscriptionOperationItem]', N'U') IS NOT NULL
+   AND COL_LENGTH(N'[dbo].[TblKvhSubscriptionOperationItem]', N'OperationStatus') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[TblKvhSubscriptionOperationItem] ADD [OperationStatus] nvarchar(80) NULL;
+END
+GO
+
+IF OBJECT_ID(N'[dbo].[TblKvhSubscriptionOperationItem]', N'U') IS NOT NULL
    AND COL_LENGTH(N'[dbo].[TblKvhSubscriptionOperationItem]', N'LastSubscriptionCheckedAtUtc') IS NULL
 BEGIN
     ALTER TABLE [dbo].[TblKvhSubscriptionOperationItem] ADD [LastSubscriptionCheckedAtUtc] datetime2 NULL;
@@ -63,5 +77,37 @@ BEGIN
     CREATE INDEX [IX_KvhSubOperationItem_WaitingEffective]
         ON [dbo].[TblKvhSubscriptionOperationItem]([Status], [NextVerificationAtUtc])
         INCLUDE ([BatchId], [DeviceId], [TrafficId], [Region], [KvhSubscriptionId]);
+END
+GO
+
+IF OBJECT_ID(N'[dbo].[TblKvhSubscriptionOperationItem]', N'U') IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_KvhSubOperationItem_OperationStatus_Effective' AND object_id = OBJECT_ID(N'[dbo].[TblKvhSubscriptionOperationItem]'))
+BEGIN
+    CREATE INDEX [IX_KvhSubOperationItem_OperationStatus_Effective]
+        ON [dbo].[TblKvhSubscriptionOperationItem]([OperationStatus], [CurrentScheduledEffectiveDateUtc], [LastSubscriptionCheckedAtUtc])
+        INCLUDE ([BatchId], [DeviceId], [TrafficId], [Region], [KvhSubscriptionId]);
+END
+GO
+
+IF OBJECT_ID(N'[dbo].[TblKvhSubscription]', N'U') IS NOT NULL
+   AND COL_LENGTH(N'[dbo].[TblKvhSubscription]', N'ScheduledCreatedAtUtc') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[TblKvhSubscription] ADD [ScheduledCreatedAtUtc] datetime2 NULL;
+END
+GO
+
+IF OBJECT_ID(N'[dbo].[TblKvhSubscription]', N'U') IS NOT NULL
+   AND COL_LENGTH(N'[dbo].[TblKvhSubscription]', N'ScheduledRawJson') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[TblKvhSubscription] ADD [ScheduledRawJson] nvarchar(max) NULL;
+END
+GO
+
+IF OBJECT_ID(N'[dbo].[TblKvhSubscription]', N'U') IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_TblKvhSubscription_Schedule_Effective' AND object_id = OBJECT_ID(N'[dbo].[TblKvhSubscription]'))
+BEGIN
+    CREATE INDEX [IX_TblKvhSubscription_Schedule_Effective]
+        ON [dbo].[TblKvhSubscription]([ScheduledAction], [ScheduledEffectiveDateUtc], [LastSeenAtUtc])
+        INCLUDE ([DeviceId], [TrafficId], [Region], [ScheduleId]);
 END
 GO

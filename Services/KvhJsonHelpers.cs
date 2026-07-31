@@ -4,6 +4,29 @@ namespace StarlinkDeviceManager.Services;
 
 internal static class KvhJsonHelpers
 {
+    public static KvhScheduledActionInfo? ResolveScheduledAction(JsonElement element, DateTime? nowUtc = null)
+    {
+        var candidates = EnumerateScheduleContainers(element)
+            .SelectMany(EnumerateScheduleItems)
+            .Select(ParseScheduledAction)
+            .Where(item => item is not null && !string.IsNullOrWhiteSpace(item.Type))
+            .Select(item => item!)
+            .ToList();
+
+        if (candidates.Count == 0)
+        {
+            return null;
+        }
+
+        var now = nowUtc ?? DateTime.UtcNow;
+        return candidates
+            .OrderBy(item => IsExpired(item.EffectiveDateUtc, now) ? 1 : 0)
+            .ThenBy(item => item.Type is "SUSPEND" or "RESUME" ? 0 : 1)
+            .ThenBy(item => item.EffectiveDateUtc ?? DateTime.MaxValue)
+            .ThenByDescending(item => item.CreatedAtUtc ?? DateTime.MinValue)
+            .FirstOrDefault();
+    }
+
     public static string FindStringValue(JsonElement element, params string[] propertyNames)
     {
         if (element.ValueKind == JsonValueKind.Object)
@@ -175,4 +198,91 @@ internal static class KvhJsonHelpers
             _ => string.Empty
         };
     }
+
+    private static IEnumerable<JsonElement> EnumerateScheduleContainers(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            yield break;
+        }
+
+        foreach (var name in new[] { "scheduled", "schedule", "scheduled_actions", "scheduledActions" })
+        {
+            if (element.TryGetProperty(name, out var child) &&
+                child.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
+            {
+                yield return child;
+            }
+        }
+    }
+
+    private static IEnumerable<JsonElement> EnumerateScheduleItems(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.Object)
+                {
+                    yield return item;
+                }
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Object)
+        {
+            yield return element;
+        }
+    }
+
+    private static KvhScheduledActionInfo? ParseScheduledAction(JsonElement element)
+    {
+        var type = NormalizeScheduledAction(FindStringValue(element, "type", "action", "scheduled_action", "scheduledAction"));
+        if (string.IsNullOrWhiteSpace(type))
+        {
+            return null;
+        }
+
+        return new KvhScheduledActionInfo
+        {
+            Type = type,
+            ScheduleId = FindStringValue(element, "id", "schedule_id", "scheduleId"),
+            EffectiveDateUtc = TryFindDate(element, "effective_date", "effectiveDate", "scheduled_effective_date", "scheduledEffectiveDate"),
+            CreatedAtUtc = TryFindDate(element, "created_at", "createdAt"),
+            RawJson = element.GetRawText()
+        };
+    }
+
+    public static string NormalizeScheduledAction(string? value)
+    {
+        var normalized = (value ?? string.Empty).Trim().ToUpperInvariant().Replace(" ", "_");
+        if (normalized is "PAUSE" or "SUSPEND" or "SUSPENDED")
+        {
+            return "SUSPEND";
+        }
+
+        if (normalized is "RESUME" or "ACTIVATE" or "ACTIVE")
+        {
+            return "RESUME";
+        }
+
+        return normalized;
+    }
+
+    public static DateTime? TryFindDate(JsonElement element, params string[] names)
+    {
+        var value = FindStringValue(element, names);
+        return DateTimeOffset.TryParse(value, out var parsed) ? parsed.UtcDateTime : null;
+    }
+
+    private static bool IsExpired(DateTime? effectiveDateUtc, DateTime nowUtc) =>
+        effectiveDateUtc.HasValue && effectiveDateUtc.Value < nowUtc.AddMinutes(-5);
+}
+
+internal sealed class KvhScheduledActionInfo
+{
+    public string Type { get; set; } = string.Empty;
+    public string ScheduleId { get; set; } = string.Empty;
+    public DateTime? EffectiveDateUtc { get; set; }
+    public DateTime? CreatedAtUtc { get; set; }
+    public string RawJson { get; set; } = string.Empty;
 }

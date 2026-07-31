@@ -1,3 +1,5 @@
+using StarlinkDeviceManager.Services;
+
 namespace StarlinkDeviceManager.Models;
 
 public class KvhSubscriptionSyncResult
@@ -97,9 +99,7 @@ public sealed class KvhSyncHistoryItemViewModel
     public string ResultKey => Success && ReturnedCount == 0 ? "Empty" : Success ? "Success" : "Failed";
 
     private static string FormatUtc(DateTime? value) =>
-        value.HasValue
-            ? TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(value.Value, DateTimeKind.Utc), TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")).ToString("dd/MM/yyyy HH:mm:ss")
-            : "-";
+        ShipNetTimeZone.FormatVietnam(value, includeSeconds: true);
 }
 
 public sealed class KvhSolutionListItemViewModel
@@ -139,13 +139,11 @@ public sealed class KvhSolutionListItemViewModel
     public bool CanResume => !MissingTrafficId && IsPaused && !HasPendingCommand && !CooldownActive;
     public string AllowanceDisplay => AllowanceGb.HasValue ? $"{AllowanceGb.Value:0.##} GB" : "-";
     public string LastSyncDisplay => FormatUtc(LastSyncAtUtc);
-    public string ScheduledEffectiveDisplay => FormatUtc(ScheduledEffectiveDateUtc);
+    public string ScheduledEffectiveDisplay => ShipNetTimeZone.FormatVietnam(ScheduledEffectiveDateUtc, includeSuffix: true);
     public string LastUpdateDisplay => FormatUtc(LastUpdateTimeUtc);
 
     private static string FormatUtc(DateTime? value) =>
-        value.HasValue
-            ? TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(value.Value, DateTimeKind.Utc), TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")).ToString("dd/MM/yyyy HH:mm")
-            : "-";
+        ShipNetTimeZone.FormatVietnam(value);
 }
 
 public sealed class KvhSolutionDetailViewModel
@@ -206,15 +204,32 @@ public sealed class KvhSubscriptionSyncLogViewModel
     public string CompletedDisplay => FormatUtc(CompletedAtUtc);
 
     private static string FormatUtc(DateTime? value) =>
-        value.HasValue
-            ? TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(value.Value, DateTimeKind.Utc), TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")).ToString("dd/MM/yyyy HH:mm:ss")
-            : "-";
+        ShipNetTimeZone.FormatVietnam(value, includeSeconds: true);
 }
 
 public sealed class KvhSolutionCommandRequest
 {
     public int DeviceId { get; set; }
     public long KvhSubscriptionId { get; set; }
+}
+
+public sealed class KvhSubscriptionActionContext
+{
+    public long? KvhSubscriptionId { get; set; }
+    public string TrafficId { get; set; } = string.Empty;
+    public string Region { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public string ScheduledAction { get; set; } = string.Empty;
+    public bool HasPendingCommand { get; set; }
+    public DateTime? CooldownUntilUtc { get; set; }
+}
+
+public sealed class KvhSubscriptionActionDecision
+{
+    public bool Allowed { get; set; }
+    public string ReasonCode { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    public DateTime? NextAllowedAtUtc { get; set; }
 }
 
 public sealed class KvhBatchCreateRequest

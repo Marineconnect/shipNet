@@ -225,6 +225,8 @@ public sealed class KvhSubscriptionOperationItemViewModel
     public string CurrentScheduledAction { get; set; } = string.Empty;
     public string CurrentScheduleId { get; set; } = string.Empty;
     public DateTime? CurrentScheduledEffectiveDateUtc { get; set; }
+    public DateTime? CurrentScheduledCreatedAtUtc { get; set; }
+    public string OperationStatus { get; set; } = string.Empty;
     public DateTime? LastSubscriptionCheckedAtUtc { get; set; }
     public string ReconciliationStatus { get; set; } = string.Empty;
     public string ReconciliationMessage { get; set; } = string.Empty;

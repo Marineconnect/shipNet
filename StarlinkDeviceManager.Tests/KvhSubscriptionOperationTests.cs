@@ -83,6 +83,8 @@ public class KvhSubscriptionOperationTests
     {
         var models = File.ReadAllText(Path.Combine(ProjectRoot, "Models", "KvhSubscriptionOperationModels.cs"));
         var service = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "KvhSubscriptionOperationService.cs"));
+        var subscriptionService = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "KvhSubscriptionService.cs"));
+        var jobService = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "KvhJobService.cs"));
         var view = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "KvhSolutions", "SubscriptionOperations", "Details.cshtml"));
 
         Assert.Contains("WaitingEffective = \"WAITING_EFFECTIVE\"", models);
@@ -90,12 +92,40 @@ public class KvhSubscriptionOperationTests
         Assert.Contains("SyncAndResolveSubscriptionSnapshotAsync", service);
         Assert.Contains("EvaluateSubscriptionState", service);
         Assert.Contains("afterStateConflict: true", service);
+        Assert.Contains("KvhJsonHelpers.NormalizeScheduledAction(snapshot.ScheduledAction)", service);
+        Assert.Contains("targetScheduledAction = isPause ? \"SUSPEND\" : \"RESUME\"", service);
         Assert.Contains("KvhErrorCodes.StateConflictUnresolved", service);
         Assert.Contains("KvhVerificationStatuses.VerifiedScheduled", service);
         Assert.Contains("KvhJobStatuses.NotRequired", service);
         Assert.Contains("StateMonitorCheckIntervalMinutes", service);
+        Assert.Contains("ScheduledCreatedAtUtc", subscriptionService);
+        Assert.Contains("KvhJsonHelpers.ResolveScheduledAction(item)", subscriptionService);
+        Assert.Contains("KvhVerificationStatuses.VerifiedScheduled", jobService);
         Assert.Contains("OperationStateText", view);
         Assert.Contains("DisplayScheduledAction", view);
+    }
+
+    [Fact]
+    public void KvhScheduledArrayAndVietnamTimezoneAreSupported()
+    {
+        var helpers = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "KvhJsonHelpers.cs"));
+        var timezone = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "ShipNetTimeZone.cs"));
+        var policy = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "IKvhSubscriptionActionPolicy.cs"));
+        var script = File.ReadAllText(Path.Combine(ProjectRoot, "Database", "Scripts", "20260731_AddKvhSubscriptionStateReconcile.sql"));
+
+        Assert.Contains("ResolveScheduledAction", helpers);
+        Assert.Contains("\"scheduled\", \"schedule\", \"scheduled_actions\", \"scheduledActions\"", helpers);
+        Assert.Contains("NormalizeScheduledAction", helpers);
+        Assert.Contains("return \"SUSPEND\";", helpers);
+        Assert.Contains("effective_date", helpers);
+        Assert.Contains("created_at", helpers);
+        Assert.Contains("Asia/Ho_Chi_Minh", timezone);
+        Assert.Contains("UTC+7", timezone);
+        Assert.Contains("IKvhSubscriptionActionPolicy", policy);
+        Assert.Contains("scheduled_suspend", policy);
+        Assert.Contains("ScheduledCreatedAtUtc", script);
+        Assert.Contains("ScheduledRawJson", script);
+        Assert.Contains("OperationStatus", script);
     }
 
     [Fact]

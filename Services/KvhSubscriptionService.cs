@@ -14,6 +14,7 @@ public sealed class KvhSubscriptionService(
     IHttpClientFactory httpClientFactory,
     IOptions<KvhJobMonitorOptions> monitorOptions,
     IKvhCommandService kvhCommandService,
+    IKvhSubscriptionActionPolicy actionPolicy,
     ILogger<KvhSubscriptionService> logger) : IKvhSubscriptionService
 {
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")
@@ -475,6 +476,36 @@ public sealed class KvhSubscriptionService(
             };
         }
 
+        var policyContext = new KvhSubscriptionActionContext
+        {
+            KvhSubscriptionId = context.KvhSubscriptionId,
+            TrafficId = context.TrafficId,
+            Region = context.Region,
+            Status = context.SubscriptionStatus,
+            ScheduledAction = context.ScheduledAction,
+            HasPendingCommand = false,
+            CooldownUntilUtc = null
+        };
+        var policyDecision = commandType == KvhCommandTypes.SubscriptionResume
+            ? actionPolicy.EvaluateResume(policyContext)
+            : commandType == KvhCommandTypes.SubscriptionPause
+                ? actionPolicy.EvaluatePause(policyContext)
+                : new KvhSubscriptionActionDecision { Allowed = true };
+        if (!policyDecision.Allowed)
+        {
+            return new KvhCommandSubmitResult
+            {
+                Success = false,
+                ErrorCode = policyDecision.ReasonCode,
+                Message = policyDecision.Message,
+                MessageEn = policyDecision.Message,
+                DeviceId = context.DeviceId,
+                TerminalId = context.TerminalId,
+                RemainingSeconds = policyDecision.NextAllowedAtUtc.HasValue ? Math.Max(0, (int)(policyDecision.NextAllowedAtUtc.Value - DateTime.UtcNow).TotalSeconds) : null,
+                NextAllowedAtUtc = policyDecision.NextAllowedAtUtc
+            };
+        }
+
         var uri = commandType == KvhCommandTypes.SubscriptionCancelSchedule
             ? $"https://api.mykvh.com/v3/subscriptions/{Uri.EscapeDataString(context.TrafficId)}/regions/{Uri.EscapeDataString(context.Region)}/schedules/{Uri.EscapeDataString(context.ScheduleId)}"
             : $"https://api.mykvh.com/v3/subscriptions/{Uri.EscapeDataString(context.TrafficId)}/regions/{Uri.EscapeDataString(context.Region)}/{action}";
@@ -537,7 +568,7 @@ public sealed class KvhSubscriptionService(
     private async Task<CommandContext> GetSubscriptionCommandContextAsync(SqlConnection connection, KvhSolutionCommandRequest request, int? allowedTenantId, int? allowedDeviceId, CancellationToken cancellationToken)
     {
         const string query = """
-            SELECT TOP 1 d.[ID], d.[DeviceCode], d.[TokenString], d.[TokenExpiredTime], s.[ID] AS [KvhSubscriptionId], s.[TrafficId], s.[Region], s.[ScheduleId]
+            SELECT TOP 1 d.[ID], d.[DeviceCode], d.[TokenString], d.[TokenExpiredTime], s.[ID] AS [KvhSubscriptionId], s.[TrafficId], s.[Region], s.[Status], s.[ScheduledAction], s.[ScheduleId]
             FROM [dbo].[TblKvhSubscription] s
             INNER JOIN [dbo].[TblDevices] d ON d.[ID] = s.[DeviceId]
             WHERE d.[ID] = @deviceId
@@ -569,6 +600,8 @@ public sealed class KvhSubscriptionService(
                 KvhSubscriptionId = Convert.ToInt64(reader["KvhSubscriptionId"]),
                 TrafficId = reader["TrafficId"]?.ToString() ?? string.Empty,
                 Region = reader["Region"]?.ToString() ?? string.Empty,
+                SubscriptionStatus = reader["Status"]?.ToString() ?? string.Empty,
+                ScheduledAction = reader["ScheduledAction"]?.ToString() ?? string.Empty,
                 ScheduleId = reader["ScheduleId"]?.ToString() ?? string.Empty
             };
         }
@@ -650,6 +683,7 @@ public sealed class KvhSubscriptionService(
             var region = KvhJsonHelpers.FindStringValue(item, "region", "region_code", "regionCode");
             var planName = planElement.HasValue ? KvhJsonHelpers.FindStringValue(planElement.Value, "name", "plan_name", "planName", "code", "id") : KvhJsonHelpers.FindStringValue(item, "plan", "plan_name", "planName");
             var providerKey = KvhJsonHelpers.FindStringValue(item, "subscription_id", "subscriptionId", "id");
+            var scheduled = KvhJsonHelpers.ResolveScheduledAction(item);
             var key = !string.IsNullOrWhiteSpace(providerKey)
                 ? providerKey
                 : $"{trafficId}:{region}:{Normalize(planName)}";
@@ -664,9 +698,11 @@ public sealed class KvhSubscriptionService(
                 PlanJson = planElement.HasValue ? planElement.Value.GetRawText() : string.Empty,
                 OptInStatus = optInElement.HasValue ? KvhJsonHelpers.FindStringValue(optInElement.Value, "status", "state", "enabled") : KvhJsonHelpers.FindStringValue(item, "opt_in_status", "optInStatus"),
                 OptInJson = optInElement.HasValue ? optInElement.Value.GetRawText() : string.Empty,
-                ScheduledAction = KvhJsonHelpers.FindStringValue(item, "scheduled_action", "scheduledAction", "schedule_action", "action"),
-                ScheduleId = KvhJsonHelpers.FindStringValue(item, "schedule_id", "scheduleId"),
-                ScheduledEffectiveDateUtc = TryFindDate(item, "scheduled_effective_date", "scheduledEffectiveDate", "schedule_effective_date", "schedule.effective_date", "schedule.effectiveDate"),
+                ScheduledAction = scheduled?.Type ?? KvhJsonHelpers.NormalizeScheduledAction(KvhJsonHelpers.FindStringValue(item, "scheduled_action", "scheduledAction", "schedule_action", "action")),
+                ScheduleId = scheduled?.ScheduleId ?? KvhJsonHelpers.FindStringValue(item, "schedule_id", "scheduleId"),
+                ScheduledEffectiveDateUtc = scheduled?.EffectiveDateUtc ?? TryFindDate(item, "scheduled_effective_date", "scheduledEffectiveDate", "schedule_effective_date", "schedule.effective_date", "schedule.effectiveDate"),
+                ScheduledCreatedAtUtc = scheduled?.CreatedAtUtc,
+                ScheduledRawJson = scheduled?.RawJson ?? string.Empty,
                 Region = region,
                 Proration = TryFindDecimal(item, "proration"),
                 AllowanceGb = ResolveAllowanceGb(item),
@@ -812,14 +848,15 @@ public sealed class KvhSubscriptionService(
             WHEN MATCHED THEN UPDATE SET
                 [TerminalId] = @terminalId, [SubscriptionKey] = @subscriptionKey, [Status] = @status, [PlanName] = @planName, [PlanJson] = @planJson,
                 [OptInStatus] = @optInStatus, [OptInJson] = @optInJson, [ScheduledAction] = @scheduledAction, [ScheduleId] = @scheduleId,
-                [ScheduledEffectiveDateUtc] = @scheduledEffectiveDateUtc, [Region] = @region, [Proration] = @proration, [AllowanceGb] = @allowanceGb,
+                [ScheduledEffectiveDateUtc] = @scheduledEffectiveDateUtc, [ScheduledCreatedAtUtc] = @scheduledCreatedAtUtc, [ScheduledRawJson] = @scheduledRawJson,
+                [Region] = @region, [Proration] = @proration, [AllowanceGb] = @allowanceGb,
                 [EffectiveDateUtc] = @effectiveDateUtc, [RawSubscriptionJson] = @rawSubscriptionJson, [IsCurrent] = 1, [LastSeenAtUtc] = SYSUTCDATETIME(), [UpdatedAtUtc] = SYSUTCDATETIME()
             WHEN NOT MATCHED THEN INSERT
                 ([DeviceId], [TerminalId], [TrafficId], [SubscriptionKey], [Status], [PlanName], [PlanJson], [OptInStatus], [OptInJson], [ScheduledAction], [ScheduleId],
-                 [ScheduledEffectiveDateUtc], [Region], [Proration], [AllowanceGb], [EffectiveDateUtc], [RawSubscriptionJson], [IsCurrent], [FirstSeenAtUtc], [LastSeenAtUtc], [UpdatedAtUtc])
+                 [ScheduledEffectiveDateUtc], [ScheduledCreatedAtUtc], [ScheduledRawJson], [Region], [Proration], [AllowanceGb], [EffectiveDateUtc], [RawSubscriptionJson], [IsCurrent], [FirstSeenAtUtc], [LastSeenAtUtc], [UpdatedAtUtc])
             VALUES
                 (@deviceId, @terminalId, @trafficId, @subscriptionKey, @status, @planName, @planJson, @optInStatus, @optInJson, @scheduledAction, @scheduleId,
-                 @scheduledEffectiveDateUtc, @region, @proration, @allowanceGb, @effectiveDateUtc, @rawSubscriptionJson, 1, SYSUTCDATETIME(), SYSUTCDATETIME(), SYSUTCDATETIME());
+                 @scheduledEffectiveDateUtc, @scheduledCreatedAtUtc, @scheduledRawJson, @region, @proration, @allowanceGb, @effectiveDateUtc, @rawSubscriptionJson, 1, SYSUTCDATETIME(), SYSUTCDATETIME(), SYSUTCDATETIME());
             """;
         await using var command = new SqlCommand(query, connection, transaction);
         AddEntryParameters(command, entry);
@@ -840,6 +877,8 @@ public sealed class KvhSubscriptionService(
         command.Parameters.Add("@scheduledAction", SqlDbType.NVarChar, 120).Value = Db(entry.ScheduledAction);
         command.Parameters.Add("@scheduleId", SqlDbType.NVarChar, 200).Value = Db(entry.ScheduleId);
         command.Parameters.Add("@scheduledEffectiveDateUtc", SqlDbType.DateTime2).Value = Db(entry.ScheduledEffectiveDateUtc);
+        command.Parameters.Add("@scheduledCreatedAtUtc", SqlDbType.DateTime2).Value = Db(entry.ScheduledCreatedAtUtc);
+        command.Parameters.Add("@scheduledRawJson", SqlDbType.NVarChar, -1).Value = Db(RedactJson(entry.ScheduledRawJson));
         command.Parameters.Add("@region", SqlDbType.NVarChar, 120).Value = Db(entry.Region);
         command.Parameters.Add("@proration", SqlDbType.Decimal).Value = Db(entry.Proration);
         command.Parameters.Add("@allowanceGb", SqlDbType.Decimal).Value = Db(entry.AllowanceGb);
@@ -1449,6 +1488,8 @@ public sealed class KvhSubscriptionService(
         public string ScheduledAction { get; set; } = string.Empty;
         public string ScheduleId { get; set; } = string.Empty;
         public DateTime? ScheduledEffectiveDateUtc { get; set; }
+        public DateTime? ScheduledCreatedAtUtc { get; set; }
+        public string ScheduledRawJson { get; set; } = string.Empty;
         public string Region { get; set; } = string.Empty;
         public decimal? Proration { get; set; }
         public decimal? AllowanceGb { get; set; }
@@ -1466,6 +1507,8 @@ public sealed class KvhSubscriptionService(
         public long KvhSubscriptionId { get; set; }
         public string TrafficId { get; set; } = string.Empty;
         public string Region { get; set; } = string.Empty;
+        public string SubscriptionStatus { get; set; } = string.Empty;
+        public string ScheduledAction { get; set; } = string.Empty;
         public string ScheduleId { get; set; } = string.Empty;
         public string ErrorCode { get; set; } = string.Empty;
         public string Message { get; set; } = string.Empty;

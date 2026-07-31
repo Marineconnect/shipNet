@@ -16,6 +16,7 @@ public static class KvhCommandStatuses
     public const string Submitted = "SUBMITTED";
     public const string Pending = "PENDING";
     public const string Waiting = "WAITING";
+    public const string Completed = "COMPLETED";
     public const string Success = "SUCCESS";
     public const string Failed = "FAILED";
     public const string Timeout = "TIMEOUT";
