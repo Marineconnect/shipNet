@@ -154,10 +154,15 @@ public sealed class KvhBulkSyncService(
         }
 
         const string itemSql = """
-            SELECT TOP 200 *
-            FROM [dbo].[TblKvhSyncBatchItem]
-            WHERE [BatchId] = @batchId
-            ORDER BY [ID]
+            SELECT i.*,
+                   ISNULL(d.[DeviceName], '') AS [DeviceName],
+                   ISNULL(d.[VesselName], '') AS [VesselName],
+                   ISNULL(d.[KITNumber], '') AS [KitNumber],
+                   ISNULL(d.[DeviceCode], i.[TerminalId]) AS [ResolvedTerminalId]
+            FROM [dbo].[TblKvhSyncBatchItem] i
+            LEFT JOIN [dbo].[TblDevices] d ON d.[ID] = i.[DeviceId]
+            WHERE i.[BatchId] = @batchId
+            ORDER BY i.[ID]
             """;
         await using var itemCommand = new SqlCommand(itemSql, connection);
         itemCommand.Parameters.Add("@batchId", SqlDbType.BigInt).Value = batchId;
@@ -551,7 +556,12 @@ public sealed class KvhBulkSyncService(
         Id = Convert.ToInt64(reader["ID"]),
         BatchId = Convert.ToInt64(reader["BatchId"]),
         DeviceId = Convert.ToInt32(reader["DeviceId"]),
-        TerminalId = reader["TerminalId"]?.ToString() ?? string.Empty,
+        DeviceName = HasColumn(reader, "DeviceName") ? reader["DeviceName"]?.ToString() ?? string.Empty : string.Empty,
+        VesselName = HasColumn(reader, "VesselName") ? reader["VesselName"]?.ToString() ?? string.Empty : string.Empty,
+        KitNumber = HasColumn(reader, "KitNumber") ? reader["KitNumber"]?.ToString() ?? string.Empty : string.Empty,
+        TerminalId = HasColumn(reader, "ResolvedTerminalId")
+            ? reader["ResolvedTerminalId"]?.ToString() ?? string.Empty
+            : reader["TerminalId"]?.ToString() ?? string.Empty,
         TrafficId = reader["TrafficId"]?.ToString() ?? string.Empty,
         Status = reader["Status"]?.ToString() ?? string.Empty,
         AttemptCount = Convert.ToInt32(reader["AttemptCount"]),
@@ -562,4 +572,17 @@ public sealed class KvhBulkSyncService(
         ErrorCode = reader["ErrorCode"]?.ToString() ?? string.Empty,
         ErrorMessage = reader["ErrorMessage"]?.ToString() ?? string.Empty
     };
+
+    private static bool HasColumn(IDataRecord reader, string columnName)
+    {
+        for (var index = 0; index < reader.FieldCount; index++)
+        {
+            if (string.Equals(reader.GetName(index), columnName, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

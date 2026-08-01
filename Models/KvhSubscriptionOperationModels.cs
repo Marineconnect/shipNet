@@ -243,6 +243,9 @@ public sealed class KvhSubscriptionOperationItemViewModel
     public string JobResponseJson { get; set; } = string.Empty;
     public string VerificationResponseJson { get; set; } = string.Empty;
     public string OperationLogJson { get; set; } = string.Empty;
+    public int? ImportedRowNumber { get; set; }
+    public string ImportSource { get; set; } = string.Empty;
+    public string Note { get; set; } = string.Empty;
     public string UpdatedDisplay => TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(UpdatedAtUtc, DateTimeKind.Utc), TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")).ToString("dd/MM/yyyy HH:mm");
 }
 

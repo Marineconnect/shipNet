@@ -165,7 +165,7 @@
     </div>
     <div class="device-actions kvh-hero-actions">
       <a class="btn-secondary" asp-controller="KvhSubscriptionOperations" asp-action="Index">Quay lại</a>
-      <a class="btn-secondary" asp-controller="KvhSubscriptionOperations" asp-action="Export" asp-route-id="@Model.Id">Xuất Excel</a>
+      <a class="btn-secondary" asp-controller="KvhSubscriptionOperations" asp-action="Export" asp-route-id="@Model.Id">Xuất danh sách đã import</a>
       @if (Model.CanEdit)
       {
         <a class="btn-secondary" asp-controller="KvhSubscriptionOperations" asp-action="DownloadTemplate">Tải mẫu import</a>
@@ -322,6 +322,13 @@
       </header>
       <form asp-controller="KvhSubscriptionOperations" asp-action="AddDevices" asp-route-id="@Model.Id" method="post">
         @Html.AntiForgeryToken()
+        <div class="kvh-table-search">
+          <label>
+        <span>T&#xEC;m thi&#x1EBF;t b&#x1ECB;</span>
+            <input type="search" data-operation-device-search placeholder="KIT, terminal, tàu, tenant, Traffic ID" />
+          </label>
+          <span class="muted" data-operation-device-count>@Model.DeviceOptions.Count thiết bị</span>
+        </div>
         <div class="device-table-wrap kvh-table-wrap kvh-device-picker">
           <table class="device-table subscription-table kvh-table">
             <thead>
@@ -338,7 +345,8 @@
             <tbody>
             @foreach (var device in Model.DeviceOptions)
             {
-              <tr>
+              <tr data-operation-device-row
+                  data-search="@($"{device.KitNumber} {device.TerminalId} {device.DeviceName} {device.VesselName} {device.TenantName} {device.TrafficId} {device.Region} {device.SubscriptionStatus}".ToLowerInvariant())">
                 <td><input type="checkbox" name="DeviceIds" value="@device.DeviceId" /></td>
                 <td>@device.KitNumber<br /><small>@device.TerminalId</small></td>
                 <td>@device.VesselName</td>
@@ -420,6 +428,13 @@
         <div class="kvh-live-query"><span></span>Đang cập nhật</div>
       }
     </header>
+    <div class="kvh-table-search">
+      <label>
+          <span>T&#xEC;m trong ti&#x1EBF;n &#x111;&#x1ED9; thi&#x1EBF;t b&#x1ECB;</span>
+        <input type="search" data-operation-item-search placeholder="KIT, terminal, t&#xE0;u, Traffic ID, Job ID, tr&#x1EA1;ng th&#xE1;i" />
+      </label>
+      <span class="muted" data-operation-item-count>@Model.Items.Count thiết bị</span>
+    </div>
     <div class="device-table-wrap kvh-table-wrap">
       <table class="device-table subscription-table kvh-table kvh-operation-items-table">
         <thead>
@@ -431,6 +446,9 @@
             <th>Scheduled</th>
             <th>Thao tác</th>
             <th>Tiến trình</th>
+            <th>D&#xF2;ng Excel</th>
+            <th>Ngu&#x1ED3;n</th>
+            <th>Ghi ch&#xFA;</th>
             <th>Job ID</th>
             <th>Command</th>
             <th>Lỗi</th>
@@ -443,7 +461,9 @@
         @foreach (var item in Model.Items)
         {
           var itemProcessing = IsItemProcessing(item.Status);
-          <tr class="@(itemProcessing ? "is-processing" : string.Empty)">
+          <tr class="@(itemProcessing ? "is-processing" : string.Empty)"
+              data-operation-item-row
+              data-search="@($"{item.KitNumber} {item.TerminalId} {item.DeviceName} {item.VesselName} {item.TenantName} {item.TrafficId} {item.Region} {item.JobId} {item.KvhCommandId} {item.Status} {item.OperationStatus} {item.ImportSource} {item.Note}".ToLowerInvariant())">
             <td>
               <strong>@item.KitNumber</strong>
               <small>@item.TerminalId</small>
@@ -477,6 +497,9 @@
                 </div>
               </div>
             </td>
+            <td>@(item.ImportedRowNumber?.ToString() ?? "-")</td>
+            <td>@(string.IsNullOrWhiteSpace(item.ImportSource) ? "-" : item.ImportSource)</td>
+            <td class="kvh-wrap-cell">@(string.IsNullOrWhiteSpace(item.Note) ? "-" : item.Note)</td>
             <td>@(string.IsNullOrWhiteSpace(item.JobId) ? "-" : item.JobId)</td>
             <td>@(item.KvhCommandId?.ToString() ?? "-")</td>
             <td>
@@ -618,6 +641,28 @@
         const content = logModal?.querySelector('[data-log-content]')?.textContent || '';
         try { await navigator.clipboard.writeText(content); } catch {}
       });
+
+      const bindTableSearch = (inputSelector, rowSelector, countSelector) => {
+        const input = document.querySelector(inputSelector);
+        const rows = Array.from(document.querySelectorAll(rowSelector));
+        const count = document.querySelector(countSelector);
+        if (!input || rows.length === 0) return;
+        const apply = () => {
+          const keyword = input.value.trim().toLocaleLowerCase('vi');
+          let visible = 0;
+          rows.forEach((row) => {
+            const matches = !keyword || (row.dataset.search || '').includes(keyword);
+            row.hidden = !matches;
+            if (matches) visible += 1;
+          });
+          if (count) count.textContent = `${visible} / ${rows.length} thiết bị`;
+        };
+        input.addEventListener('input', apply);
+        apply();
+      };
+
+      bindTableSearch('[data-operation-device-search]', '[data-operation-device-row]', '[data-operation-device-count]');
+      bindTableSearch('[data-operation-item-search]', '[data-operation-item-row]', '[data-operation-item-count]');
 
       if (!root || root.dataset.kvhOperationLive !== 'true') return;
       const id = root.dataset.kvhOperationId;

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Logging.EventLog;
+using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using StarlinkDeviceManager.Filters;
 using StarlinkDeviceManager.Models;
@@ -40,12 +41,16 @@ if (builder.Environment.IsDevelopment())
             : new X509Certificate2(
                 certificatePath,
                 "ShipnetLocalDev!2026",
-                X509KeyStorageFlags.EphemeralKeySet | X509KeyStorageFlags.Exportable);
+                X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.PersistKeySet | X509KeyStorageFlags.Exportable);
 
-        options.ListenLocalhost(httpsPort, listenOptions =>
-        {
-            listenOptions.UseHttps(certificate);
-        });
+            options.ListenLocalhost(httpsPort, listenOptions =>
+            {
+                listenOptions.UseHttps(httpsOptions =>
+                {
+                    httpsOptions.ServerCertificate = certificate;
+                    httpsOptions.SslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13;
+                });
+            });
     });
 }
 

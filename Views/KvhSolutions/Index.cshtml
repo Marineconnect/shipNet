@@ -195,11 +195,8 @@
     <a id="kvh-tab-devices-link" class="kvh-tab-button @(Model.ActiveTab == "devices" ? "is-active" : string.Empty)" role="tab" aria-controls="kvh-tab-devices" aria-selected="@(Model.ActiveTab == "devices")" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="devices" asp-route-page="@Model.CurrentPage" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState">Thiết bị KVH</a>
     <a id="kvh-tab-history-link" class="kvh-tab-button @(Model.ActiveTab == "history" ? "is-active" : string.Empty)" role="tab" aria-controls="kvh-tab-history" aria-selected="@(Model.ActiveTab == "history")" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="history" asp-route-historyPage="@Model.SyncHistory.CurrentPage" asp-route-historyPageSize="@Model.SyncHistory.PageSize" asp-route-historySearch="@Model.SyncHistory.Filter.Search" asp-route-historyTenantId="@Model.SyncHistory.Filter.TenantId" asp-route-historyResult="@Model.SyncHistory.Filter.Result" asp-route-historySource="@Model.SyncHistory.Filter.SyncSource" asp-route-historyDateFrom="@Model.SyncHistory.Filter.DateFrom?.ToString("yyyy-MM-dd")" asp-route-historyDateTo="@Model.SyncHistory.Filter.DateTo?.ToString("yyyy-MM-dd")">Lịch sử đồng bộ</a>
     <a id="kvh-tab-batches-link" class="kvh-tab-button @(Model.ActiveTab == "batches" ? "is-active" : string.Empty)" role="tab" aria-controls="kvh-tab-batches" aria-selected="@(Model.ActiveTab == "batches")" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="batches">Batch đồng bộ gần đây</a>
+    <a id="kvh-tab-operations-link" class="kvh-tab-button" asp-controller="KvhSubscriptionOperations" asp-action="Index">L&#x1ECB;ch s&#x1EED; Pause/Resume</a>
   </nav>
-
-  <div class="kvh-tabs kvh-operation-shortcut">
-    <a id="kvh-tab-operations-link" class="kvh-tab-button" asp-controller="KvhSubscriptionOperations" asp-action="Index">Lich su Pause/Resume</a>
-  </div>
 
   <section class="kvh-tab-panel @(Model.ActiveTab == "devices" ? "is-active" : string.Empty)" role="tabpanel" id="kvh-tab-devices" aria-labelledby="kvh-tab-devices-link">
     <div class="device-card kvh-inventory-card">
@@ -676,6 +673,7 @@
                 <td class="kvh-batch-completed">@batch.CompletedAtUtc?.ToString("dd/MM/yyyy HH:mm")</td>
                 <td>
                   <div class="kvh-row-actions">
+                    <button type="button" class="table-action-btn" data-kvh-batch-detail="@batch.Id">Xem chi ti&#x1EBF;t</button>
                     @if (Model.CanManageSolutions && batch.IsRunning)
                     {
                       <form asp-controller="KvhSolutions" asp-action="CancelSyncBatch" method="post">
@@ -701,6 +699,42 @@
       </div>
     </div>
   </section>
+
+  <div class="kvh-modal-backdrop" data-kvh-batch-detail-modal hidden>
+    <div class="kvh-modal kvh-batch-detail-modal" role="dialog" aria-modal="true" aria-labelledby="kvhBatchDetailTitle">
+      <header>
+        <div>
+          <h2 id="kvhBatchDetailTitle">Chi ti&#x1EBF;t batch &#x111;&#x1ED3;ng b&#x1ED9;</h2>
+          <p id="kvhBatchDetailSummary">-</p>
+        </div>
+        <button type="button" class="kvh-modal-close" data-kvh-close-modal aria-label="&#x110;&#xF3;ng">x</button>
+      </header>
+      <div class="kvh-batch-detail-toolbar">
+        <label class="device-search-field">
+          <span class="sr-only">T&#xEC;m thi&#x1EBF;t b&#x1ECB; trong batch</span>
+          <input type="search" data-kvh-batch-search placeholder="KIT, thi&#x1EBF;t b&#x1ECB;, t&#xE0;u, terminal, Traffic ID" />
+        </label>
+        <span class="muted" data-kvh-batch-result-count>-</span>
+      </div>
+      <div class="device-table-wrap kvh-table-wrap">
+        <table class="device-table subscription-table kvh-table kvh-batch-items-table">
+          <thead>
+            <tr>
+              <th>Thi&#x1EBF;t b&#x1ECB;</th>
+              <th>T&#xE0;u</th>
+              <th>KIT / Terminal</th>
+              <th>Traffic ID</th>
+              <th>Tr&#x1EA1;ng th&#xE1;i</th>
+              <th>L&#x1ED7;i</th>
+            </tr>
+          </thead>
+          <tbody data-kvh-batch-items>
+            <tr><td colspan="6" class="tenant-empty">&#x110;ang t&#x1EA3;i danh s&#xE1;ch thi&#x1EBF;t b&#x1ECB;...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 
   <div class="kvh-modal-backdrop" data-kvh-sync-all-modal hidden>
     <div class="kvh-modal" role="dialog" aria-modal="true" aria-labelledby="kvhSyncAllTitle">

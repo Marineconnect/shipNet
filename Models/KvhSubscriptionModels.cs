@@ -185,6 +185,32 @@ public sealed class KvhSolutionDetailViewModel
     public List<KvhSubscriptionEntryViewModel> CurrentSubscriptions { get; set; } = [];
     public List<KvhSubscriptionSyncLogViewModel> SyncLogs { get; set; } = [];
     public List<KvhCommandStatusDto> RecentCommands { get; set; } = [];
+
+    public string SubscriptionStatusDisplay =>
+        CurrentSubscriptions.Count == 0
+            ? "Chưa có dữ liệu"
+            : string.Join(", ", CurrentSubscriptions.Select(item => item.StatusDisplay).Distinct(StringComparer.OrdinalIgnoreCase));
+
+    public bool HasProcessingSchedule => CurrentSubscriptions.Any(item => item.HasPendingCommand);
+
+    public string ScheduleStatusDisplay
+    {
+        get
+        {
+            var processing = CurrentSubscriptions.FirstOrDefault(item => item.HasPendingCommand);
+            if (processing is not null)
+            {
+                return $"Đang xử lý: {processing.PendingActionDisplay}";
+            }
+
+            var scheduled = CurrentSubscriptions
+                .Where(item => !string.IsNullOrWhiteSpace(item.NormalizedScheduledAction))
+                .Select(item => item.NormalizedScheduledAction)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            return scheduled.Count == 0 ? "Không có lịch" : string.Join(", ", scheduled);
+        }
+    }
 }
 
 public sealed class KvhSubscriptionEntryViewModel
@@ -207,13 +233,17 @@ public sealed class KvhSubscriptionEntryViewModel
     public DateTime? SubscriptionEffectiveDateUtc { get; set; }
     public DateTime? LastSeenAtUtc { get; set; }
     public string RawSubscriptionJson { get; set; } = string.Empty;
+    public bool HasPendingCommand { get; set; }
+    public string PendingCommandType { get; set; } = string.Empty;
+    public string PendingCommandStatus { get; set; } = string.Empty;
+    public string PendingJobId { get; set; } = string.Empty;
     public string NormalizedScheduledAction => KvhJsonHelpers.NormalizeScheduledAction(ScheduledAction);
     public bool HasScheduledPause => NormalizedScheduledAction == "SUSPEND" &&
         (!string.IsNullOrWhiteSpace(ScheduleId) || ScheduledEffectiveDateUtc.HasValue);
     public bool IsActive => Status.Equals("ACTIVE", StringComparison.OrdinalIgnoreCase);
     public bool IsPaused => Status.Contains("SUSPEND", StringComparison.OrdinalIgnoreCase) || Status.Contains("PAUSE", StringComparison.OrdinalIgnoreCase);
-    public bool CanPause => IsActive && !HasScheduledPause;
-    public bool CanResume => IsPaused;
+    public bool CanPause => IsActive && !HasScheduledPause && !HasPendingCommand;
+    public bool CanResume => IsPaused && !HasPendingCommand;
     public bool CanCancelSchedule => !string.IsNullOrWhiteSpace(ScheduleId) && ScheduledEffectiveDateUtc.HasValue;
     public string SubscriptionEffectiveDisplay => ShipNetTimeZone.FormatVietnam(SubscriptionEffectiveDateUtc);
     public string ScheduledEffectiveDisplay => ShipNetTimeZone.FormatVietnam(ScheduledEffectiveDateUtc, includeSuffix: true);
@@ -231,6 +261,11 @@ public sealed class KvhSubscriptionEntryViewModel
         ? $"KVH đã tiếp nhận yêu cầu Pause. Subscription hiện vẫn {StatusDisplay} và sẽ chuyển sang SUSPEND vào {ScheduledEffectiveDisplay}."
         : string.Empty;
     public string StatusDisplay => string.IsNullOrWhiteSpace(Status) ? "UNKNOWN" : Status.Trim().ToUpperInvariant();
+    public string PendingActionDisplay =>
+        PendingCommandType.Contains("RESUME", StringComparison.OrdinalIgnoreCase) ? "Resume" :
+        PendingCommandType.Contains("PAUSE", StringComparison.OrdinalIgnoreCase) ? "Pause" :
+        PendingCommandType.Contains("CANCEL", StringComparison.OrdinalIgnoreCase) ? "Cancel schedule" :
+        PendingCommandType;
 }
 
 public sealed class KvhSubscriptionSyncLogViewModel
@@ -331,6 +366,9 @@ public sealed class KvhSyncBatchItemViewModel
     public long Id { get; set; }
     public long BatchId { get; set; }
     public int DeviceId { get; set; }
+    public string DeviceName { get; set; } = string.Empty;
+    public string VesselName { get; set; } = string.Empty;
+    public string KitNumber { get; set; } = string.Empty;
     public string TerminalId { get; set; } = string.Empty;
     public string TrafficId { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;

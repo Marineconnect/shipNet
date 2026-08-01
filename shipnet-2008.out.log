@@ -1,0 +1,804 @@
+Using launch settings from .\Properties\launchSettings.json...
+info: Microsoft.AspNetCore.DataProtection.KeyManagement.XmlKeyManager[63]
+      User profile is available. Using 'C:\Users\PC\AppData\Local\ASP.NET\DataProtection-Keys' as key repository and Windows DPAPI to encrypt keys at rest.
+info: StarlinkDeviceManager.Services.KvhJobMonitorService[0]
+      KVH job monitor started.
+info: StarlinkDeviceManager.Services.DeviceRefreshHostedService[0]
+      Device refresh worker started with interval 120 minutes.
+warn: Microsoft.AspNetCore.Server.Kestrel[0]
+      Overriding address(es) 'https://localhost:2008'. Binding to endpoints defined via IConfiguration and/or UseKestrel() instead.
+info: Microsoft.Hosting.Lifetime[14]
+      Now listening on: https://localhost:2008
+info: Microsoft.Hosting.Lifetime[0]
+      Application started. Press Ctrl+C to shut down.
+info: Microsoft.Hosting.Lifetime[0]
+      Hosting environment: Development
+info: Microsoft.Hosting.Lifetime[0]
+      Content root path: D:\MMC\shipNet\shipNet
+Security Warning: The negotiated TLS 1.0 is an insecure protocol and is supported for backward compatibility only. The recommended protocol version is TLS 1.2 and later.
+Security Warning: The negotiated TLS 1.0 is an insecure protocol and is supported for backward compatibility only. The recommended protocol version is TLS 1.2 and later.
+Security Warning: The negotiated TLS 1.0 is an insecure protocol and is supported for backward compatibility only. The recommended protocol version is TLS 1.2 and later.
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/10132338-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/10132338-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 1545.6964ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 1553.2073ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/10132338-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/10132338-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 801.1267ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 801.3403ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/10132338-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/10132338-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 260.3751ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 260.5159ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 44, TerminalId 10132338-SLK, TrafficId 10132338-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/52090827-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/52090827-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 253.3265ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 253.5425ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/52090827-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/52090827-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 759.0544ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 759.2037ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/52090827-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/52090827-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 291.1106ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 291.2691ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 45, TerminalId 52090827-SLK, TrafficId 52090827-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/40270955-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/40270955-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 256.4952ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 256.6698ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/40270955-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/40270955-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 703.9676ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 704.1375ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/40270955-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/40270955-15
+Security Warning: The negotiated TLS 1.0 is an insecure protocol and is supported for backward compatibility only. The recommended protocol version is TLS 1.2 and later.
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 257.4476ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 257.5864ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 70, TerminalId 40270955-SLK, TrafficId 40270955-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/14729576-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/14729576-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 259.697ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 259.8377ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/14729576-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/14729576-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 707.2904ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 707.4806ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/14729576-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/14729576-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 263.3265ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 263.4763ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 69, TerminalId 14729576-SLK, TrafficId 14729576-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/50752347-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/50752347-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 255.7373ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 255.9022ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/50752347-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/50752347-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 730.9527ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 731.0894ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/50752347-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/50752347-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 261.0727ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 261.2437ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 61, TerminalId 50752347-SLK, TrafficId 50752347-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/47865853-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/47865853-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 253.4625ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 253.6303ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/47865853-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/47865853-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 744.3272ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 744.5503ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/47865853-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/47865853-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 264.3364ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 264.4579ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 68, TerminalId 47865853-SLK, TrafficId 47865853-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/11917779-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/11917779-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 311.4054ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 311.4951ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/11917779-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/11917779-SLK/usage
+info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
+      Request starting HTTP/1.1 GET https://localhost:2008/KvhSolutions/Index - - -
+info: Microsoft.AspNetCore.Authorization.DefaultAuthorizationService[2]
+      Authorization failed. These requirements were not met:
+      DenyAnonymousAuthorizationRequirement: Requires an authenticated user.
+info: Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationHandler[12]
+      AuthenticationScheme: Cookies was challenged.
+info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
+      Request finished HTTP/1.1 GET https://localhost:2008/KvhSolutions/Index - 302 0 - 39.0622ms
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 745.2684ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 745.3699ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/11917779-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/11917779-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 263.4117ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 263.5291ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 67, TerminalId 11917779-SLK, TrafficId 11917779-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/15531309-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/15531309-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 263.0069ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 263.1319ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/15531309-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/15531309-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 729.6581ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 729.7748ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/15531309-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/15531309-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 268.1409ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 268.2317ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 156, TerminalId 15531309-SLK, TrafficId 15531309-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/17701616-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/17701616-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 256.1317ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 256.2578ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/17701616-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/17701616-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 721.6308ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 721.7327ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/17701616-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/17701616-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 259.6468ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 259.7561ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 158, TerminalId 17701616-SLK, TrafficId 17701616-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/72885615-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/72885615-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 256.5448ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 256.6875ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/72885615-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/72885615-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 750.2137ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 750.3319ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/72885615-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/72885615-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 259.8532ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 260.0011ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 42, TerminalId 72885615-SLK, TrafficId 72885615-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/86143275-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/86143275-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 3869.5599ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 3869.8746ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/86143275-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/86143275-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 4010.0417ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 4010.1699ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/86143275-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/86143275-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 261.2434ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 261.3384ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 78, TerminalId 86143275-SLK, TrafficId 86143275-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/83804691-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/83804691-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 257.0333ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 257.1157ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/83804691-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/83804691-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 702.6774ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 702.7673ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/83804691-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/83804691-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 258.7617ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 258.842ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 41, TerminalId 83804691-SLK, TrafficId 83804691-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/16520502-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/16520502-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 253.688ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 253.7644ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/16520502-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/16520502-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 740.4697ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 740.6036ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/16520502-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/16520502-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 263.4622ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 263.5384ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 155, TerminalId 16520502-SLK, TrafficId 16520502-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/28694839-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/28694839-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 253.7335ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 253.8098ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/28694839-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/28694839-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 772.8263ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 773.0109ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/28694839-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/28694839-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 647.117ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 647.2025ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 129, TerminalId 28694839-SLK, TrafficId 28694839-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/82340438-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/82340438-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 257.012ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 257.0793ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/82340438-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/82340438-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 733.2505ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 733.3043ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/82340438-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/82340438-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 260.3289ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 260.4049ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 127, TerminalId 82340438-SLK, TrafficId 82340438-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/17448356-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/17448356-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 255.8615ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 255.9194ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/17448356-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/17448356-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 734.7524ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 734.8229ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/17448356-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/17448356-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 256.6549ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 256.7336ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 130, TerminalId 17448356-SLK, TrafficId 17448356-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/11382506-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/11382506-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 252.8308ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 252.897ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/11382506-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/11382506-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 741.706ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 741.7739ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/11382506-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/11382506-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 262.9381ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 263.0112ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 131, TerminalId 11382506-SLK, TrafficId 11382506-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/19490756-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/19490756-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 258.8355ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 258.9187ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/19490756-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/19490756-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 696.266ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 696.361ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/19490756-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/19490756-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 274.8444ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 274.9262ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 24, TerminalId 19490756-SLK, TrafficId 19490756-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/17209831-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/17209831-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 258.9591ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 259.0826ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/17209831-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/17209831-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 709.0633ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 709.1321ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/17209831-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/17209831-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 262.538ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 262.6127ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 50, TerminalId 17209831-SLK, TrafficId 17209831-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/69812292-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/69812292-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 252.2697ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 252.3733ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/69812292-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/69812292-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 712.0533ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 712.128ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/69812292-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/69812292-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 274.1461ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 274.247ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 80, TerminalId 69812292-SLK, TrafficId 69812292-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/16351179-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/16351179-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 294.8715ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 294.9739ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/16351179-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/16351179-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 754.0001ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 754.0964ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/16351179-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/16351179-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 254.7403ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 254.8103ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 46, TerminalId 16351179-SLK, TrafficId 16351179-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/89578492-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/89578492-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 250.1095ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 250.1899ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/89578492-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/89578492-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 684.0023ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 684.0728ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/89578492-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/89578492-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 262.088ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 262.1426ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 20, TerminalId 89578492-SLK, TrafficId 89578492-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/37124921-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/37124921-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 253.1991ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 253.3055ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/37124921-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/37124921-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 763.1571ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 763.2068ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/37124921-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/37124921-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 258.0144ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 258.0842ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 52, TerminalId 37124921-SLK, TrafficId 37124921-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/13205665-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/13205665-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 248.0704ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 248.2051ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/13205665-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/13205665-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 824.7756ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 824.8316ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/13205665-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/13205665-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 257.9398ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 258.0015ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 19, TerminalId 13205665-SLK, TrafficId 13205665-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/17304033-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/17304033-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 255.2344ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 255.3329ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/17304033-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/17304033-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 754.6166ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 754.6877ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/17304033-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/17304033-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 265.5468ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 265.6235ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 71, TerminalId 17304033-SLK, TrafficId 17304033-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/15586106-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/15586106-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 250.8257ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 250.9184ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/15586106-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/15586106-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 739.638ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 739.695ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/15586106-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/15586106-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 279.6097ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 279.6766ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 40, TerminalId 15586106-SLK, TrafficId 15586106-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/20516539-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/20516539-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 251.305ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 251.374ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/20516539-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/20516539-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 734.8608ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 734.9506ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/20516539-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/20516539-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 306.2102ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 306.2842ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 59, TerminalId 20516539-SLK, TrafficId 20516539-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/13310711-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/13310711-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 249.1121ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 249.2072ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/13310711-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/13310711-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 724.6802ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 724.7878ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/13310711-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/13310711-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 254.4224ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 254.5074ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 74, TerminalId 13310711-SLK, TrafficId 13310711-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/21244013-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/21244013-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 422.1892ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 422.2617ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/21244013-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/21244013-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 744.9873ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 745.1174ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/21244013-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/21244013-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 282.9421ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 283.0587ms - 200
+info: StarlinkDeviceManager.Services.KvhSubscriptionService[0]
+      Synced 1 KVH subscriptions for DeviceId 86, TerminalId 21244013-SLK, TrafficId 21244013-15
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/17310785-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/17310785-SLK/status
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 258.2596ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 258.3224ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/terminals/17310785-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/terminals/17310785-SLK/usage
+info: System.Net.Http.HttpClient.Default.ClientHandler[101]
+      Received HTTP response headers after 708.0604ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[101]
+      End processing HTTP request after 708.1139ms - 200
+info: System.Net.Http.HttpClient.Default.LogicalHandler[100]
+      Start processing HTTP request GET https://api.mykvh.com/v3/subscriptions/17310785-15
+info: System.Net.Http.HttpClient.Default.ClientHandler[100]
+      Sending HTTP request GET https://api.mykvh.com/v3/subscriptions/17310785-15

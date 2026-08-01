@@ -21,7 +21,7 @@
             : "unknown";
     }
 
-    string FormatDateTime(DateTime? value) => StarlinkDeviceManager.Services.ShipNetTimeZone.FormatVietnam(value, includeSeconds: true);
+    string FormatDateTime(DateTime? value) => StarlinkDeviceManager.Services.ShipNetTimeZone.FormatVietnam(value, includeSeconds: true, includeSuffix: true);
 }
 
 <div class="device-page">
@@ -42,11 +42,10 @@
       <p>@title · @(string.IsNullOrWhiteSpace(Model.TerminalId) ? "Chưa có Terminal ID" : Model.TerminalId) · Traffic ID: @(string.IsNullOrWhiteSpace(Model.TrafficId) ? "Chưa có" : Model.TrafficId)</p>
     </div>
     <div class="device-actions kvh-hero-actions">
-      <a asp-controller="KvhSolutions" asp-action="Index" class="btn-secondary">Quay lại</a>
-      <form asp-controller="KvhSolutions" asp-action="Sync" method="post">
+      <form asp-controller="KvhSolutions" asp-action="Sync" method="post" data-kvh-confirm="Bạn có chắc muốn đồng bộ subscription từ KVH ngay bây giờ?">
         @Html.AntiForgeryToken()
         <input type="hidden" name="deviceId" value="@Model.DeviceId" />
-        <button type="submit" class="btn-primary">Đồng bộ</button>
+        <button type="submit" class="btn-primary kvh-sync-btn"><span class="kvh-button-icon" aria-hidden="true">↻</span>Đồng bộ subscription</button>
       </form>
       @if (Model.CanManageSolutions && currentEntry is not null)
       {
@@ -54,20 +53,20 @@
         var canResumeCurrent = currentEntry.CanResume;
         if (canPauseCurrent)
         {
-          <form asp-controller="KvhSolutions" asp-action="Pause" method="post">
+          <form asp-controller="KvhSolutions" asp-action="Pause" method="post" data-kvh-confirm="Bạn có chắc muốn Pause subscription này?">
             @Html.AntiForgeryToken()
             <input type="hidden" name="DeviceId" value="@Model.DeviceId" />
             <input type="hidden" name="KvhSubscriptionId" value="@currentEntry.Id" />
-            <button type="submit" class="btn-secondary">Pause</button>
+            <button type="submit" class="btn-primary kvh-command-btn kvh-command-btn-pause"><span class="kvh-button-icon" aria-hidden="true">Ⅱ</span>Pause</button>
           </form>
         }
         if (canResumeCurrent)
         {
-          <form asp-controller="KvhSolutions" asp-action="Resume" method="post">
+          <form asp-controller="KvhSolutions" asp-action="Resume" method="post" data-kvh-confirm="Bạn có chắc muốn Resume subscription này?">
             @Html.AntiForgeryToken()
             <input type="hidden" name="DeviceId" value="@Model.DeviceId" />
             <input type="hidden" name="KvhSubscriptionId" value="@currentEntry.Id" />
-            <button type="submit" class="btn-secondary">Resume</button>
+            <button type="submit" class="btn-primary kvh-command-btn kvh-command-btn-resume"><span class="kvh-button-icon" aria-hidden="true">▶</span>Resume</button>
           </form>
         }
       }
@@ -83,7 +82,14 @@
     <div class="tenant-alert danger">@errorMessage</div>
   }
 
-  <section class="device-card subscription-summary-card kvh-detail-card">
+  <div class="kvh-detail-tabs" role="tablist" aria-label="KVH solution detail tabs">
+    <button type="button" class="kvh-detail-tab is-active" role="tab" aria-selected="true" aria-controls="kvh-detail-identity" data-kvh-detail-tab="kvh-detail-identity">Định danh ShipNet</button>
+    <button type="button" class="kvh-detail-tab" role="tab" aria-selected="false" aria-controls="kvh-detail-subscription" data-kvh-detail-tab="kvh-detail-subscription">Subscription KVH hiện hành</button>
+    <button type="button" class="kvh-detail-tab" role="tab" aria-selected="false" aria-controls="kvh-detail-commands" data-kvh-detail-tab="kvh-detail-commands">Lệnh KVH gần đây</button>
+    <button type="button" class="kvh-detail-tab" role="tab" aria-selected="false" aria-controls="kvh-detail-sync" data-kvh-detail-tab="kvh-detail-sync">Lịch sử đồng bộ gần nhất</button>
+  </div>
+
+  <section id="kvh-detail-identity" class="device-card subscription-summary-card kvh-detail-card kvh-detail-tab-panel" role="tabpanel">
     <header class="device-card-head">
       <div>
         <h2>Định danh ShipNet</h2>
@@ -101,10 +107,26 @@
       <div><span>Traffic ID</span><strong>@(string.IsNullOrWhiteSpace(Model.TrafficId) ? "Chưa có Traffic ID" : Model.TrafficId)</strong></div>
       <div><span>Trạng thái terminal</span><strong><span class="kvh-terminal-status @StatusClass(Model.Availability)">@(string.IsNullOrWhiteSpace(Model.Availability) ? "unknown" : Model.Availability)</span></strong></div>
       <div><span>Cập nhật terminal lúc</span><strong>@FormatDateTime(Model.LastUpdateTimeUtc)</strong></div>
+      <div><span>Subscription status</span><strong><span class="subscription-status @StatusClass(Model.SubscriptionStatusDisplay) kvh-active-status">@Model.SubscriptionStatusDisplay</span></strong></div>
+      <div>
+        <span>Schedule status</span>
+        <strong class="kvh-schedule-status">
+          @if (Model.HasProcessingSchedule)
+          {
+            <span class="kvh-processing-indicator" aria-label="Đang xử lý"></span>
+          }
+          @Model.ScheduleStatusDisplay
+        </strong>
+        @if (Model.HasProcessingSchedule)
+        {
+          var processingEntry = Model.CurrentSubscriptions.First(item => item.HasPendingCommand);
+          <small class="muted">Action: @processingEntry.PendingActionDisplay@(string.IsNullOrWhiteSpace(processingEntry.PendingJobId) ? string.Empty : $" · Job {processingEntry.PendingJobId}")</small>
+        }
+      </div>
     </div>
   </section>
 
-  <section class="device-card kvh-detail-card">
+  <section id="kvh-detail-subscription" class="device-card kvh-detail-card kvh-detail-tab-panel" role="tabpanel" hidden>
     <header class="device-card-head">
       <div>
         <h2>Subscription KVH hiện hành</h2>
@@ -156,34 +178,46 @@
               </td>
               <td>@entry.SubscriptionEffectiveDisplay</td>
               <td>@entry.ScheduledEffectiveDisplay</td>
-              <td><span class="subscription-status @(entry.HasScheduledPause ? "pending" : StatusClass(entry.Status))">@entry.OperationStateDisplay</span></td>
+              <td>
+                <span class="subscription-status @(entry.HasPendingCommand || entry.HasScheduledPause ? "pending" : StatusClass(entry.Status))">
+                  @if (entry.HasPendingCommand)
+                  {
+                    <span class="kvh-processing-indicator" aria-label="Đang xử lý"></span>
+                    @:Đang xử lý: @entry.PendingActionDisplay
+                  }
+                  else
+                  {
+                    @entry.OperationStateDisplay
+                  }
+                </span>
+              </td>
               <td>
                 <div class="kvh-row-actions">
                   @if (canPause)
                   {
-                    <form asp-controller="KvhSolutions" asp-action="Pause" method="post">
+                    <form asp-controller="KvhSolutions" asp-action="Pause" method="post" data-kvh-confirm="Bạn có chắc muốn Pause subscription này?">
                       @Html.AntiForgeryToken()
                       <input type="hidden" name="DeviceId" value="@Model.DeviceId" />
                       <input type="hidden" name="KvhSubscriptionId" value="@entry.Id" />
-                      <button type="submit" class="table-action-btn">Pause</button>
+                      <button type="submit" class="table-action-btn kvh-table-command-pause"><span class="kvh-button-icon" aria-hidden="true">Ⅱ</span>Pause</button>
                     </form>
                   }
                   @if (canResume)
                   {
-                    <form asp-controller="KvhSolutions" asp-action="Resume" method="post">
+                    <form asp-controller="KvhSolutions" asp-action="Resume" method="post" data-kvh-confirm="Bạn có chắc muốn Resume subscription này?">
                       @Html.AntiForgeryToken()
                       <input type="hidden" name="DeviceId" value="@Model.DeviceId" />
                       <input type="hidden" name="KvhSubscriptionId" value="@entry.Id" />
-                      <button type="submit" class="table-action-btn">Resume</button>
+                      <button type="submit" class="table-action-btn kvh-table-command-resume"><span class="kvh-button-icon" aria-hidden="true">▶</span>Resume</button>
                     </form>
                   }
                   @if (Model.CanManageSolutions && entry.CanCancelSchedule)
                   {
-                    <form asp-controller="KvhSolutions" asp-action="CancelSchedule" method="post">
+                    <form asp-controller="KvhSolutions" asp-action="CancelSchedule" method="post" data-kvh-confirm="Bạn có chắc muốn hủy schedule hiện tại?">
                       @Html.AntiForgeryToken()
                       <input type="hidden" name="DeviceId" value="@Model.DeviceId" />
                       <input type="hidden" name="KvhSubscriptionId" value="@entry.Id" />
-                      <button type="submit" class="table-action-btn kvh-cancel-schedule-btn">Cancel schedule</button>
+                      <button type="submit" class="table-action-btn kvh-cancel-schedule-btn"><span class="kvh-button-icon" aria-hidden="true">×</span>Cancel schedule</button>
                     </form>
                   }
                 </div>
@@ -195,7 +229,7 @@
     </div>
   </section>
 
-  <section class="device-card kvh-detail-card">
+  <section id="kvh-detail-sync" class="device-card kvh-detail-card kvh-detail-tab-panel" role="tabpanel" hidden>
     <header class="device-card-head">
       <div>
         <h2>Lịch sử đồng bộ gần nhất</h2>
@@ -243,7 +277,7 @@
               <td>
                 @if (!string.IsNullOrWhiteSpace(log.ResponseJson))
                 {
-                  <button type="button" class="table-action-btn" data-kvh-json="@log.ResponseJson" data-kvh-json-title="Sync log #@log.Id">Xem JSON</button>
+                  <button type="button" class="table-action-btn" data-kvh-json="@log.ResponseJson" data-kvh-json-title="Sync log #@log.Id"><span class="kvh-button-icon" aria-hidden="true">▣</span>Xem JSON</button>
                 }
                 else
                 {
@@ -257,7 +291,7 @@
     </div>
   </section>
 
-  <section class="device-card kvh-detail-card">
+  <section id="kvh-detail-commands" class="device-card kvh-detail-card kvh-detail-tab-panel" role="tabpanel" hidden>
     <header class="device-card-head">
       <div>
         <h2>Lệnh KVH gần đây</h2>
@@ -269,12 +303,12 @@
         <thead>
           <tr>
             <th>ID</th>
-            <th>Loại</th>
-            <th>Lệnh</th>
+            <th>Loại lệnh</th>
+            <th>Trạng thái lệnh</th>
             <th>Xác minh</th>
             <th>Job</th>
-            <th>Ngày gửi</th>
-            <th>Hoàn tất</th>
+            <th>Ngày gửi (UTC+7)</th>
+            <th>Hoàn tất (UTC+7)</th>
             <th>Lỗi</th>
           </tr>
         </thead>
@@ -287,15 +321,15 @@
           {
             <tr>
               <td>#@command.Id</td>
-              <td>@command.CommandType</td>
-              <td><span class="subscription-status @StatusClass(command.CommandStatus)">@command.CommandStatus</span></td>
-              <td><span class="subscription-status @StatusClass(command.VerificationStatus)">@command.VerificationStatus</span></td>
+              <td>@command.CommandTypeDisplay</td>
+              <td><span class="subscription-status @(command.IsSuccessful ? "paid" : StatusClass(command.CommandStatus))">@command.StatusDisplay</span></td>
+              <td><span class="subscription-status @(command.IsSuccessful ? "paid" : StatusClass(command.VerificationStatus))">@command.VerificationDisplay</span></td>
               <td>@(string.IsNullOrWhiteSpace(command.JobId) ? "-" : command.JobId)</td>
-              <td>@command.RequestedAtUtc.ToString("dd/MM/yyyy HH:mm:ss")</td>
+              <td>@FormatDateTime(command.RequestedAtUtc)</td>
               <td>@FormatDateTime(command.CompletedAtUtc)</td>
               <td>
-                @(string.IsNullOrWhiteSpace(command.ErrorCode) ? "-" : command.ErrorCode)
-                @if (!string.IsNullOrWhiteSpace(command.ErrorMessage))
+                @(command.IsSuccessful ? "-" : string.IsNullOrWhiteSpace(command.ErrorCode) ? "-" : command.ErrorCode)
+                @if (!command.IsSuccessful && !string.IsNullOrWhiteSpace(command.ErrorMessage))
                 {
                   <div class="muted">@command.ErrorMessage</div>
                 }
@@ -311,12 +345,12 @@
     <div class="kvh-modal kvh-json-modal" role="dialog" aria-modal="true" aria-labelledby="kvhJsonTitle">
       <header>
         <h2 id="kvhJsonTitle">Payload JSON</h2>
-        <button type="button" class="kvh-modal-close" data-kvh-close-modal aria-label="Close">x</button>
+        <button type="button" class="kvh-modal-close" data-kvh-close-modal aria-label="Close">×</button>
       </header>
       <pre id="kvhJsonContent"></pre>
       <div class="device-modal-actions">
-        <button type="button" class="btn-secondary" data-kvh-copy-json>Copy JSON</button>
-        <button type="button" class="btn-primary" data-kvh-close-modal>Đóng / Close</button>
+        <button type="button" class="btn-secondary" data-kvh-copy-json><span class="kvh-button-icon" aria-hidden="true">⧉</span>Copy JSON</button>
+        <button type="button" class="btn-primary" data-kvh-close-modal><span class="kvh-button-icon" aria-hidden="true">×</span>Đóng / Close</button>
       </div>
     </div>
   </div>

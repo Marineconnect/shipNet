@@ -35,6 +35,20 @@
   selectedForm?.addEventListener("submit", refreshSelected);
   refreshSelected();
 
+  document.querySelectorAll("form[data-kvh-confirm]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      const message = form.getAttribute("data-kvh-confirm") || "Bạn có chắc muốn thực hiện thao tác này?";
+      if (!window.confirm(message)) {
+        event.preventDefault();
+        return;
+      }
+
+      const submitButton = form.querySelector("button[type='submit']");
+      submitButton?.classList.add("is-processing");
+      if (submitButton) submitButton.disabled = true;
+    });
+  });
+
   document.querySelectorAll("[data-copy-value]").forEach((button) => {
     button.addEventListener("click", async () => {
       const value = button.getAttribute("data-copy-value") ?? "";
@@ -204,6 +218,98 @@
   window.addEventListener("scroll", () => {
     if (activeActionMenu?.open) positionActionMenu(activeActionMenu);
   }, true);
+
+  const batchDetailModal = document.querySelector("[data-kvh-batch-detail-modal]");
+  const batchDetailBody = batchDetailModal?.querySelector("[data-kvh-batch-items]");
+  const batchDetailSearch = batchDetailModal?.querySelector("[data-kvh-batch-search]");
+  const batchDetailCount = batchDetailModal?.querySelector("[data-kvh-batch-result-count]");
+  const batchDetailSummary = batchDetailModal?.querySelector("#kvhBatchDetailSummary");
+  let batchDetailRows = [];
+
+  const escapeHtml = (value) => String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+
+  const batchStatusText = (value) => ({
+    SUCCESS: "Thành công",
+    EMPTY: "Không có subscription",
+    FAILED: "Thất bại",
+    PROCESSING: "Đang xử lý",
+    PENDING: "Đang chờ",
+    RETRY_WAIT: "Chờ chạy lại",
+    CANCELLED: "Đã hủy"
+  }[String(value || "").toUpperCase()] || value || "-");
+
+  const renderBatchRows = () => {
+    if (!batchDetailBody) return;
+    const keyword = (batchDetailSearch?.value || "").trim().toLocaleLowerCase("vi");
+    const visibleRows = batchDetailRows.filter((item) => {
+      const text = [
+        item.deviceName, item.vesselName, item.kitNumber, item.terminalId,
+        item.trafficId, item.status, item.errorCode, item.errorMessage
+      ].join(" ").toLocaleLowerCase("vi");
+      return !keyword || text.includes(keyword);
+    });
+    batchDetailBody.innerHTML = visibleRows.length
+      ? visibleRows.map((item) => `
+        <tr>
+          <td>${escapeHtml(item.deviceName || `Thiết bị #${item.deviceId}`)}</td>
+          <td>${escapeHtml(item.vesselName || "-")}</td>
+          <td><strong>${escapeHtml(item.kitNumber || "-")}</strong><small>${escapeHtml(item.terminalId || "-")}</small></td>
+          <td>${escapeHtml(item.trafficId || "-")}</td>
+          <td><span class="subscription-status">${escapeHtml(batchStatusText(item.status))}</span></td>
+          <td class="kvh-wrap-cell">${escapeHtml(item.errorMessage || item.errorCode || "-")}</td>
+        </tr>`).join("")
+      : '<tr><td colspan="6" class="tenant-empty">Không có thiết bị phù hợp.</td></tr>';
+    if (batchDetailCount) batchDetailCount.textContent = `${visibleRows.length} / ${batchDetailRows.length} thiết bị`;
+  };
+
+  batchDetailSearch?.addEventListener("input", renderBatchRows);
+  document.querySelectorAll("[data-kvh-batch-detail]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (!batchDetailModal || !batchDetailBody) return;
+      const id = button.getAttribute("data-kvh-batch-detail");
+      if (!id) return;
+      batchDetailModal.hidden = false;
+      batchDetailSearch.value = "";
+      batchDetailBody.innerHTML = '<tr><td colspan="6" class="tenant-empty">Đang tải danh sách thiết bị...</td></tr>';
+      try {
+        const response = await fetch(`/KvhSolutions/BatchStatus?id=${encodeURIComponent(id)}`, {
+          headers: { Accept: "application/json" }
+        });
+        if (!response.ok) throw new Error("batch detail request failed");
+        const batch = await response.json();
+        batchDetailRows = Array.isArray(batch.items) ? batch.items : [];
+        if (batchDetailSummary) {
+          batchDetailSummary.textContent = `Batch #${batch.id}: ${batchDetailRows.length} thiết bị, ${batchStatusText(batch.status)}`;
+        }
+        renderBatchRows();
+      } catch {
+        batchDetailRows = [];
+        batchDetailBody.innerHTML = '<tr><td colspan="6" class="tenant-empty">Không tải được chi tiết batch.</td></tr>';
+      }
+    });
+  });
+
+  const detailTabs = Array.from(document.querySelectorAll("[data-kvh-detail-tab]"));
+  const detailPanels = Array.from(document.querySelectorAll(".kvh-detail-tab-panel"));
+  detailTabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const targetId = tab.getAttribute("data-kvh-detail-tab");
+      if (!targetId) return;
+      detailTabs.forEach((item) => {
+        const isActive = item === tab;
+        item.classList.toggle("is-active", isActive);
+        item.setAttribute("aria-selected", String(isActive));
+      });
+      detailPanels.forEach((panel) => {
+        panel.hidden = panel.id !== targetId;
+      });
+    });
+  });
 
   const runningRows = Array.from(document.querySelectorAll(".kvh-batch-row[data-kvh-running='true']"));
   if (runningRows.length === 0) return;

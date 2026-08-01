@@ -946,7 +946,10 @@ public sealed class KvhSubscriptionOperationService(
                 CommandSubmitResponseJson = reader["CommandSubmitResponseJson"]?.ToString() ?? string.Empty,
                 JobResponseJson = reader["JobResponseJson"]?.ToString() ?? string.Empty,
                 VerificationResponseJson = reader["VerificationResponseJson"]?.ToString() ?? string.Empty,
-                OperationLogJson = reader["OperationLogJson"]?.ToString() ?? string.Empty
+                OperationLogJson = reader["OperationLogJson"]?.ToString() ?? string.Empty,
+                ImportedRowNumber = reader["ImportedRowNumber"] == DBNull.Value ? null : Convert.ToInt32(reader["ImportedRowNumber"]),
+                ImportSource = reader["ImportSource"]?.ToString() ?? string.Empty,
+                Note = reader["Note"]?.ToString() ?? string.Empty
             });
         }
         return items;

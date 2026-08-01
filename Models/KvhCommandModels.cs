@@ -134,6 +134,31 @@ public sealed class KvhCommandStatusDto
     public DateTime? VerifiedAtUtc { get; set; }
     public string ErrorCode { get; set; } = string.Empty;
     public string ErrorMessage { get; set; } = string.Empty;
+
+    public string CommandTypeDisplay =>
+        CommandType switch
+        {
+            KvhCommandTypes.SubscriptionPause => "Pause subscription",
+            KvhCommandTypes.SubscriptionResume => "Resume subscription",
+            KvhCommandTypes.SubscriptionCancelSchedule => "Cancel schedule",
+            KvhCommandTypes.DataOptIn => "Data opt-in",
+            KvhCommandTypes.WifiUpdate => "WiFi update",
+            KvhCommandTypes.Reboot => "Reboot",
+            _ => string.IsNullOrWhiteSpace(CommandType) ? "-" : CommandType
+        };
+
+    public bool IsSuccessful =>
+        CommandStatus.Equals(KvhCommandStatuses.Completed, StringComparison.OrdinalIgnoreCase) ||
+        CommandStatus.Equals(KvhCommandStatuses.Verified, StringComparison.OrdinalIgnoreCase) ||
+        CommandStatus.Equals(KvhCommandStatuses.Success, StringComparison.OrdinalIgnoreCase) ||
+        (JobStatus.Equals(KvhJobStatuses.Success, StringComparison.OrdinalIgnoreCase) &&
+         VerificationStatus.Equals(KvhVerificationStatuses.VerifiedEffective, StringComparison.OrdinalIgnoreCase));
+
+    public string StatusDisplay => IsSuccessful ? "Thành công" : CommandStatus;
+    public string VerificationDisplay =>
+        VerificationStatus.Equals(KvhVerificationStatuses.VerifiedEffective, StringComparison.OrdinalIgnoreCase)
+            ? "Đã xác minh"
+            : string.IsNullOrWhiteSpace(VerificationStatus) ? "-" : VerificationStatus;
 }
 
 public sealed class KvhCommandSubmitResult

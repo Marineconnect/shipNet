@@ -214,7 +214,7 @@ public sealed class KvhSubscriptionService(
                 FROM [dbo].[TblKvhCommand] c
                 WHERE c.[DeviceId] = d.[ID]
                   AND c.[CommandType] IN ('SUBSCRIPTION_PAUSE', 'SUBSCRIPTION_RESUME', 'SUBSCRIPTION_CANCEL_SCHEDULE')
-                  AND c.[CommandStatus] NOT IN ('FAILED', 'TIMEOUT', 'VERIFIED', 'VERIFICATION_MISMATCH', 'VERIFICATION_TIMEOUT')
+                  AND c.[CommandStatus] IN ('SUBMITTING', 'SUBMITTED', 'PENDING', 'WAITING', 'VERIFYING', 'UNKNOWN')
                 ORDER BY c.[RequestedAtUtc] DESC, c.[ID] DESC
             ) pending
             WHERE {where}
@@ -251,7 +251,7 @@ public sealed class KvhSubscriptionService(
                     FROM [dbo].[TblKvhCommand] c
                     WHERE c.[DeviceId] = d.[ID]
                       AND c.[CommandType] IN ('SUBSCRIPTION_PAUSE', 'SUBSCRIPTION_RESUME', 'SUBSCRIPTION_CANCEL_SCHEDULE')
-                      AND c.[CommandStatus] NOT IN ('FAILED', 'TIMEOUT', 'VERIFIED', 'VERIFICATION_MISMATCH', 'VERIFICATION_TIMEOUT')
+                      AND c.[CommandStatus] IN ('SUBMITTING', 'SUBMITTED', 'PENDING', 'WAITING', 'VERIFYING', 'UNKNOWN')
                     ORDER BY c.[RequestedAtUtc] DESC, c.[ID] DESC
                 ) pending
                 WHERE {where}
@@ -408,6 +408,35 @@ public sealed class KvhSubscriptionService(
                 {
                     detail.CurrentSubscriptions.Add(MapEntry(reader));
                 }
+            }
+        }
+
+        const string pendingCommandSql = """
+            SELECT c.[KvhSubscriptionId], c.[CommandType], c.[CommandStatus], c.[JobId]
+            FROM [dbo].[TblKvhCommand] c
+            WHERE c.[DeviceId] = @deviceId
+              AND c.[KvhSubscriptionId] IS NOT NULL
+              AND c.[CommandType] IN ('SUBSCRIPTION_PAUSE', 'SUBSCRIPTION_RESUME', 'SUBSCRIPTION_CANCEL_SCHEDULE')
+              AND c.[CommandStatus] IN ('SUBMITTING', 'SUBMITTED', 'PENDING', 'WAITING', 'VERIFYING', 'UNKNOWN')
+            ORDER BY c.[RequestedAtUtc] DESC, c.[ID] DESC
+            """;
+        await using (var command = new SqlCommand(pendingCommandSql, connection))
+        {
+            command.Parameters.Add("@deviceId", SqlDbType.Int).Value = deviceId;
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var subscriptionId = Convert.ToInt64(reader["KvhSubscriptionId"]);
+                var entry = detail.CurrentSubscriptions.FirstOrDefault(item => item.Id == subscriptionId);
+                if (entry is null || entry.HasPendingCommand)
+                {
+                    continue;
+                }
+
+                entry.HasPendingCommand = true;
+                entry.PendingCommandType = reader["CommandType"]?.ToString() ?? string.Empty;
+                entry.PendingCommandStatus = reader["CommandStatus"]?.ToString() ?? string.Empty;
+                entry.PendingJobId = reader["JobId"]?.ToString() ?? string.Empty;
             }
         }
 

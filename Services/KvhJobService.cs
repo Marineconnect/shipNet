@@ -156,7 +156,8 @@ public sealed class KvhJobService(
     private async Task VerifyCompletedJobAsync(KvhCommand command, string accessToken, string jobResponseJson, CancellationToken cancellationToken)
     {
         await SetVerifyingAsync(command.Id, KvhJobStatuses.Success, jobResponseJson, cancellationToken);
-        var result = command.CommandType switch
+        var normalizedCommandType = command.CommandType.Trim().ToUpperInvariant();
+        var result = normalizedCommandType switch
         {
             KvhCommandTypes.DataOptIn => await VerifyDataOptInAsync(command, accessToken, cancellationToken),
             KvhCommandTypes.WifiUpdate => await VerifyWifiAsync(command, accessToken, cancellationToken),
@@ -164,7 +165,7 @@ public sealed class KvhJobService(
             KvhCommandTypes.SubscriptionPause => await VerifySubscriptionCommandAsync(command, accessToken, "pause", cancellationToken),
             KvhCommandTypes.SubscriptionResume => await VerifySubscriptionCommandAsync(command, accessToken, "resume", cancellationToken),
             KvhCommandTypes.SubscriptionCancelSchedule => await VerifySubscriptionCommandAsync(command, accessToken, "cancel", cancellationToken),
-            _ => VerificationResult.Mismatch("unsupported_command_type", "Unsupported command type.")
+            _ => VerificationResult.Mismatch("unsupported_command_type", $"Unsupported command type: {command.CommandType}.")
         };
 
         var finalStatus = result.Success
