@@ -175,6 +175,37 @@
   min-width:1100px;
 }
 
+.kvh-current-subscriptions-table{
+  min-width:980px;
+}
+
+.kvh-current-subscriptions-table .kvh-scheduled-cell{
+  min-width:460px;
+  max-width:640px;
+  white-space:normal;
+  overflow-wrap:anywhere;
+  line-height:1.55;
+}
+
+.kvh-current-subscriptions-table th:nth-child(3){
+  min-width:460px;
+}
+
+.kvh-current-subscriptions-table th:last-child,
+.kvh-current-subscriptions-table td:last-child{
+  min-width:180px;
+}
+
+.kvh-current-subscriptions-table .kvh-row-actions{
+  justify-content:flex-start;
+  flex-wrap:nowrap;
+}
+
+.kvh-current-subscriptions-table .kvh-cancel-schedule-btn{
+  min-width:150px;
+  white-space:nowrap;
+}
+
 .kvh-table th,
 .kvh-table td{
   white-space:nowrap;
@@ -191,6 +222,19 @@
   gap:12px;
   align-items:flex-end;
   margin-top:16px;
+}
+
+.kvh-inline-import-form{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+.kvh-inline-import-form input[type="file"]{
+  max-width:240px;
+  color:#cfe0ff;
+  font-size:13px;
 }
 
 .kvh-progress{

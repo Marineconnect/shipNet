@@ -101,8 +101,23 @@ public sealed class KvhSubscriptionOperationsController(
         try
         {
             var preview = await operationService.PreviewImportAsync(id, file, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
-            TempData["KvhOperationImportPreview"] = JsonSerializer.Serialize(preview);
-            TempData["KvhSolutionSuccess"] = $"Da doc {preview.TotalRows} dong import. Hop le: {preview.ValidRows}, loi: {preview.ErrorRows}.";
+            var count = await operationService.ConfirmImportAsync(id, preview, GetCurrentUserId(), GetRequestedBy(), GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            var message = $"Đã import {count} dòng hợp lệ từ {preview.TotalRows} dòng Excel.";
+            if (preview.ErrorRows > 0)
+            {
+                var sampleErrors = preview.Rows
+                    .Where(row => !row.IsValid)
+                    .Take(5)
+                    .Select(row => $"dòng {row.RowNumber}: {row.Message}")
+                    .ToArray();
+                message += $" Có {preview.ErrorRows} dòng lỗi";
+                if (sampleErrors.Length > 0)
+                {
+                    message += $": {string.Join("; ", sampleErrors)}";
+                }
+                message += ".";
+            }
+            TempData["KvhSolutionSuccess"] = message;
         }
         catch (Exception ex)
         {

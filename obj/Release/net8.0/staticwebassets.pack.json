@@ -5,6 +5,10 @@
       "PackagePath": "staticwebassets\\css\\site.css"
     },
     {
+      "Id": "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\shipNet\\wwwroot\\js\\kvh-solutions.js",
+      "PackagePath": "staticwebassets\\js\\kvh-solutions.js"
+    },
+    {
       "Id": "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\shipNet\\wwwroot\\uploads\\tenant-logos\\tenant-20260418074338403-15f9d245ddb24dd8a210d908b8ba7a71.jpg",
       "PackagePath": "staticwebassets\\uploads\\tenant-logos\\tenant-20260418074338403-15f9d245ddb24dd8a210d908b8ba7a71.jpg"
     },

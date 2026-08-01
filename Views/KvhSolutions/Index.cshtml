@@ -309,18 +309,19 @@
               <th>Gói KVH</th>
               <th>Khu vực</th>
               <th title="Trạng thái dịch vụ KVH, tách biệt với trạng thái online của terminal.">Trạng thái subscription</th>
-              <th title="Thay đổi Pause/Resume đã được KVH lên lịch nhưng chưa có hiệu lực.">Đã lên lịch</th>
+              <th title="Ngay subscription hien hanh bat dau co hieu luc.">Subscription effective</th>
+              <th title="Thay doi Pause/Resume da duoc KVH len lich nhung chua co hieu luc.">Da len lich</th>
               <th title="Dung lượng dữ liệu được cấp trong chu kỳ hiện tại.">Dung lượng gói</th>
               <th title="Trạng thái terminal gần nhất do KVH trả về.">Trạng thái terminal</th>
               <th title="Kết quả đồng bộ subscription gần nhất.">Kết quả đồng bộ</th>
-              <th title="Trạng thái lệnh Pause/Resume. Sẵn sàng nghĩa là không có lệnh KVH đang xử lý.">Lệnh</th>
+              <th title="Trang thai lenh Pause/Resume.">Lenh</th>
               <th>Tác vụ</th>
             </tr>
           </thead>
           <tbody>
             @if (Model.Items.Count == 0)
             {
-              <tr><td colspan="15" class="tenant-empty">Không có thiết bị KVH phù hợp với bộ lọc hiện tại.</td></tr>
+              <tr><td colspan="16" class="tenant-empty">Không có thiết bị KVH phù hợp với bộ lọc hiện tại.</td></tr>
             }
             @foreach (var item in Model.Items)
             {
@@ -362,11 +363,20 @@
                 <td>@(string.IsNullOrWhiteSpace(item.PlanName) ? "-" : item.PlanName)</td>
                 <td>@(string.IsNullOrWhiteSpace(item.Region) ? "-" : item.Region)</td>
                 <td><span class="subscription-status @subscriptionClass" title="Trạng thái gốc từ KVH: @(string.IsNullOrWhiteSpace(item.Status) ? "UNKNOWN" : item.Status)">@SubscriptionStatusLabel(item.Status)</span></td>
+                <td>@item.SubscriptionEffectiveDisplay</td>
                 <td>
-                  <span title="Thay đổi dịch vụ đã được lên lịch trên KVH.">@ScheduledActionLabel(item.ScheduledAction)</span>
+                  <span title="Thay đổi dịch vụ đã được lên lịch trên KVH.">@ScheduledActionLabel(item.NormalizedScheduledAction)</span>
                   @if (item.ScheduledEffectiveDateUtc.HasValue)
                   {
                     <div class="muted">Hiệu lực: @item.ScheduledEffectiveDisplay</div>
+                  }
+                  @if (!string.IsNullOrWhiteSpace(item.ScheduleId))
+                  {
+                    <div class="muted">Schedule ID: @item.ScheduleId</div>
+                  }
+                  @if (!string.IsNullOrWhiteSpace(item.ScheduleNote))
+                  {
+                    <div class="muted">@item.ScheduleNote</div>
                   }
                 </td>
                 <td title="Dung lượng dữ liệu trong chu kỳ subscription hiện tại.">@item.AllowanceDisplay</td>
@@ -416,6 +426,15 @@
                             <input type="hidden" name="DeviceId" value="@item.DeviceId" />
                             <input type="hidden" name="KvhSubscriptionId" value="@item.KvhSubscriptionId" />
                             <button type="submit" role="menuitem">Khôi phục</button>
+                          </form>
+                        }
+                        @if (item.KvhSubscriptionId.HasValue && item.CanCancelSchedule)
+                        {
+                          <form asp-controller="KvhSolutions" asp-action="CancelSchedule" method="post" role="none">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="DeviceId" value="@item.DeviceId" />
+                            <input type="hidden" name="KvhSubscriptionId" value="@item.KvhSubscriptionId" />
+                            <button type="submit" role="menuitem">Huy lich Pause</button>
                           </form>
                         }
                       }
@@ -632,7 +651,7 @@
           <tbody>
             @if (Model.RecentBatches.Count == 0)
             {
-              <tr><td colspan="15" class="tenant-empty">Chưa có batch đồng bộ KVH.</td></tr>
+              <tr><td colspan="16" class="tenant-empty">Chưa có batch đồng bộ KVH.</td></tr>
             }
             @foreach (var batch in Model.RecentBatches)
             {

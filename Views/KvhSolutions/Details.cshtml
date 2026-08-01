@@ -1,7 +1,7 @@
 ﻿@model KvhSolutionDetailViewModel
 @{
     ViewData["ActiveNav"] = "kvhsolutions";
-    ViewData["Title"] = "KVH Solution Detail";
+    ViewData["Title"] = "Chi tiết KVH Solution";
 
     var title = string.IsNullOrWhiteSpace(Model.VesselName) ? Model.DeviceName : Model.VesselName;
     var currentEntry = Model.CurrentSubscriptions.FirstOrDefault();
@@ -21,8 +21,7 @@
             : "unknown";
     }
 
-    string FormatDate(DateTime? value) => value.HasValue ? value.Value.ToString("dd/MM/yyyy") : "-";
-    string FormatDateTime(DateTime? value) => value.HasValue ? value.Value.ToString("dd/MM/yyyy HH:mm:ss") : "-";
+    string FormatDateTime(DateTime? value) => StarlinkDeviceManager.Services.ShipNetTimeZone.FormatVietnam(value, includeSeconds: true);
 }
 
 <div class="device-page">
@@ -39,20 +38,20 @@
   <section class="device-hero kvh-hero">
     <div>
       <div class="device-brand">SHIPNET PORTAL</div>
-      <h1>KVH Solution Detail</h1>
-      <p>@title Â· @(string.IsNullOrWhiteSpace(Model.TerminalId) ? "No terminal ID" : Model.TerminalId) Â· Traffic ID: @(string.IsNullOrWhiteSpace(Model.TrafficId) ? "Missing" : Model.TrafficId)</p>
+      <h1>Chi tiết KVH Solution</h1>
+      <p>@title · @(string.IsNullOrWhiteSpace(Model.TerminalId) ? "Chưa có Terminal ID" : Model.TerminalId) · Traffic ID: @(string.IsNullOrWhiteSpace(Model.TrafficId) ? "Chưa có" : Model.TrafficId)</p>
     </div>
     <div class="device-actions kvh-hero-actions">
-      <a asp-controller="KvhSolutions" asp-action="Index" class="btn-secondary">Back</a>
+      <a asp-controller="KvhSolutions" asp-action="Index" class="btn-secondary">Quay lại</a>
       <form asp-controller="KvhSolutions" asp-action="Sync" method="post">
         @Html.AntiForgeryToken()
         <input type="hidden" name="deviceId" value="@Model.DeviceId" />
-        <button type="submit" class="btn-primary">Sync</button>
+        <button type="submit" class="btn-primary">Đồng bộ</button>
       </form>
       @if (Model.CanManageSolutions && currentEntry is not null)
       {
-        var canPauseCurrent = currentEntry.Status.Equals("ACTIVE", StringComparison.OrdinalIgnoreCase) && !currentEntry.ScheduledAction.Contains("pause", StringComparison.OrdinalIgnoreCase);
-        var canResumeCurrent = currentEntry.Status.Contains("SUSPEND", StringComparison.OrdinalIgnoreCase) || currentEntry.Status.Contains("PAUSE", StringComparison.OrdinalIgnoreCase);
+        var canPauseCurrent = currentEntry.CanPause;
+        var canResumeCurrent = currentEntry.CanResume;
         if (canPauseCurrent)
         {
           <form asp-controller="KvhSolutions" asp-action="Pause" method="post">
@@ -87,44 +86,42 @@
   <section class="device-card subscription-summary-card kvh-detail-card">
     <header class="device-card-head">
       <div>
-        <h2>ShipNet Identity</h2>
-        <p>Định danh thiết bị, tàu và gói KVH / Device, vessel and KVH identifiers.</p>
+        <h2>Định danh ShipNet</h2>
+        <p>Thông tin thiết bị, tàu và định danh KVH.</p>
       </div>
     </header>
     <div class="kvh-identity-grid">
-      <div><span>Device</span><strong>@Model.DeviceName</strong></div>
-      <div><span>Vessel</span><strong>@(string.IsNullOrWhiteSpace(Model.VesselName) ? "-" : Model.VesselName)</strong></div>
+      <div><span>Thiết bị</span><strong>@Model.DeviceName</strong></div>
+      <div><span>Tàu</span><strong>@(string.IsNullOrWhiteSpace(Model.VesselName) ? "-" : Model.VesselName)</strong></div>
       <div><span>Tenant</span><strong>@(string.IsNullOrWhiteSpace(Model.TenantName) ? "-" : Model.TenantName)</strong></div>
       <div><span>Terminal ID</span><strong>@(string.IsNullOrWhiteSpace(Model.TerminalId) ? "-" : Model.TerminalId)</strong></div>
       <div><span>KIT Number</span><strong>@(string.IsNullOrWhiteSpace(Model.KitNumber) ? "-" : Model.KitNumber)</strong></div>
       <div><span>KIT ID</span><strong>@(string.IsNullOrWhiteSpace(Model.KitId) ? "-" : Model.KitId)</strong></div>
       <div><span>Service Line</span><strong>@(string.IsNullOrWhiteSpace(Model.ServiceLine) ? "-" : Model.ServiceLine)</strong></div>
-      <div><span>Traffic ID</span><strong>@(string.IsNullOrWhiteSpace(Model.TrafficId) ? "Missing Traffic ID" : Model.TrafficId)</strong></div>
-      <div><span>Terminal Availability</span><strong><span class="kvh-terminal-status @StatusClass(Model.Availability)">@(string.IsNullOrWhiteSpace(Model.Availability) ? "unknown" : Model.Availability)</span></strong></div>
-      <div><span>Last Terminal Update</span><strong>@FormatDateTime(Model.LastUpdateTimeUtc)</strong></div>
+      <div><span>Traffic ID</span><strong>@(string.IsNullOrWhiteSpace(Model.TrafficId) ? "Chưa có Traffic ID" : Model.TrafficId)</strong></div>
+      <div><span>Trạng thái terminal</span><strong><span class="kvh-terminal-status @StatusClass(Model.Availability)">@(string.IsNullOrWhiteSpace(Model.Availability) ? "unknown" : Model.Availability)</span></strong></div>
+      <div><span>Cập nhật terminal lúc</span><strong>@FormatDateTime(Model.LastUpdateTimeUtc)</strong></div>
     </div>
   </section>
 
   <section class="device-card kvh-detail-card">
     <header class="device-card-head">
       <div>
-        <h2>Current KVH Subscriptions</h2>
-        <p>Du lieu subscription hien hanh tra ve tu KVH / Current provider entries.</p>
+        <h2>Subscription KVH hiện hành</h2>
+        <p>Dữ liệu subscription hiện hành trả về từ KVH.</p>
       </div>
     </header>
     <div class="device-table-wrap kvh-table-wrap">
-      <table class="device-table subscription-table kvh-table">
+      <table class="device-table subscription-table kvh-table kvh-current-subscriptions-table">
         <thead>
           <tr>
-            <th>Region</th>
-            <th>Status</th>
-            <th>Plan</th>
-            <th>Opt-in</th>
-            <th>Allowance</th>
-            <th>Proration</th>
-            <th>Effective</th>
+            <th>Khu vực</th>
+            <th>Trạng thái</th>
             <th>Scheduled</th>
-            <th>Actions</th>
+            <th>Ngày hiệu lực subscription</th>
+            <th>Ngày hiệu lực scheduled</th>
+            <th>Trạng thái thao tác</th>
+            <th>Tác vụ</th>
           </tr>
         </thead>
         <tbody>
@@ -132,44 +129,34 @@
           {
             var lastLog = Model.SyncLogs.FirstOrDefault();
             <tr>
-              <td colspan="9" class="tenant-empty">
-                Chưa có subscription KVH hiện hành / No current KVH subscription entry.
-                <div class="muted">Last sync: @(lastLog is null ? "Not synced" : lastLog.StartedDisplay)</div>
-                <div class="muted">Result: @(lastLog is null ? "Not synced" : lastLog.Success && lastLog.ReturnedCount == 0 ? "Empty" : lastLog.Success ? "Success" : $"Failed {lastLog.ErrorCode}")</div>
+              <td colspan="7" class="tenant-empty">
+                Chưa có subscription KVH hiện hành.
+                <div class="muted">Lần đồng bộ gần nhất: @(lastLog is null ? "Chưa đồng bộ" : lastLog.StartedDisplay)</div>
+                <div class="muted">Kết quả: @(lastLog is null ? "Chưa đồng bộ" : lastLog.Success && lastLog.ReturnedCount == 0 ? "Không có dữ liệu" : lastLog.Success ? "Thành công" : $"Thất bại {lastLog.ErrorCode}")</div>
               </td>
             </tr>
           }
           @foreach (var entry in Model.CurrentSubscriptions)
           {
-            var canPause = Model.CanManageSolutions && entry.Status.Equals("ACTIVE", StringComparison.OrdinalIgnoreCase) && !entry.ScheduledAction.Contains("pause", StringComparison.OrdinalIgnoreCase);
-            var canResume = Model.CanManageSolutions && (entry.Status.Contains("SUSPEND", StringComparison.OrdinalIgnoreCase) || entry.Status.Contains("PAUSE", StringComparison.OrdinalIgnoreCase));
+            var canPause = Model.CanManageSolutions && entry.CanPause;
+            var canResume = Model.CanManageSolutions && entry.CanResume;
             <tr>
               <td>@(string.IsNullOrWhiteSpace(entry.Region) ? "-" : entry.Region)</td>
               <td><span class="subscription-status @StatusClass(entry.Status)">@(string.IsNullOrWhiteSpace(entry.Status) ? "UNKNOWN" : entry.Status)</span></td>
-              <td>
-                @(string.IsNullOrWhiteSpace(entry.PlanName) ? "-" : entry.PlanName)
-                @if (!string.IsNullOrWhiteSpace(entry.PlanJson))
-                {
-                  <button type="button" class="kvh-link-button" data-kvh-json="@entry.PlanJson" data-kvh-json-title="Plan JSON">Plan JSON</button>
-                }
-              </td>
-              <td>
-                @(string.IsNullOrWhiteSpace(entry.OptInStatus) ? "-" : entry.OptInStatus)
-                @if (!string.IsNullOrWhiteSpace(entry.OptInJson))
-                {
-                  <button type="button" class="kvh-link-button" data-kvh-json="@entry.OptInJson" data-kvh-json-title="Opt-in JSON">Opt-in JSON</button>
-                }
-              </td>
-              <td>@(entry.AllowanceGb.HasValue ? $"{entry.AllowanceGb:0.##} GB" : "-")</td>
-              <td>@(entry.Proration?.ToString("0.##") ?? "-")</td>
-              <td>@FormatDate(entry.EffectiveDateUtc)</td>
-              <td>
-                @(string.IsNullOrWhiteSpace(entry.ScheduledAction) ? "-" : entry.ScheduledAction)
+              <td class="kvh-scheduled-cell">
+                @(string.IsNullOrWhiteSpace(entry.NormalizedScheduledAction) ? "-" : entry.NormalizedScheduledAction)
                 @if (!string.IsNullOrWhiteSpace(entry.ScheduleId))
                 {
-                  <div class="muted">@entry.ScheduleId</div>
+                  <div class="muted">Schedule ID: @entry.ScheduleId</div>
+                }
+                @if (!string.IsNullOrWhiteSpace(entry.ScheduleNote))
+                {
+                  <div class="muted">@entry.ScheduleNote</div>
                 }
               </td>
+              <td>@entry.SubscriptionEffectiveDisplay</td>
+              <td>@entry.ScheduledEffectiveDisplay</td>
+              <td><span class="subscription-status @(entry.HasScheduledPause ? "pending" : StatusClass(entry.Status))">@entry.OperationStateDisplay</span></td>
               <td>
                 <div class="kvh-row-actions">
                   @if (canPause)
@@ -190,13 +177,13 @@
                       <button type="submit" class="table-action-btn">Resume</button>
                     </form>
                   }
-                  @if (Model.CanManageSolutions && !string.IsNullOrWhiteSpace(entry.ScheduleId))
+                  @if (Model.CanManageSolutions && entry.CanCancelSchedule)
                   {
                     <form asp-controller="KvhSolutions" asp-action="CancelSchedule" method="post">
                       @Html.AntiForgeryToken()
                       <input type="hidden" name="DeviceId" value="@Model.DeviceId" />
                       <input type="hidden" name="KvhSubscriptionId" value="@entry.Id" />
-                      <button type="submit" class="table-action-btn">Cancel schedule</button>
+                      <button type="submit" class="table-action-btn kvh-cancel-schedule-btn">Cancel schedule</button>
                     </form>
                   }
                 </div>
@@ -211,28 +198,28 @@
   <section class="device-card kvh-detail-card">
     <header class="device-card-head">
       <div>
-        <h2>Recent Sync Logs</h2>
-        <p>Lịch sử gọi API KVH gần nhất / Recent synchronization logs.</p>
+        <h2>Lịch sử đồng bộ gần nhất</h2>
+        <p>Lịch sử gọi API KVH gần nhất.</p>
       </div>
     </header>
     <div class="device-table-wrap kvh-table-wrap">
       <table class="device-table subscription-table kvh-table">
         <thead>
           <tr>
-            <th>Time</th>
-            <th>Source</th>
-            <th>Result</th>
+            <th>Thời gian</th>
+            <th>Nguồn</th>
+            <th>Kết quả</th>
             <th>Traffic ID</th>
-            <th>Rows</th>
+            <th>Số dòng</th>
             <th>HTTP</th>
-            <th>Error</th>
-            <th>Detail</th>
+            <th>Lỗi</th>
+            <th>Chi tiết</th>
           </tr>
         </thead>
         <tbody>
           @if (Model.SyncLogs.Count == 0)
           {
-            <tr><td colspan="8" class="tenant-empty">Chưa có log đồng bộ / No sync log has been recorded.</td></tr>
+            <tr><td colspan="8" class="tenant-empty">Chưa có log đồng bộ.</td></tr>
           }
           @foreach (var log in Model.SyncLogs)
           {
@@ -242,7 +229,7 @@
                 <div class="muted">@log.CompletedDisplay</div>
               </td>
               <td>@(string.IsNullOrWhiteSpace(log.SyncSource) ? "-" : log.SyncSource)</td>
-              <td><span class="subscription-status @(log.Success ? "paid" : "void")">@(log.Success ? "Success" : "Failed")</span></td>
+              <td><span class="subscription-status @(log.Success ? "paid" : "void")">@(log.Success ? "Thành công" : "Thất bại")</span></td>
               <td>@(string.IsNullOrWhiteSpace(log.TrafficId) ? "-" : log.TrafficId)</td>
               <td>@log.ReturnedCount</td>
               <td>@(log.HttpStatusCode?.ToString() ?? "-")</td>
@@ -256,7 +243,7 @@
               <td>
                 @if (!string.IsNullOrWhiteSpace(log.ResponseJson))
                 {
-                  <button type="button" class="table-action-btn" data-kvh-json="@log.ResponseJson" data-kvh-json-title="Sync log #@log.Id">View raw</button>
+                  <button type="button" class="table-action-btn" data-kvh-json="@log.ResponseJson" data-kvh-json-title="Sync log #@log.Id">Xem JSON</button>
                 }
                 else
                 {
@@ -273,8 +260,8 @@
   <section class="device-card kvh-detail-card">
     <header class="device-card-head">
       <div>
-        <h2>Recent KVH Commands</h2>
-        <p>Lệnh Pause/Resume/Cancel đã gửi gần đây / Recent command status.</p>
+        <h2>Lệnh KVH gần đây</h2>
+        <p>Trạng thái các lệnh Pause, Resume và Cancel schedule gần nhất.</p>
       </div>
     </header>
     <div class="device-table-wrap kvh-table-wrap">
@@ -282,19 +269,19 @@
         <thead>
           <tr>
             <th>ID</th>
-            <th>Type</th>
-            <th>Command</th>
-            <th>Verification</th>
+            <th>Loại</th>
+            <th>Lệnh</th>
+            <th>Xác minh</th>
             <th>Job</th>
-            <th>Requested</th>
-            <th>Completed</th>
-            <th>Error</th>
+            <th>Ngày gửi</th>
+            <th>Hoàn tất</th>
+            <th>Lỗi</th>
           </tr>
         </thead>
         <tbody>
           @if (Model.RecentCommands.Count == 0)
           {
-            <tr><td colspan="8" class="tenant-empty">Chưa có lệnh KVH / No recent KVH commands for this device.</td></tr>
+            <tr><td colspan="8" class="tenant-empty">Chưa có lệnh KVH cho thiết bị này.</td></tr>
           }
           @foreach (var command in Model.RecentCommands)
           {

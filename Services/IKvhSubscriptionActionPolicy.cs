@@ -16,13 +16,22 @@ public sealed class KvhSubscriptionActionPolicy : IKvhSubscriptionActionPolicy
         if (string.IsNullOrWhiteSpace(context.Region)) return Deny("missing_region", "Missing Region.");
         if (!context.KvhSubscriptionId.HasValue) return Deny("missing_subscription", "Subscription unknown.");
         if (context.HasPendingCommand) return Deny("pending_command", "A KVH command is already pending.");
-        if (context.CooldownUntilUtc.HasValue && context.CooldownUntilUtc.Value > DateTime.UtcNow) return Deny("cooldown", "Command cooldown is active.", context.CooldownUntilUtc);
+        if (context.CooldownUntilUtc.HasValue && context.CooldownUntilUtc.Value > DateTime.UtcNow) return Deny("cooldown", "Command cooldown is active.", nextAllowedAtUtc: context.CooldownUntilUtc);
 
         var status = Normalize(context.Status);
         var scheduled = KvhJsonHelpers.NormalizeScheduledAction(context.ScheduledAction);
-        if (scheduled == "SUSPEND") return Deny("scheduled_suspend", "Khong the Pause vi subscription dang cho SUSPEND co hieu luc.");
-        if (scheduled == "RESUME") return Deny("scheduled_resume", "Subscription dang co yeu cau Resume cho xu ly.");
-        if (IsSuspended(status)) return Deny("already_suspended", "Subscription da o trang thai SUSPEND.");
+        if (scheduled == "SUSPEND" && (!string.IsNullOrWhiteSpace(context.ScheduleId) || context.ScheduledEffectiveDateUtc.HasValue))
+        {
+            var effective = ShipNetTimeZone.FormatVietnam(context.ScheduledEffectiveDateUtc, includeSuffix: true);
+            return Deny(
+                "kvh_pause_already_scheduled",
+                $"Subscription da co yeu cau Pause truoc do va dang cho SUSPEND co hieu luc vao {effective}.",
+                $"A previous Pause request already exists and is waiting to become effective on {effective}.",
+                scheduledEffectiveDateUtc: context.ScheduledEffectiveDateUtc);
+        }
+
+        if (scheduled == "RESUME") return Deny("kvh_conflicting_resume_schedule", "Subscription dang co yeu cau Resume cho xu ly.", "The subscription has a pending Resume schedule.");
+        if (IsSuspended(status)) return Deny("kvh_subscription_already_suspended", "Subscription da o trang thai SUSPEND.", "The subscription is already suspended.");
         if (status != "ACTIVE") return Deny("invalid_state", "Pause chi hop le khi subscription ACTIVE.");
 
         return Allow();
@@ -34,7 +43,7 @@ public sealed class KvhSubscriptionActionPolicy : IKvhSubscriptionActionPolicy
         if (string.IsNullOrWhiteSpace(context.Region)) return Deny("missing_region", "Missing Region.");
         if (!context.KvhSubscriptionId.HasValue) return Deny("missing_subscription", "Subscription unknown.");
         if (context.HasPendingCommand) return Deny("pending_command", "A KVH command is already pending.");
-        if (context.CooldownUntilUtc.HasValue && context.CooldownUntilUtc.Value > DateTime.UtcNow) return Deny("cooldown", "Command cooldown is active.", context.CooldownUntilUtc);
+        if (context.CooldownUntilUtc.HasValue && context.CooldownUntilUtc.Value > DateTime.UtcNow) return Deny("cooldown", "Command cooldown is active.", nextAllowedAtUtc: context.CooldownUntilUtc);
 
         var status = Normalize(context.Status);
         var scheduled = KvhJsonHelpers.NormalizeScheduledAction(context.ScheduledAction);
@@ -47,7 +56,15 @@ public sealed class KvhSubscriptionActionPolicy : IKvhSubscriptionActionPolicy
     }
 
     private static KvhSubscriptionActionDecision Allow() => new() { Allowed = true };
-    private static KvhSubscriptionActionDecision Deny(string reasonCode, string message, DateTime? nextAllowedAtUtc = null) => new() { Allowed = false, ReasonCode = reasonCode, Message = message, NextAllowedAtUtc = nextAllowedAtUtc };
+    private static KvhSubscriptionActionDecision Deny(string reasonCode, string message, string? messageEn = null, DateTime? nextAllowedAtUtc = null, DateTime? scheduledEffectiveDateUtc = null) => new()
+    {
+        Allowed = false,
+        ReasonCode = reasonCode,
+        Message = message,
+        MessageEn = messageEn ?? message,
+        NextAllowedAtUtc = nextAllowedAtUtc,
+        ScheduledEffectiveDateUtc = scheduledEffectiveDateUtc
+    };
     private static string Normalize(string? value) => (value ?? string.Empty).Trim().ToUpperInvariant().Replace(" ", "_");
     private static bool IsSuspended(string status) => status.Contains("SUSPEND", StringComparison.OrdinalIgnoreCase) || status.Contains("PAUSE", StringComparison.OrdinalIgnoreCase);
 }

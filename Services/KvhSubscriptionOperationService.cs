@@ -185,6 +185,7 @@ public sealed class KvhSubscriptionOperationService(
         await using var stream = file.OpenReadStream();
         IWorkbook workbook = new XSSFWorkbook(stream);
         var sheet = workbook.GetSheet("Danh_sach_KIT") ?? workbook.GetSheetAt(0);
+        var columnMap = ResolveImportColumnMap(sheet);
         var rows = new List<KvhSubscriptionOperationImportRow>();
         var fileKitSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var maxRows = Math.Max(1, options.Value.MaxImportRows);
@@ -192,14 +193,14 @@ public sealed class KvhSubscriptionOperationService(
         {
             var row = sheet.GetRow(rowIndex);
             if (row is null) continue;
-            var kit = ReadCell(row, 1);
-            var terminal = ReadCell(row, 2);
-            var traffic = ReadCell(row, 3);
-            var region = ReadCell(row, 4);
-            var operation = KvhSubscriptionOperationTypes.Normalize(ReadCell(row, 5));
-            var vessel = ReadCell(row, 6);
-            var tenant = ReadCell(row, 7);
-            var note = ReadCell(row, 8);
+            var kit = ReadCell(row, columnMap.KitNumber);
+            var terminal = columnMap.TerminalId.HasValue ? ReadCell(row, columnMap.TerminalId.Value) : string.Empty;
+            var traffic = columnMap.TrafficId.HasValue ? ReadCell(row, columnMap.TrafficId.Value) : string.Empty;
+            var region = ReadCell(row, columnMap.Region);
+            var operation = KvhSubscriptionOperationTypes.Normalize(ReadCell(row, columnMap.OperationType));
+            var vessel = columnMap.VesselName.HasValue ? ReadCell(row, columnMap.VesselName.Value) : string.Empty;
+            var tenant = columnMap.TenantName.HasValue ? ReadCell(row, columnMap.TenantName.Value) : string.Empty;
+            var note = columnMap.Note.HasValue ? ReadCell(row, columnMap.Note.Value) : string.Empty;
             if (string.IsNullOrWhiteSpace(kit) && string.IsNullOrWhiteSpace(terminal) && string.IsNullOrWhiteSpace(traffic) && string.IsNullOrWhiteSpace(region) && string.IsNullOrWhiteSpace(operation) && string.IsNullOrWhiteSpace(vessel) && string.IsNullOrWhiteSpace(tenant)) continue;
 
             operation = string.IsNullOrWhiteSpace(operation) ? batch.OperationType : operation;
@@ -262,12 +263,11 @@ public sealed class KvhSubscriptionOperationService(
         var batch = await GetBatchHeaderAsync(connection, transaction, batchId, allowedTenantId, allowedDeviceId, cancellationToken);
         EnsureDraft(batch);
         var added = 0;
-        foreach (var row in preview.Rows.Where(row => row.IsValid && row.DeviceId.HasValue))
+        foreach (var row in preview.Rows.Where(row => !string.IsNullOrWhiteSpace(row.KitNumber)))
         {
-            var deviceId = row.DeviceId.GetValueOrDefault();
             var snapshot = new DeviceSnapshot
             {
-                DeviceId = deviceId,
+                DeviceId = row.DeviceId,
                 KitNumber = row.KitNumber,
                 TerminalId = row.TerminalId,
                 TrafficId = row.TrafficId,
@@ -320,7 +320,7 @@ public sealed class KvhSubscriptionOperationService(
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        await MarkBatchStatusAsync(connection, transaction, batchId, ready == items.Count && ready > 0 ? KvhSubscriptionOperationBatchStatuses.Ready : KvhSubscriptionOperationBatchStatuses.Draft, cancellationToken);
+        await MarkBatchStatusAsync(connection, transaction, batchId, ready > 0 ? KvhSubscriptionOperationBatchStatuses.Ready : KvhSubscriptionOperationBatchStatuses.Draft, cancellationToken);
         await RefreshCountersAsync(connection, batchId, transaction, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return ready;
@@ -474,12 +474,58 @@ public sealed class KvhSubscriptionOperationService(
     {
         IWorkbook workbook = new XSSFWorkbook();
         var sheet = workbook.CreateSheet("Danh_sach_KIT");
+        var headerStyle = workbook.CreateCellStyle();
+        headerStyle.FillForegroundColor = IndexedColors.DarkBlue.Index;
+        headerStyle.FillPattern = FillPattern.SolidForeground;
+        headerStyle.Alignment = HorizontalAlignment.Center;
+        headerStyle.VerticalAlignment = VerticalAlignment.Center;
+        headerStyle.WrapText = true;
+        var headerFont = workbook.CreateFont();
+        headerFont.IsBold = true;
+        headerFont.Color = IndexedColors.White.Index;
+        headerFont.FontHeightInPoints = 14;
+        headerStyle.SetFont(headerFont);
+
+        var textStyle = workbook.CreateCellStyle();
+        textStyle.Alignment = HorizontalAlignment.Left;
+        textStyle.VerticalAlignment = VerticalAlignment.Center;
+
         var header = sheet.CreateRow(0);
-        var headers = new[] { "STT", "KIT Number (*)", "Terminal ID", "Traffic ID", "Region", "Loại thao tác", "Tên tàu", "Tenant", "Ghi chú", "Kết quả kiểm tra" };
-        for (var i = 0; i < headers.Length; i++) header.CreateCell(i).SetCellValue(headers[i]);
+        header.HeightInPoints = 32;
+        var headers = new[] { "KIT Number (*)", "Region", "Loại thao tác" };
+        for (var i = 0; i < headers.Length; i++)
+        {
+            var cell = header.CreateCell(i);
+            cell.SetCellValue(headers[i]);
+            cell.CellStyle = headerStyle;
+        }
+
+        var examples = new[]
+        {
+            ("KIT405660930VFR", "GLOBAL", "PAUSE"),
+            ("KIT4M04801020J4H", "GLOBAL", "PAUSE"),
+            ("KIT4055547627FQ", "GLOBAL", "PAUSE")
+        };
+        for (var i = 0; i < examples.Length; i++)
+        {
+            var row = sheet.CreateRow(i + 1);
+            row.CreateCell(0).SetCellValue(examples[i].Item1);
+            row.CreateCell(1).SetCellValue(examples[i].Item2);
+            row.CreateCell(2).SetCellValue(examples[i].Item3);
+            for (var c = 0; c < 3; c++)
+            {
+                row.GetCell(c).CellStyle = textStyle;
+            }
+        }
+
+        sheet.SetColumnWidth(0, 26 * 256);
+        sheet.SetColumnWidth(1, 16 * 256);
+        sheet.SetColumnWidth(2, 18 * 256);
+        sheet.CreateFreezePane(0, 1);
         var guide = workbook.CreateSheet("Huong_dan");
-        guide.CreateRow(0).CreateCell(0).SetCellValue("Nhập KIT Number. Loại thao tác nhận PAUSE hoặc RESUME; nếu trống sẽ dùng loại mặc định của batch.");
-        guide.CreateRow(1).CreateCell(0).SetCellValue("Không cần nhập Terminal ID/Traffic ID/Region nếu hệ thống đã có dữ liệu.");
+        guide.CreateRow(0).CreateCell(0).SetCellValue("Nhap dung 3 cot: KIT Number (*), Region, Loai thao tac.");
+        guide.CreateRow(1).CreateCell(0).SetCellValue("Loai thao tac nhan PAUSE hoac RESUME; neu trong se dung loai mac dinh cua batch.");
+        guide.CreateRow(2).CreateCell(0).SetCellValue("Region co the de GLOBAL hoac dung region dang co tren KVH subscription.");
         using var output = new MemoryStream();
         workbook.Write(output, true);
         return output.ToArray();
@@ -1058,7 +1104,7 @@ public sealed class KvhSubscriptionOperationService(
             """;
         await using var command = new SqlCommand(sql, connection, transaction);
         command.Parameters.Add("@batchId", SqlDbType.BigInt).Value = batchId;
-        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = device.DeviceId;
+        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = (object?)device.DeviceId ?? DBNull.Value;
         command.Parameters.Add("@kit", SqlDbType.NVarChar, 200).Value = device.KitNumber;
         command.Parameters.Add("@terminalId", SqlDbType.NVarChar, 200).Value = Db(device.TerminalId);
         command.Parameters.Add("@trafficId", SqlDbType.NVarChar, 200).Value = Db(device.TrafficId);
@@ -1838,7 +1884,21 @@ public sealed class KvhSubscriptionOperationService(
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    private static ImportColumnMap ResolveImportColumnMap(ISheet sheet)
+    {
+        var header = sheet.GetRow(0);
+        var firstHeader = header is null ? string.Empty : NormalizeHeader(ReadCell(header, 0));
+        return firstHeader.Contains("KITNUMBER", StringComparison.OrdinalIgnoreCase) || firstHeader.Contains("KIT", StringComparison.OrdinalIgnoreCase)
+            ? new ImportColumnMap(KitNumber: 0, Region: 1, OperationType: 2)
+            : new ImportColumnMap(KitNumber: 1, Region: 4, OperationType: 5, TerminalId: 2, TrafficId: 3, VesselName: 6, TenantName: 7, Note: 8);
+    }
+
     private static string ReadCell(IRow row, int index) => row.GetCell(index)?.ToString()?.Trim() ?? string.Empty;
+    private static string NormalizeHeader(string value)
+    {
+        var normalized = new string((value ?? string.Empty).Where(char.IsLetterOrDigit).ToArray());
+        return normalized.ToUpperInvariant();
+    }
     private static string NormalizeKit(string value) => string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().ToUpperInvariant();
     private static string NormalizeUser(string value) => string.IsNullOrWhiteSpace(value) ? "system" : value.Trim();
     private static string? NormalizeNullable(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
@@ -1865,7 +1925,7 @@ public sealed class KvhSubscriptionOperationService(
 
     private sealed class DeviceSnapshot
     {
-        public int DeviceId { get; set; }
+        public int? DeviceId { get; set; }
         public string KitNumber { get; set; } = string.Empty;
         public string TerminalId { get; set; } = string.Empty;
         public string TrafficId { get; set; } = string.Empty;
@@ -1957,4 +2017,14 @@ public sealed class KvhSubscriptionOperationService(
             NextVerificationAtUtc = nextVerificationAtUtc
         };
     }
+
+    private sealed record ImportColumnMap(
+        int KitNumber,
+        int Region,
+        int OperationType,
+        int? TerminalId = null,
+        int? TrafficId = null,
+        int? VesselName = null,
+        int? TenantName = null,
+        int? Note = null);
 }

@@ -122,10 +122,78 @@ public class KvhSubscriptionOperationTests
         Assert.Contains("Asia/Ho_Chi_Minh", timezone);
         Assert.Contains("UTC+7", timezone);
         Assert.Contains("IKvhSubscriptionActionPolicy", policy);
-        Assert.Contains("scheduled_suspend", policy);
+        Assert.Contains("kvh_pause_already_scheduled", policy);
+        Assert.Contains("ScheduledEffectiveDateUtc", policy);
         Assert.Contains("ScheduledCreatedAtUtc", script);
         Assert.Contains("ScheduledRawJson", script);
         Assert.Contains("OperationStatus", script);
+    }
+
+    [Fact]
+    public void KvhScheduledSuspendUiAndBackendGuardAreSeparatedFromSubscriptionEffectiveDate()
+    {
+        var models = File.ReadAllText(Path.Combine(ProjectRoot, "Models", "KvhSubscriptionModels.cs"));
+        var service = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "KvhSubscriptionService.cs"));
+        var policy = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "IKvhSubscriptionActionPolicy.cs"));
+        var detail = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "KvhSolutions", "Details.cshtml"));
+        var index = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "KvhSolutions", "Index.cshtml"));
+
+        Assert.Contains("SubscriptionEffectiveDateUtc", models);
+        Assert.Contains("ScheduledEffectiveDateUtc", models);
+        Assert.Contains("NormalizedScheduledAction", models);
+        Assert.Contains("HasScheduledPause => NormalizedScheduledAction == \"SUSPEND\"", models);
+        Assert.Contains("CanPause => !MissingTrafficId && IsActive && !HasScheduledPause", models);
+        Assert.Contains("ScheduleNote => HasScheduledPause", models);
+        Assert.Contains("OperationStateDisplay => HasScheduledPause", models);
+
+        Assert.Contains("s.[EffectiveDateUtc], s.[ScheduledEffectiveDateUtc]", service);
+        Assert.Contains("ScheduleId = context.ScheduleId", service);
+        Assert.Contains("ScheduledEffectiveDateUtc = context.ScheduledEffectiveDateUtc", service);
+        Assert.Contains("HasPendingCommand = context.HasPendingCommand", service);
+        Assert.Contains("InsertSubscriptionCommandAsync", service);
+
+        Assert.Contains("kvh_pause_already_scheduled", policy);
+        Assert.Contains("A previous Pause request already exists", policy);
+        Assert.Contains("ShipNetTimeZone.FormatVietnam(context.ScheduledEffectiveDateUtc", policy);
+
+        Assert.Contains("Ngày hiệu lực subscription", detail);
+        Assert.Contains("Ngày hiệu lực scheduled", detail);
+        Assert.Contains("Trạng thái thao tác", detail);
+        Assert.Contains("entry.CanPause", detail);
+        Assert.DoesNotContain("ScheduledAction.Contains(\"pause\"", detail);
+        Assert.Contains("entry.ScheduleNote", detail);
+        Assert.Contains("entry.CanCancelSchedule", detail);
+
+        Assert.Contains("Subscription effective", index);
+        Assert.Contains("item.NormalizedScheduledAction", index);
+        Assert.Contains("item.ScheduleNote", index);
+        Assert.Contains("item.CanCancelSchedule", index);
+        Assert.DoesNotContain("ScheduledAction.Contains(\"pause\"", index);
+    }
+
+    [Fact]
+    public void KvhSubscriptionOperationCanStartReadyRowsWhenSomeRowsAreInvalid()
+    {
+        var service = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "KvhSubscriptionOperationService.cs"));
+
+        Assert.Contains("ready > 0 ? KvhSubscriptionOperationBatchStatuses.Ready : KvhSubscriptionOperationBatchStatuses.Draft", service);
+        Assert.Contains("WHERE [BatchId] = @batchId AND [Status] = 'READY'", service);
+        Assert.Contains("if (ready <= 0)", service);
+    }
+
+    [Fact]
+    public void KvhSubscriptionOperationImportUsesThreeColumnTemplate()
+    {
+        var service = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "KvhSubscriptionOperationService.cs"));
+        var detail = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "KvhSolutions", "SubscriptionOperations", "Details.cshtml"));
+
+        Assert.Contains("var headers = new[] { \"KIT Number (*)\", \"Region\", \"Loại thao tác\" }", service);
+        Assert.Contains("ResolveImportColumnMap(sheet)", service);
+        Assert.Contains("new ImportColumnMap(KitNumber: 0, Region: 1, OperationType: 2)", service);
+        Assert.Contains("new ImportColumnMap(KitNumber: 1, Region: 4, OperationType: 5", service);
+        Assert.Contains("Tải mẫu import", detail);
+        Assert.Contains("ImportPreview", detail);
+        Assert.Contains("kvh-inline-import-form", detail);
     }
 
     [Fact]

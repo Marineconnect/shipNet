@@ -231,7 +231,7 @@ public sealed class KvhSubscriptionService(
 
             var query = $"""
                 SELECT d.[ID], d.[DeviceName], d.[DeviceCode], d.[VesselName], d.[TenantID], t.[TenantName], d.[KITNumber], d.[Availability], d.[LastUpdateTime], d.[TrafficId],
-                       s.[ID] AS [KvhSubscriptionId], s.[Region], s.[PlanName], s.[Status], s.[ScheduledAction], s.[ScheduleId], s.[ScheduledEffectiveDateUtc],
+                       s.[ID] AS [KvhSubscriptionId], s.[Region], s.[PlanName], s.[Status], s.[ScheduledAction], s.[ScheduleId], s.[EffectiveDateUtc], s.[ScheduledEffectiveDateUtc],
                        s.[AllowanceGb], s.[LastSeenAtUtc], log.[StartedAtUtc] AS [LastSyncAtUtc], log.[Success] AS [LastSyncSuccess], log.[ErrorCode] AS [LastSyncErrorCode], log.[ReturnedCount] AS [LastSyncReturnedCount],
                        pending.[HasPendingCommand], pending.[CooldownUntilUtc]
                 FROM [dbo].[TblDevices] d
@@ -483,8 +483,10 @@ public sealed class KvhSubscriptionService(
             Region = context.Region,
             Status = context.SubscriptionStatus,
             ScheduledAction = context.ScheduledAction,
-            HasPendingCommand = false,
-            CooldownUntilUtc = null
+            ScheduleId = context.ScheduleId,
+            ScheduledEffectiveDateUtc = context.ScheduledEffectiveDateUtc,
+            HasPendingCommand = context.HasPendingCommand,
+            CooldownUntilUtc = context.CooldownUntilUtc
         };
         var policyDecision = commandType == KvhCommandTypes.SubscriptionResume
             ? actionPolicy.EvaluateResume(policyContext)
@@ -498,7 +500,7 @@ public sealed class KvhSubscriptionService(
                 Success = false,
                 ErrorCode = policyDecision.ReasonCode,
                 Message = policyDecision.Message,
-                MessageEn = policyDecision.Message,
+                MessageEn = string.IsNullOrWhiteSpace(policyDecision.MessageEn) ? policyDecision.Message : policyDecision.MessageEn,
                 DeviceId = context.DeviceId,
                 TerminalId = context.TerminalId,
                 RemainingSeconds = policyDecision.NextAllowedAtUtc.HasValue ? Math.Max(0, (int)(policyDecision.NextAllowedAtUtc.Value - DateTime.UtcNow).TotalSeconds) : null,
@@ -568,9 +570,20 @@ public sealed class KvhSubscriptionService(
     private async Task<CommandContext> GetSubscriptionCommandContextAsync(SqlConnection connection, KvhSolutionCommandRequest request, int? allowedTenantId, int? allowedDeviceId, CancellationToken cancellationToken)
     {
         const string query = """
-            SELECT TOP 1 d.[ID], d.[DeviceCode], d.[TokenString], d.[TokenExpiredTime], s.[ID] AS [KvhSubscriptionId], s.[TrafficId], s.[Region], s.[Status], s.[ScheduledAction], s.[ScheduleId]
+            SELECT TOP 1 d.[ID], d.[DeviceCode], d.[TokenString], d.[TokenExpiredTime],
+                   s.[ID] AS [KvhSubscriptionId], s.[TrafficId], s.[Region], s.[Status], s.[ScheduledAction], s.[ScheduleId], s.[ScheduledEffectiveDateUtc],
+                   pending.[HasPendingCommand], pending.[CooldownUntilUtc]
             FROM [dbo].[TblKvhSubscription] s
             INNER JOIN [dbo].[TblDevices] d ON d.[ID] = s.[DeviceId]
+            OUTER APPLY (
+                SELECT TOP 1 CAST(1 AS bit) AS [HasPendingCommand], [CooldownUntilUtc]
+                FROM [dbo].[TblKvhCommand] c
+                WHERE c.[DeviceId] = d.[ID]
+                  AND c.[KvhSubscriptionId] = s.[ID]
+                  AND c.[CommandType] IN ('SUBSCRIPTION_PAUSE', 'SUBSCRIPTION_RESUME', 'SUBSCRIPTION_CANCEL_SCHEDULE')
+                  AND c.[CommandStatus] NOT IN ('FAILED', 'TIMEOUT', 'VERIFIED', 'VERIFICATION_MISMATCH', 'VERIFICATION_TIMEOUT', 'COMPLETED')
+                ORDER BY c.[RequestedAtUtc] DESC, c.[ID] DESC
+            ) pending
             WHERE d.[ID] = @deviceId
               AND s.[ID] = @subscriptionId
               AND s.[IsCurrent] = 1
@@ -602,7 +615,10 @@ public sealed class KvhSubscriptionService(
                 Region = reader["Region"]?.ToString() ?? string.Empty,
                 SubscriptionStatus = reader["Status"]?.ToString() ?? string.Empty,
                 ScheduledAction = reader["ScheduledAction"]?.ToString() ?? string.Empty,
-                ScheduleId = reader["ScheduleId"]?.ToString() ?? string.Empty
+                ScheduleId = reader["ScheduleId"]?.ToString() ?? string.Empty,
+                ScheduledEffectiveDateUtc = reader["ScheduledEffectiveDateUtc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["ScheduledEffectiveDateUtc"]), DateTimeKind.Utc),
+                HasPendingCommand = reader["HasPendingCommand"] != DBNull.Value && Convert.ToBoolean(reader["HasPendingCommand"]),
+                CooldownUntilUtc = reader["CooldownUntilUtc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["CooldownUntilUtc"]), DateTimeKind.Utc)
             };
         }
 
@@ -1224,6 +1240,7 @@ public sealed class KvhSubscriptionService(
         Status = reader["Status"]?.ToString() ?? string.Empty,
         ScheduledAction = reader["ScheduledAction"]?.ToString() ?? string.Empty,
         ScheduleId = reader["ScheduleId"]?.ToString() ?? string.Empty,
+        SubscriptionEffectiveDateUtc = reader["EffectiveDateUtc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["EffectiveDateUtc"]), DateTimeKind.Utc),
         ScheduledEffectiveDateUtc = reader["ScheduledEffectiveDateUtc"] == DBNull.Value ? null : Convert.ToDateTime(reader["ScheduledEffectiveDateUtc"]),
         AllowanceGb = reader["AllowanceGb"] == DBNull.Value ? null : Convert.ToDecimal(reader["AllowanceGb"]),
         LastSeenAtUtc = reader["LastSeenAtUtc"] == DBNull.Value ? null : Convert.ToDateTime(reader["LastSeenAtUtc"]),
@@ -1253,10 +1270,11 @@ public sealed class KvhSubscriptionService(
         OptInJson = reader["OptInJson"]?.ToString() ?? string.Empty,
         ScheduledAction = reader["ScheduledAction"]?.ToString() ?? string.Empty,
         ScheduleId = reader["ScheduleId"]?.ToString() ?? string.Empty,
-        ScheduledEffectiveDateUtc = reader["ScheduledEffectiveDateUtc"] == DBNull.Value ? null : Convert.ToDateTime(reader["ScheduledEffectiveDateUtc"]),
+        ScheduledEffectiveDateUtc = reader["ScheduledEffectiveDateUtc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["ScheduledEffectiveDateUtc"]), DateTimeKind.Utc),
+        ScheduledCreatedAtUtc = HasColumn(reader, "ScheduledCreatedAtUtc") && reader["ScheduledCreatedAtUtc"] != DBNull.Value ? DateTime.SpecifyKind(Convert.ToDateTime(reader["ScheduledCreatedAtUtc"]), DateTimeKind.Utc) : null,
         AllowanceGb = reader["AllowanceGb"] == DBNull.Value ? null : Convert.ToDecimal(reader["AllowanceGb"]),
         Proration = reader["Proration"] == DBNull.Value ? null : Convert.ToDecimal(reader["Proration"]),
-        EffectiveDateUtc = reader["EffectiveDateUtc"] == DBNull.Value ? null : Convert.ToDateTime(reader["EffectiveDateUtc"]),
+        SubscriptionEffectiveDateUtc = reader["EffectiveDateUtc"] == DBNull.Value ? null : DateTime.SpecifyKind(Convert.ToDateTime(reader["EffectiveDateUtc"]), DateTimeKind.Utc),
         LastSeenAtUtc = reader["LastSeenAtUtc"] == DBNull.Value ? null : Convert.ToDateTime(reader["LastSeenAtUtc"]),
         RawSubscriptionJson = reader["RawSubscriptionJson"]?.ToString() ?? string.Empty
     };
@@ -1456,6 +1474,18 @@ public sealed class KvhSubscriptionService(
     private static string Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
     private static string? NormalizeNullable(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static bool IsTokenExpired(DateTime? tokenExpiredTime) => !tokenExpiredTime.HasValue || DateTime.SpecifyKind(tokenExpiredTime.Value, DateTimeKind.Utc) <= DateTime.UtcNow;
+    private static bool HasColumn(SqlDataReader reader, string columnName)
+    {
+        for (var i = 0; i < reader.FieldCount; i++)
+        {
+            if (string.Equals(reader.GetName(i), columnName, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private sealed class DeviceRow
     {
@@ -1510,6 +1540,9 @@ public sealed class KvhSubscriptionService(
         public string SubscriptionStatus { get; set; } = string.Empty;
         public string ScheduledAction { get; set; } = string.Empty;
         public string ScheduleId { get; set; } = string.Empty;
+        public DateTime? ScheduledEffectiveDateUtc { get; set; }
+        public bool HasPendingCommand { get; set; }
+        public DateTime? CooldownUntilUtc { get; set; }
         public string ErrorCode { get; set; } = string.Empty;
         public string Message { get; set; } = string.Empty;
 

@@ -120,6 +120,7 @@ public sealed class KvhSolutionListItemViewModel
     public string Status { get; set; } = string.Empty;
     public string ScheduledAction { get; set; } = string.Empty;
     public string ScheduleId { get; set; } = string.Empty;
+    public DateTime? SubscriptionEffectiveDateUtc { get; set; }
     public DateTime? ScheduledEffectiveDateUtc { get; set; }
     public decimal? AllowanceGb { get; set; }
     public DateTime? LastSeenAtUtc { get; set; }
@@ -130,17 +131,38 @@ public sealed class KvhSolutionListItemViewModel
     public DateTime? CooldownUntilUtc { get; set; }
 
     public bool MissingTrafficId => string.IsNullOrWhiteSpace(TrafficId);
-    public bool HasScheduledPause => ScheduledAction.Contains("pause", StringComparison.OrdinalIgnoreCase) ||
-        ScheduledAction.Contains("suspend", StringComparison.OrdinalIgnoreCase);
+    public string NormalizedScheduledAction => KvhJsonHelpers.NormalizeScheduledAction(ScheduledAction);
+    public bool HasScheduledPause => NormalizedScheduledAction == "SUSPEND" &&
+        (!string.IsNullOrWhiteSpace(ScheduleId) || ScheduledEffectiveDateUtc.HasValue);
     public bool IsActive => Status.Equals("ACTIVE", StringComparison.OrdinalIgnoreCase) || Status.Equals("Active", StringComparison.OrdinalIgnoreCase);
     public bool IsPaused => Status.Contains("SUSPEND", StringComparison.OrdinalIgnoreCase) || Status.Contains("PAUSE", StringComparison.OrdinalIgnoreCase);
     public bool CooldownActive => CooldownUntilUtc.HasValue && DateTime.SpecifyKind(CooldownUntilUtc.Value, DateTimeKind.Utc) > DateTime.UtcNow;
     public bool CanPause => !MissingTrafficId && IsActive && !HasScheduledPause && !HasPendingCommand && !CooldownActive;
     public bool CanResume => !MissingTrafficId && IsPaused && !HasPendingCommand && !CooldownActive;
+    public bool CanCancelSchedule => !string.IsNullOrWhiteSpace(ScheduleId) && ScheduledEffectiveDateUtc.HasValue;
     public string AllowanceDisplay => AllowanceGb.HasValue ? $"{AllowanceGb.Value:0.##} GB" : "-";
     public string LastSyncDisplay => FormatUtc(LastSyncAtUtc);
+    public string SubscriptionEffectiveDisplay => ShipNetTimeZone.FormatVietnam(SubscriptionEffectiveDateUtc);
     public string ScheduledEffectiveDisplay => ShipNetTimeZone.FormatVietnam(ScheduledEffectiveDateUtc, includeSuffix: true);
     public string LastUpdateDisplay => FormatUtc(LastUpdateTimeUtc);
+    public string PauseDisabledReason => HasScheduledPause
+        ? "Không thể Pause lại vì KVH đã có một yêu cầu Pause đang chờ SUSPEND có hiệu lực."
+        : HasPendingCommand
+            ? "Đang có lệnh KVH nội bộ chưa hoàn tất."
+            : CooldownActive
+                ? "Lệnh KVH đang trong thời gian cooldown."
+                : string.Empty;
+    public string OperationStateDisplay => HasScheduledPause
+        ? "Đang chờ SUSPEND có hiệu lực"
+        : IsPaused
+            ? "Đã SUSPEND"
+            : IsActive
+                ? "Sẵn sàng"
+                : "-";
+    public string ScheduleNote => HasScheduledPause
+        ? $"KVH đã tiếp nhận yêu cầu Pause. Subscription hiện vẫn {StatusDisplay} và sẽ chuyển sang SUSPEND vào {ScheduledEffectiveDisplay}."
+        : string.Empty;
+    public string StatusDisplay => string.IsNullOrWhiteSpace(Status) ? "UNKNOWN" : Status.Trim().ToUpperInvariant();
 
     private static string FormatUtc(DateTime? value) =>
         ShipNetTimeZone.FormatVietnam(value);
@@ -179,11 +201,36 @@ public sealed class KvhSubscriptionEntryViewModel
     public string ScheduledAction { get; set; } = string.Empty;
     public string ScheduleId { get; set; } = string.Empty;
     public DateTime? ScheduledEffectiveDateUtc { get; set; }
+    public DateTime? ScheduledCreatedAtUtc { get; set; }
     public decimal? AllowanceGb { get; set; }
     public decimal? Proration { get; set; }
-    public DateTime? EffectiveDateUtc { get; set; }
+    public DateTime? SubscriptionEffectiveDateUtc { get; set; }
     public DateTime? LastSeenAtUtc { get; set; }
     public string RawSubscriptionJson { get; set; } = string.Empty;
+    public string NormalizedScheduledAction => KvhJsonHelpers.NormalizeScheduledAction(ScheduledAction);
+    public bool HasScheduledPause => NormalizedScheduledAction == "SUSPEND" &&
+        (!string.IsNullOrWhiteSpace(ScheduleId) || ScheduledEffectiveDateUtc.HasValue);
+    public bool IsActive => Status.Equals("ACTIVE", StringComparison.OrdinalIgnoreCase);
+    public bool IsPaused => Status.Contains("SUSPEND", StringComparison.OrdinalIgnoreCase) || Status.Contains("PAUSE", StringComparison.OrdinalIgnoreCase);
+    public bool CanPause => IsActive && !HasScheduledPause;
+    public bool CanResume => IsPaused;
+    public bool CanCancelSchedule => !string.IsNullOrWhiteSpace(ScheduleId) && ScheduledEffectiveDateUtc.HasValue;
+    public string SubscriptionEffectiveDisplay => ShipNetTimeZone.FormatVietnam(SubscriptionEffectiveDateUtc);
+    public string ScheduledEffectiveDisplay => ShipNetTimeZone.FormatVietnam(ScheduledEffectiveDateUtc, includeSuffix: true);
+    public string OperationStateDisplay => HasScheduledPause
+        ? "Đang chờ SUSPEND có hiệu lực"
+        : IsPaused
+            ? "Đã SUSPEND"
+            : IsActive
+                ? "Sẵn sàng"
+                : "-";
+    public string PauseDisabledReason => HasScheduledPause
+        ? "Không thể Pause lại vì KVH đã có một yêu cầu Pause đang chờ SUSPEND có hiệu lực."
+        : string.Empty;
+    public string ScheduleNote => HasScheduledPause
+        ? $"KVH đã tiếp nhận yêu cầu Pause. Subscription hiện vẫn {StatusDisplay} và sẽ chuyển sang SUSPEND vào {ScheduledEffectiveDisplay}."
+        : string.Empty;
+    public string StatusDisplay => string.IsNullOrWhiteSpace(Status) ? "UNKNOWN" : Status.Trim().ToUpperInvariant();
 }
 
 public sealed class KvhSubscriptionSyncLogViewModel
@@ -220,6 +267,8 @@ public sealed class KvhSubscriptionActionContext
     public string Region { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public string ScheduledAction { get; set; } = string.Empty;
+    public string ScheduleId { get; set; } = string.Empty;
+    public DateTime? ScheduledEffectiveDateUtc { get; set; }
     public bool HasPendingCommand { get; set; }
     public DateTime? CooldownUntilUtc { get; set; }
 }
@@ -229,6 +278,8 @@ public sealed class KvhSubscriptionActionDecision
     public bool Allowed { get; set; }
     public string ReasonCode { get; set; } = string.Empty;
     public string Message { get; set; } = string.Empty;
+    public string MessageEn { get; set; } = string.Empty;
+    public DateTime? ScheduledEffectiveDateUtc { get; set; }
     public DateTime? NextAllowedAtUtc { get; set; }
 }
 
