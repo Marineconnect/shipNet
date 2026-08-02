@@ -27,6 +27,8 @@ public sealed class KvhSubscriptionOperationsController(
         string? createdBy = null)
     {
         var currentUser = await GetCurrentUserAsync();
+        if (!CanAccessSolutions(currentUser)) return Forbid();
+
         var model = await operationService.GetBatchesAsync(
             new KvhSubscriptionOperationFilter
             {
@@ -53,6 +55,7 @@ public sealed class KvhSubscriptionOperationsController(
     public async Task<IActionResult> Create(KvhSubscriptionOperationCreateRequest request)
     {
         var currentUser = await GetCurrentUserAsync();
+        if (!CanAccessSolutions(currentUser)) return Forbid();
         if (!CanManageSolutions(currentUser)) return Forbid();
 
         try
@@ -73,6 +76,7 @@ public sealed class KvhSubscriptionOperationsController(
     public async Task<IActionResult> Details(long id)
     {
         var currentUser = await GetCurrentUserAsync();
+        if (!CanAccessSolutions(currentUser)) return Forbid();
         var model = await operationService.GetBatchAsync(id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), CanManageSolutions(currentUser), HttpContext.RequestAborted);
         if (model is null) return NotFound();
 
@@ -96,6 +100,7 @@ public sealed class KvhSubscriptionOperationsController(
     public async Task<IActionResult> ImportPreview(long id, IFormFile file)
     {
         var currentUser = await GetCurrentUserAsync();
+        if (!CanAccessSolutions(currentUser)) return Forbid();
         if (!CanManageSolutions(currentUser)) return Forbid();
 
         try
@@ -133,6 +138,7 @@ public sealed class KvhSubscriptionOperationsController(
     public async Task<IActionResult> ConfirmImport(long id, string previewJson)
     {
         var currentUser = await GetCurrentUserAsync();
+        if (!CanAccessSolutions(currentUser)) return Forbid();
         if (!CanManageSolutions(currentUser)) return Forbid();
 
         try
@@ -209,6 +215,7 @@ public sealed class KvhSubscriptionOperationsController(
     public async Task<IActionResult> Status(long id)
     {
         var currentUser = await GetCurrentUserAsync();
+        if (!CanAccessSolutions(currentUser)) return Forbid();
         var model = await operationService.GetBatchAsync(id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), CanManageSolutions(currentUser), HttpContext.RequestAborted);
         return model is null
             ? NotFound()
@@ -234,6 +241,7 @@ public sealed class KvhSubscriptionOperationsController(
     public async Task<IActionResult> Export(long id)
     {
         var currentUser = await GetCurrentUserAsync();
+        if (!CanAccessSolutions(currentUser)) return Forbid();
         var content = await operationService.ExportAsync(id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
         return File(content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"kvh-operation-{id}.xlsx");
     }
@@ -241,6 +249,8 @@ public sealed class KvhSubscriptionOperationsController(
     [HttpGet("DownloadTemplate")]
     public IActionResult DownloadTemplate()
     {
+        if (!string.Equals(User.Identity?.Name?.Trim(), "admin", StringComparison.OrdinalIgnoreCase)) return Forbid();
+
         var content = operationService.BuildTemplate();
         return File(content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "kvh-subscription-operation-template.xlsx");
     }
@@ -248,6 +258,7 @@ public sealed class KvhSubscriptionOperationsController(
     private async Task<IActionResult> ExecuteBatchActionAsync(long id, Func<AuthUserRecord?, CancellationToken, Task> action)
     {
         var currentUser = await GetCurrentUserAsync();
+        if (!CanAccessSolutions(currentUser)) return Forbid();
         if (!CanManageSolutions(currentUser)) return Forbid();
 
         try
@@ -298,6 +309,11 @@ public sealed class KvhSubscriptionOperationsController(
 
     private static bool CanManageSolutions(AuthUserRecord? user)
     {
-        return user is not null && !user.IsViewOnly;
+        return CanAccessSolutions(user) && user?.IsViewOnly != true;
+    }
+
+    private static bool CanAccessSolutions(AuthUserRecord? user)
+    {
+        return string.Equals(user?.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -184,6 +184,7 @@ public sealed class KvhSubscriptionService(
         filter.Search = NormalizeNullable(filter.Search);
         filter.Status = NormalizeNullable(filter.Status);
         filter.Region = NormalizeNullable(filter.Region);
+        filter.PlanName = NormalizeNullable(filter.PlanName);
         filter.SyncState = NormalizeNullable(filter.SyncState);
         if (allowedTenantId.HasValue)
         {
@@ -1155,7 +1156,10 @@ public sealed class KvhSubscriptionService(
             "(@allowedDeviceId IS NULL OR d.[ID] = @allowedDeviceId)",
             "(@tenantId IS NULL OR d.[TenantID] = @tenantId)",
             "(@status IS NULL OR s.[Status] = @status)",
-            "(@region IS NULL OR s.[Region] = @region)"
+            "(@region IS NULL OR s.[Region] = @region)",
+            "(@planName IS NULL OR s.[PlanName] LIKE @planName)",
+            "(@syncDateFrom IS NULL OR log.[StartedAtUtc] >= @syncDateFrom)",
+            "(@syncDateTo IS NULL OR log.[StartedAtUtc] < DATEADD(day, 1, @syncDateTo))"
         };
 
         if (!string.IsNullOrWhiteSpace(filter.Search))
@@ -1198,6 +1202,9 @@ public sealed class KvhSubscriptionService(
         command.Parameters.Add("@tenantId", SqlDbType.Int).Value = (object?)filter.TenantId ?? DBNull.Value;
         command.Parameters.Add("@status", SqlDbType.NVarChar, 80).Value = (object?)filter.Status ?? DBNull.Value;
         command.Parameters.Add("@region", SqlDbType.NVarChar, 120).Value = (object?)filter.Region ?? DBNull.Value;
+        command.Parameters.Add("@planName", SqlDbType.NVarChar, 260).Value = string.IsNullOrWhiteSpace(filter.PlanName) ? DBNull.Value : $"%{filter.PlanName}%";
+        command.Parameters.Add("@syncDateFrom", SqlDbType.DateTime2).Value = (object?)filter.SyncDateFrom ?? DBNull.Value;
+        command.Parameters.Add("@syncDateTo", SqlDbType.DateTime2).Value = (object?)filter.SyncDateTo ?? DBNull.Value;
         if (!string.IsNullOrWhiteSpace(filter.Search))
         {
             command.Parameters.Add("@search", SqlDbType.NVarChar, 260).Value = $"%{filter.Search}%";

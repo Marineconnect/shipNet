@@ -5,6 +5,21 @@ namespace StarlinkDeviceManager.Services;
 
 public interface IPaymentTransactionService
 {
+    Task<PaymentTransactionIndexViewModel> GetTransactionsAsync(
+        PaymentTransactionFilterViewModel filter,
+        int page,
+        int pageSize,
+        int? allowedTenantId = null,
+        int? allowedDeviceId = null,
+        bool canManage = false,
+        CancellationToken cancellationToken = default);
+
+    Task<PaymentTransactionDetailViewModel?> GetTransactionDetailAsync(
+        int invoiceId,
+        int? allowedTenantId = null,
+        int? allowedDeviceId = null,
+        CancellationToken cancellationToken = default);
+
     Task<NinePayQrInfoViewModel> CreateNinePayQrInfoAsync(int invoiceId, string clientIp = "", string createdBy = "", CancellationToken cancellationToken = default);
 
     Task<NinePayBankTransferInfoViewModel> CreateNinePayBankTransferInfoAsync(int invoiceId, string clientIp = "", string createdBy = "", CancellationToken cancellationToken = default);

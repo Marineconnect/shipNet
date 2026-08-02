@@ -86,7 +86,8 @@ public class AccountController(
             new Claim(ClaimTypes.Name, user.Username),
             new Claim("DisplayName", displayName),
             new Claim("UserType", ManagedUserType.NormalizeGroup(user.UserType)),
-            new Claim("IsViewOnly", user.IsViewOnly ? "true" : "false")
+            new Claim("IsViewOnly", user.IsViewOnly ? "true" : "false"),
+            new Claim("CanManageTransactions", user.CanManageTransactions ? "true" : "false")
         };
 
         if (!string.IsNullOrWhiteSpace(user.Avatar))
@@ -524,7 +525,8 @@ public class AccountController(
             new Claim(ClaimTypes.Name, user.Username),
             new Claim("DisplayName", displayName),
             new Claim("UserType", ManagedUserType.NormalizeGroup(user.UserType)),
-            new Claim("IsViewOnly", user.IsViewOnly ? "true" : "false")
+            new Claim("IsViewOnly", user.IsViewOnly ? "true" : "false"),
+            new Claim("CanManageTransactions", user.CanManageTransactions ? "true" : "false")
         };
 
         if (!string.IsNullOrWhiteSpace(user.Avatar))

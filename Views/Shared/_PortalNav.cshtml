@@ -25,13 +25,17 @@
         : string.Empty;
 
     var isTenant = User.HasClaim("UserType", ManagedUserType.Tenant);
+    var isAdmin = User.HasClaim("UserType", ManagedUserType.Admin);
     var isShipAdmin = User.HasClaim("UserType", ManagedUserType.ShipAdmin);
     var isCrew = User.HasClaim("UserType", ManagedUserType.Crew);
     var isViewOnly = User.HasClaim("IsViewOnly", "true");
     var canAccessTenant = !isShipAdmin && !isCrew;
     var canAccessCommercial = !isTenant && !isShipAdmin && !isCrew;
     var canAccessSubscription = !isShipAdmin && !isCrew;
-    var canAccessKvhSolutions = true;
+    var canAccessTransactions = User.HasClaim("CanManageTransactions", "true")
+        || isAdmin
+        || string.Equals(User.Identity?.Name?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
+    var canAccessKvhSolutions = string.Equals(User.Identity?.Name?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
     var canAccessUsers = !isCrew;
     var canAccessSettings = !isTenant && !isShipAdmin && !isCrew;
 
@@ -96,7 +100,7 @@
       @if (canAccessCommercial || canAccessSubscription)
       {
         <details class="portal-nav-group">
-          <summary class="portal-nav-link portal-nav-summary@(ActiveClass("pricing", "subscription"))">Thương mại / Commercial</summary>
+          <summary class="portal-nav-link portal-nav-summary@(ActiveClass("pricing", "subscription", "transactions"))">Thương mại / Commercial</summary>
           <div class="portal-nav-submenu">
             @if (canAccessCommercial)
             {
@@ -105,6 +109,10 @@
             @if (canAccessSubscription)
             {
               <a asp-controller="MonthlySubscription" asp-action="Index" class="portal-nav-subitem@(ActiveClass("subscription"))">Chu kỳ tính cước / Billing Cycle</a>
+              @if (canAccessTransactions)
+              {
+                <a asp-controller="Transactions" asp-action="Index" class="portal-nav-subitem@(ActiveClass("transactions"))">Transaction thanh toán / Payment Transactions</a>
+              }
             }
           </div>
         </details>

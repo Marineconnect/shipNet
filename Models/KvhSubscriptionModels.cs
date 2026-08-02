@@ -27,8 +27,11 @@ public sealed class KvhSolutionFilter
     public string? Search { get; set; }
     public string? Status { get; set; }
     public string? Region { get; set; }
+    public string? PlanName { get; set; }
     public int? TenantId { get; set; }
     public string? SyncState { get; set; }
+    public DateTime? SyncDateFrom { get; set; }
+    public DateTime? SyncDateTo { get; set; }
 }
 
 public sealed class KvhSyncHistoryFilter

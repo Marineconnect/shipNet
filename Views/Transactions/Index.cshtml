@@ -1,0 +1,346 @@
+@model PaymentTransactionIndexViewModel
+@{
+    ViewData["ActiveNav"] = "transactions";
+    ViewData["Title"] = "Quản lý transaction";
+    var previousPage = Math.Max(1, Model.CurrentPage - 1);
+    var nextPage = Math.Min(Model.TotalPages, Model.CurrentPage + 1);
+    var pageWindowStart = Math.Max(1, Model.CurrentPage - 2);
+    var pageWindowEnd = Math.Min(Model.TotalPages, Model.CurrentPage + 2);
+
+    string Money(decimal value, string currency = "") => value <= 0 ? "-" : $"{value:#,##0.##}{(string.IsNullOrWhiteSpace(currency) ? string.Empty : $" {currency}")}";
+    string StatusClass(string? status)
+    {
+        var normalized = (status ?? string.Empty).Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "paid" or "success" or "succeeded" or "completed" => "paid",
+            "pending" or "pending_payment" or "processing" => "pending",
+            "expired" or "failed" or "void" or "cancelled" => "void",
+            _ => "unknown"
+        };
+    }
+}
+
+<div class="device-page">
+<div class="device-shell">
+  <partial name="_PortalNav" />
+  <div class="device-dashboard transaction-page">
+    <nav class="portal-breadcrumb" aria-label="Breadcrumb">
+      <a asp-controller="Dashboard" asp-action="Index">Tổng quan</a>
+      <span>Thương mại</span>
+      <span>Transaction</span>
+    </nav>
+
+    <section class="device-hero">
+      <div>
+        <div class="device-brand">PAYMENT OPERATIONS</div>
+        <h1>Quản lý transaction</h1>
+        <p>Tìm kiếm giao dịch theo thời gian, invoice, thiết bị, trạng thái thanh toán, QR, log và IPN.</p>
+      </div>
+    </section>
+
+    <section class="device-card transaction-card">
+      <header class="device-card-head">
+        <div>
+          <h2>Danh sách transaction</h2>
+          <p>Hiển thị @Model.StartItem-@Model.EndItem / @Model.TotalItems transaction</p>
+        </div>
+      </header>
+
+      <form asp-controller="Transactions" asp-action="Index" method="get" class="transaction-filter-grid">
+        <label>
+          <span>Số dòng / Page size</span>
+          <select name="pageSize">
+            @foreach (var size in new[] { 20, 50, 100 })
+            {
+              <option value="@size" selected="@(Model.PageSize == size)">@size</option>
+            }
+          </select>
+        </label>
+        <label>
+          <span>Tìm kiếm</span>
+          <input type="search" name="search" value="@Model.Filter.Search" placeholder="Invoice, tàu, KIT, payment no, tài khoản" />
+        </label>
+        <label>
+          <span>Mã invoice</span>
+          <input type="search" name="invoiceNumber" value="@Model.Filter.InvoiceNumber" placeholder="INV..." />
+        </label>
+        @if (!Model.IsTenantScoped)
+        {
+          <label>
+            <span>Tenant</span>
+            <select name="tenantId">
+              <option value="">Tất cả tenant</option>
+              @foreach (var tenant in Model.Tenants)
+              {
+                <option value="@tenant.Id" selected="@(Model.Filter.TenantId == tenant.Id)">@tenant.TenantName</option>
+              }
+            </select>
+          </label>
+        }
+        <label>
+          <span>Tình trạng thanh toán</span>
+          <select name="paymentStatus">
+            <option value="">Tất cả</option>
+            <option value="pending" selected="@(Model.Filter.PaymentStatus == "pending")">Pending</option>
+            <option value="paid" selected="@(Model.Filter.PaymentStatus == "paid")">Paid</option>
+            <option value="failed" selected="@(Model.Filter.PaymentStatus == "failed")">Failed</option>
+            <option value="void" selected="@(Model.Filter.PaymentStatus == "void")">Void</option>
+          </select>
+        </label>
+        <label>
+          <span>Thông tin QR</span>
+          <select name="qrState">
+            <option value="">Tất cả</option>
+            <option value="active" selected="@(Model.Filter.QrState == "active")">QR còn hiệu lực</option>
+            <option value="expired" selected="@(Model.Filter.QrState == "expired")">QR hết hạn</option>
+            <option value="paid" selected="@(Model.Filter.QrState == "paid")">QR đã thanh toán</option>
+            <option value="none" selected="@(Model.Filter.QrState == "none")">Chưa có QR</option>
+          </select>
+        </label>
+        <label>
+          <span>Phương thức</span>
+          <input name="paymentMethod" value="@Model.Filter.PaymentMethod" placeholder="bank_transfer" />
+        </label>
+        <label>
+          <span>Từ ngày</span>
+          <input type="date" name="dateFrom" value="@Model.Filter.DateFrom?.ToString("yyyy-MM-dd")" />
+        </label>
+        <label>
+          <span>Đến ngày</span>
+          <input type="date" name="dateTo" value="@Model.Filter.DateTo?.ToString("yyyy-MM-dd")" />
+        </label>
+        <div class="transaction-filter-actions">
+          <a class="btn-secondary" asp-controller="Transactions" asp-action="Index">Đặt lại</a>
+          <button type="submit" class="btn-primary">Lọc</button>
+        </div>
+      </form>
+
+      <div class="device-table-wrap transaction-table-wrap">
+        <table class="device-table subscription-table transaction-table">
+          <thead>
+            <tr>
+              <th>Invoice</th>
+              <th>Thiết bị</th>
+              <th>Ngày tạo invoice</th>
+              <th>Ngày thanh toán</th>
+              <th>Thanh toán</th>
+              <th>Transaction</th>
+              <th>QR</th>
+              <th>Log/IPN</th>
+              <th>Tác vụ</th>
+            </tr>
+          </thead>
+          <tbody>
+          @if (Model.Items.Count == 0)
+          {
+            <tr><td colspan="9" class="tenant-empty">Không có transaction phù hợp.</td></tr>
+          }
+          @foreach (var item in Model.Items)
+          {
+            <tr>
+              <td>
+                <a class="table-primary-link" asp-controller="MonthlySubscription" asp-action="Details" asp-route-id="@item.SubscriptionId" target="_blank" rel="noopener"><strong>@item.InvoiceNumber</strong></a>
+                <div class="muted">Invoice #@item.InvoiceId · Subscription #@item.SubscriptionId</div>
+              </td>
+              <td>
+                <strong>@(string.IsNullOrWhiteSpace(item.VesselName) ? "-" : item.VesselName)</strong>
+                <div class="muted">@item.TenantName</div>
+                <div class="muted">@item.KitNumber · @item.DeviceCode</div>
+                <div class="muted">@item.PlanName</div>
+              </td>
+              <td>@item.InvoiceCreatedAtDisplay</td>
+              <td>@item.PaidAtDisplay</td>
+              <td>
+                <span class="subscription-status @StatusClass(item.InvoiceStatus)">@item.InvoiceStatus</span>
+                <div>@Money(item.PaidAmount) / @Money(item.InvoiceAmount)</div>
+                <div class="muted">Receipt: @(string.IsNullOrWhiteSpace(item.ReceiptNumber) ? "-" : item.ReceiptNumber)</div>
+              </td>
+              <td>
+                <span class="subscription-status @StatusClass(item.TransactionStatus)">@(string.IsNullOrWhiteSpace(item.TransactionStatus) ? "Chưa có" : item.TransactionStatus)</span>
+                <div class="muted">@item.ProviderPaymentNo</div>
+                <div class="muted">@item.ProviderStatus · @item.Method</div>
+                <div>@item.AmountVndDisplay</div>
+                <div class="muted">@item.TransactionAtDisplay</div>
+              </td>
+              <td>
+                <span class="subscription-status @(item.IsQrPaid ? "paid" : item.IsQrActive ? "pending" : item.HasQr ? "void" : "unknown")">@item.QrStateDisplay</span>
+                @if (item.HasQr)
+                {
+                  <div class="muted">Hết hạn: @item.QrExpiresDisplay</div>
+                }
+                @if (item.IsQrActive && !string.IsNullOrWhiteSpace(item.QrCodeUrl))
+                {
+                  <button type="button" class="table-action-btn" data-qr-url="@item.QrCodeUrl" data-qr-invoice="@item.InvoiceNumber" data-qr-amount="@item.AmountVndDisplay" data-qr-account="@item.BankAccountNo" data-qr-content="@item.TransferContent">Xem QR</button>
+                }
+                @if (!item.IsQrPaid && string.Equals(item.InvoiceStatus, "pending", StringComparison.OrdinalIgnoreCase))
+                {
+                  <button type="button" class="table-action-btn" data-create-qr-invoice="@item.InvoiceId">@(item.IsQrActive ? "Lấy QR" : "Tạo lại QR")</button>
+                }
+              </td>
+              <td>
+                <span>@item.IpnLogCount IPN</span>
+                <div class="muted">@item.IntegrationLogCount log</div>
+              </td>
+              <td>
+                <button type="button" class="table-action-btn" data-transaction-detail="@item.InvoiceId">Xem log</button>
+                <a class="table-action-btn" asp-controller="MonthlySubscription" asp-action="Details" asp-route-id="@item.SubscriptionId" target="_blank" rel="noopener">Billing</a>
+              </td>
+            </tr>
+          }
+          </tbody>
+        </table>
+      </div>
+
+      <footer class="device-pagination transaction-pagination">
+        <div class="device-pagination-meta">
+          <span>Trang @Model.CurrentPage / @Model.TotalPages</span>
+          <span>Hiển thị @Model.StartItem-@Model.EndItem trên @Model.TotalItems</span>
+        </div>
+        <div class="device-pagination-actions">
+          <a class="pagination-btn @(Model.HasPreviousPage ? string.Empty : "is-disabled")" asp-action="Index" asp-route-page="@previousPage" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-invoiceNumber="@Model.Filter.InvoiceNumber" asp-route-paymentStatus="@Model.Filter.PaymentStatus" asp-route-paymentMethod="@Model.Filter.PaymentMethod" asp-route-qrState="@Model.Filter.QrState" asp-route-tenantId="@Model.Filter.TenantId" asp-route-dateFrom="@Model.Filter.DateFrom?.ToString("yyyy-MM-dd")" asp-route-dateTo="@Model.Filter.DateTo?.ToString("yyyy-MM-dd")">Trước</a>
+          @for (var pageNumber = pageWindowStart; pageNumber <= pageWindowEnd; pageNumber++)
+          {
+            if (pageNumber == Model.CurrentPage)
+            {
+              <span class="pagination-btn is-active" aria-current="page">@pageNumber</span>
+            }
+            else
+            {
+              <a class="pagination-btn" asp-action="Index" asp-route-page="@pageNumber" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-invoiceNumber="@Model.Filter.InvoiceNumber" asp-route-paymentStatus="@Model.Filter.PaymentStatus" asp-route-paymentMethod="@Model.Filter.PaymentMethod" asp-route-qrState="@Model.Filter.QrState" asp-route-tenantId="@Model.Filter.TenantId" asp-route-dateFrom="@Model.Filter.DateFrom?.ToString("yyyy-MM-dd")" asp-route-dateTo="@Model.Filter.DateTo?.ToString("yyyy-MM-dd")">@pageNumber</a>
+            }
+          }
+          <a class="pagination-btn @(Model.HasNextPage ? string.Empty : "is-disabled")" asp-action="Index" asp-route-page="@nextPage" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-invoiceNumber="@Model.Filter.InvoiceNumber" asp-route-paymentStatus="@Model.Filter.PaymentStatus" asp-route-paymentMethod="@Model.Filter.PaymentMethod" asp-route-qrState="@Model.Filter.QrState" asp-route-tenantId="@Model.Filter.TenantId" asp-route-dateFrom="@Model.Filter.DateFrom?.ToString("yyyy-MM-dd")" asp-route-dateTo="@Model.Filter.DateTo?.ToString("yyyy-MM-dd")">Sau</a>
+        </div>
+      </footer>
+    </section>
+  </div>
+</div>
+</div>
+
+<div class="modal-backdrop transaction-modal-backdrop" data-transaction-modal hidden>
+  <div class="device-modal transaction-modal" role="dialog" aria-modal="true" aria-labelledby="transactionModalTitle">
+    <div class="device-modal-head">
+      <div>
+        <h2 id="transactionModalTitle">Chi tiết transaction</h2>
+        <p data-transaction-subtitle>-</p>
+      </div>
+      <button type="button" class="modal-close" data-close-transaction-modal aria-label="Đóng">×</button>
+    </div>
+    <div class="transaction-modal-body" data-transaction-content></div>
+  </div>
+</div>
+
+<div class="modal-backdrop transaction-modal-backdrop" data-qr-modal hidden>
+  <div class="device-modal transaction-qr-modal" role="dialog" aria-modal="true" aria-labelledby="transactionQrTitle">
+    <div class="device-modal-head">
+      <div>
+        <h2 id="transactionQrTitle">QR thanh toán</h2>
+        <p data-qr-subtitle>-</p>
+      </div>
+      <button type="button" class="modal-close" data-close-qr-modal aria-label="Đóng">×</button>
+    </div>
+    <div class="transaction-qr-body">
+      <img data-qr-image alt="QR thanh toán" />
+      <table class="subscription-kv-table">
+        <tbody>
+          <tr><th>Số tiền</th><td data-qr-amount>-</td></tr>
+          <tr><th>Tài khoản</th><td data-qr-account>-</td></tr>
+          <tr><th>Nội dung</th><td data-qr-content>-</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+@section Scripts {
+<script>
+(() => {
+  const transactionModal = document.querySelector("[data-transaction-modal]");
+  const transactionContent = document.querySelector("[data-transaction-content]");
+  const transactionSubtitle = document.querySelector("[data-transaction-subtitle]");
+  const qrModal = document.querySelector("[data-qr-modal]");
+
+  const esc = (value) => `${value ?? ""}`.replace(/[&<>"']/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[char]));
+  const close = (modal) => { if (modal) modal.hidden = true; };
+
+  document.querySelectorAll("[data-close-transaction-modal]").forEach((button) => button.addEventListener("click", () => close(transactionModal)));
+  document.querySelectorAll("[data-close-qr-modal]").forEach((button) => button.addEventListener("click", () => close(qrModal)));
+  document.querySelectorAll(".transaction-modal-backdrop").forEach((modal) => modal.addEventListener("click", (event) => { if (event.target === modal) close(modal); }));
+
+  document.querySelectorAll("[data-qr-url]").forEach((button) => {
+    button.addEventListener("click", () => {
+      qrModal.querySelector("[data-qr-image]").src = button.dataset.qrUrl || "";
+      qrModal.querySelector("[data-qr-subtitle]").textContent = button.dataset.qrInvoice || "-";
+      qrModal.querySelector("[data-qr-amount]").textContent = button.dataset.qrAmount || "-";
+      qrModal.querySelector("[data-qr-account]").textContent = button.dataset.qrAccount || "-";
+      qrModal.querySelector("[data-qr-content]").textContent = button.dataset.qrContent || "-";
+      qrModal.hidden = false;
+    });
+  });
+
+  document.querySelectorAll("[data-create-qr-invoice]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      const originalText = button.textContent;
+      button.textContent = "Đang tạo...";
+      try {
+        const response = await fetch(`/Payments/NinePayBankTransferInfo?invoiceId=${encodeURIComponent(button.dataset.createQrInvoice)}`);
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload.success === false) {
+          throw new Error(payload.message || "Không thể tạo QR.");
+        }
+        const payment = payload.data || {};
+        const bank = (payment.Banks || payment.banks || [])[0] || {};
+        const qrUrl = bank.QrCodeUrl || bank.qrCodeUrl || "";
+        if (!qrUrl) {
+          throw new Error("9Pay không trả về ảnh QR.");
+        }
+        qrModal.querySelector("[data-qr-image]").src = qrUrl;
+        qrModal.querySelector("[data-qr-subtitle]").textContent = payment.InvoiceNumber || "-";
+        qrModal.querySelector("[data-qr-amount]").textContent = payment.TotalToPayVnd ? `${payment.TotalToPayVnd} VND` : "-";
+        qrModal.querySelector("[data-qr-account]").textContent = bank.BankAccountNo || bank.bankAccountNo || "-";
+        qrModal.querySelector("[data-qr-content]").textContent = bank.Content || bank.content || bank.Remark || bank.remark || "-";
+        qrModal.hidden = false;
+      } catch (error) {
+        alert(error.message || "Không thể tạo QR.");
+      } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-transaction-detail]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const invoiceId = button.dataset.transactionDetail;
+      transactionContent.innerHTML = "<div class='tenant-empty'>Đang tải...</div>";
+      transactionModal.hidden = false;
+      const response = await fetch(`/Transactions/Details?invoiceId=${encodeURIComponent(invoiceId)}`, { headers: { "Accept": "application/json" } });
+      if (!response.ok) {
+        transactionContent.innerHTML = "<div class='tenant-alert danger'>Không tải được transaction.</div>";
+        return;
+      }
+      const detail = await response.json();
+      transactionSubtitle.textContent = `${detail.invoiceNumber || "-"} · ${detail.vesselName || "-"}`;
+      const ipnRows = (detail.ipnLogs || []).map((log) => `<tr><td>${esc(log.receivedAtDisplay)}</td><td>${esc(log.paymentNo)}</td><td>${esc(log.providerStatus)}</td><td>${esc(log.processStatus)}</td><td class="transaction-log-cell">${esc(log.processMessage || log.rawPayload)}</td></tr>`).join("");
+      const integrationRows = (detail.integrationLogs || []).map((log) => `<tr><td>${esc(log.createdAtDisplay)}</td><td>${esc(log.eventType)}</td><td>${esc(log.direction)}</td><td>${esc(log.status)}</td><td class="transaction-log-cell">${esc(log.errorMessage || log.messageId || log.correlationId)}</td></tr>`).join("");
+      transactionContent.innerHTML = `
+        <div class="transaction-detail-grid">
+          <div><span>Payment no</span><strong>${esc(detail.providerPaymentNo || "-")}</strong></div>
+          <div><span>Provider invoice</span><strong>${esc(detail.providerInvoiceNo || "-")}</strong></div>
+          <div><span>Trạng thái</span><strong>${esc(detail.transactionStatus || detail.invoiceStatus || "-")}</strong></div>
+          <div><span>QR hết hạn</span><strong>${esc(detail.qrExpiresDisplay || "-")}</strong></div>
+        </div>
+        <h3>IPN liên quan</h3>
+        <div class="device-table-wrap"><table class="device-table transaction-log-table"><tbody>${ipnRows || "<tr><td class='tenant-empty'>Chưa có IPN.</td></tr>"}</tbody></table></div>
+        <h3>Log tích hợp</h3>
+        <div class="device-table-wrap"><table class="device-table transaction-log-table"><tbody>${integrationRows || "<tr><td class='tenant-empty'>Chưa có log.</td></tr>"}</tbody></table></div>
+        ${detail.providerResponseJson ? `<h3>QR response</h3><pre class="transaction-json">${esc(detail.providerResponseJson)}</pre>` : ""}
+        ${detail.rawResultJson ? `<h3>Transaction payload</h3><pre class="transaction-json">${esc(detail.rawResultJson)}</pre>` : ""}
+      `;
+    });
+  });
+})();
+</script>
+}

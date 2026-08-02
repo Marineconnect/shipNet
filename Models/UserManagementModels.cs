@@ -55,6 +55,7 @@ public class UserListItemViewModel
     public DateTime? LastOnlineTime { get; set; }
     public DateTime? LastUpdatePassword { get; set; }
     public bool IsViewOnly { get; set; }
+    public bool CanManageTransactions { get; set; }
 
     public string DisplayNameOrUsername => string.IsNullOrWhiteSpace(DisplayName) ? Username : DisplayName;
     public string UserGroupDisplay => ManagedUserType.ToDisplay(UserGroup);
@@ -125,6 +126,9 @@ public class UserManagementFormViewModel
 
     [Display(Name = "Chỉ theo dõi")]
     public bool IsViewOnly { get; set; }
+
+    [Display(Name = "Quản lý transaction / Manage transactions")]
+    public bool CanManageTransactions { get; set; }
 
     [StringLength(100, ErrorMessage = "Mật khẩu tối đa 100 ký tự")]
     [DataType(DataType.Password)]

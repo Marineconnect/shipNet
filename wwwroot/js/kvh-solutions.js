@@ -55,11 +55,20 @@
       if (!value) return;
       await navigator.clipboard?.writeText(value);
       button.classList.add("is-copied");
+      const usesIconCopy = button.classList.contains("table-copy-btn");
       const original = button.textContent;
-      button.textContent = "Đã sao chép";
+      if (usesIconCopy) {
+        button.dataset.copyTooltip = "Copied";
+      } else {
+        button.textContent = "Đã sao chép";
+      }
       window.setTimeout(() => {
         button.classList.remove("is-copied");
-        button.textContent = original;
+        if (usesIconCopy) {
+          button.dataset.copyTooltip = "Copy";
+        } else {
+          button.textContent = original;
+        }
       }, 1200);
     });
   });

@@ -42,7 +42,8 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
                 [Phone],
                 [Email],
                 [IdentificationNumber],
-                [IsViewOnly]
+                [IsViewOnly],
+                [CanManageTransactions]
             FROM [TblMRUser]
             WHERE [ID] = @id
             """;
@@ -82,7 +83,8 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
                 [Phone],
                 [Email],
                 [IdentificationNumber],
-                [IsViewOnly]
+                [IsViewOnly],
+                [CanManageTransactions]
             FROM [TblMRUser]
             WHERE [USName] = @username
             """;
@@ -124,6 +126,7 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
                 u.[Email],
                 u.[IdentificationNumber],
                 u.[IsViewOnly],
+                u.[CanManageTransactions],
                 u.[UserType],
                 u.[TenantID],
                 u.[DeviceID],
@@ -203,7 +206,8 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
                 [Phone],
                 [Email],
                 [IdentificationNumber],
-                [IsViewOnly]
+                [IsViewOnly],
+                [CanManageTransactions]
             FROM [TblMRUser]
             WHERE [ID] = @id
               AND (@tenantId IS NULL OR [TenantID] = @tenantId)
@@ -414,10 +418,10 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
     {
         const string query = """
             INSERT INTO [TblMRUser]
-                ([USName], [USPass], [DisplayName], [Status], [Avatar], [UserType], [TenantID], [DeviceID], [Phone], [Email], [IdentificationNumber], [IsViewOnly], [LastUpdatePassword])
+                ([USName], [USPass], [DisplayName], [Status], [Avatar], [UserType], [TenantID], [DeviceID], [Phone], [Email], [IdentificationNumber], [IsViewOnly], [CanManageTransactions], [LastUpdatePassword])
             OUTPUT INSERTED.[ID]
             VALUES
-                (@username, @password, @displayName, @status, @avatar, @userType, @tenantId, @deviceId, @phone, @email, @identificationNumber, @isViewOnly, GETDATE())
+                (@username, @password, @displayName, @status, @avatar, @userType, @tenantId, @deviceId, @phone, @email, @identificationNumber, @isViewOnly, @canManageTransactions, GETDATE())
             """;
 
         await using var connection = new SqlConnection(_connectionString);
@@ -438,6 +442,7 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
         command.Parameters.Add("@email", SqlDbType.NVarChar, 50).Value = (object?)model.Email ?? DBNull.Value;
         command.Parameters.Add("@identificationNumber", SqlDbType.NVarChar, 50).Value = (object?)model.IdentificationNumber ?? DBNull.Value;
         command.Parameters.Add("@isViewOnly", SqlDbType.Bit).Value = model.IsViewOnly;
+        command.Parameters.Add("@canManageTransactions", SqlDbType.Bit).Value = model.CanManageTransactions;
 
         var userId = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
 
@@ -467,7 +472,8 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
                 [Phone],
                 [Email],
                 [IdentificationNumber],
-                [IsViewOnly]
+                [IsViewOnly],
+                [CanManageTransactions]
             FROM [TblMRUser]
             WHERE [ID] = @id
             """;
@@ -485,7 +491,8 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
                 [Phone] = @phone,
                 [Email] = @email,
                 [IdentificationNumber] = @identificationNumber,
-                [IsViewOnly] = @isViewOnly
+                [IsViewOnly] = @isViewOnly,
+                [CanManageTransactions] = @canManageTransactions
             WHERE [ID] = @id
             """;
 
@@ -521,6 +528,7 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
             updateCommand.Parameters.Add("@email", SqlDbType.NVarChar, 50).Value = (object?)model.Email ?? DBNull.Value;
             updateCommand.Parameters.Add("@identificationNumber", SqlDbType.NVarChar, 50).Value = (object?)model.IdentificationNumber ?? DBNull.Value;
             updateCommand.Parameters.Add("@isViewOnly", SqlDbType.Bit).Value = model.IsViewOnly;
+            updateCommand.Parameters.Add("@canManageTransactions", SqlDbType.Bit).Value = model.CanManageTransactions;
             await updateCommand.ExecuteNonQueryAsync(cancellationToken);
         }
 
@@ -618,7 +626,8 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
             LastOnlineTime = reader["Lastonlinetime"] as DateTime?,
             IPAccess = reader["IPAccess"]?.ToString(),
             LastUpdatePassword = reader["LastUpdatePassword"] as DateTime?,
-            IsViewOnly = reader["IsViewOnly"] is bool isViewOnly && isViewOnly
+            IsViewOnly = reader["IsViewOnly"] is bool isViewOnly && isViewOnly,
+            CanManageTransactions = reader["CanManageTransactions"] is bool canManageTransactions && canManageTransactions
         };
     }
 
@@ -644,7 +653,8 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
             DeviceCode = reader["DeviceCode"]?.ToString(),
             LastOnlineTime = reader["Lastonlinetime"] as DateTime?,
             LastUpdatePassword = reader["LastUpdatePassword"] as DateTime?,
-            IsViewOnly = reader["IsViewOnly"] is bool isViewOnly && isViewOnly
+            IsViewOnly = reader["IsViewOnly"] is bool isViewOnly && isViewOnly,
+            CanManageTransactions = reader["CanManageTransactions"] is bool canManageTransactions && canManageTransactions
         };
     }
 
@@ -665,7 +675,8 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
             Phone = reader["Phone"]?.ToString(),
             Email = reader["Email"]?.ToString(),
             IdentificationNumber = reader["IdentificationNumber"]?.ToString(),
-            IsViewOnly = reader["IsViewOnly"] is bool isViewOnly && isViewOnly
+            IsViewOnly = reader["IsViewOnly"] is bool isViewOnly && isViewOnly,
+            CanManageTransactions = reader["CanManageTransactions"] is bool canManageTransactions && canManageTransactions
         };
     }
 
@@ -758,6 +769,17 @@ public class SqlAuthService(IConfiguration configuration) : ISqlAuthService
             BEGIN
                 ALTER TABLE [TblMRUser] ADD [IsViewOnly] bit NOT NULL CONSTRAINT [DF_TblMRUser_IsViewOnly] DEFAULT(0);
             END
+
+            IF COL_LENGTH('TblMRUser', 'CanManageTransactions') IS NULL
+            BEGIN
+                ALTER TABLE [TblMRUser] ADD [CanManageTransactions] bit NOT NULL CONSTRAINT [DF_TblMRUser_CanManageTransactions] DEFAULT(0);
+            END
+
+            EXEC sys.sp_executesql N'
+                UPDATE [TblMRUser]
+                SET [CanManageTransactions] = 1
+                WHERE LOWER(LTRIM(RTRIM([USName]))) = N''admin''
+                  AND [CanManageTransactions] = 0;';
             """;
 
         await using var command = new SqlCommand(query, connection, transaction);

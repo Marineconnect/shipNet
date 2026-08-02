@@ -7,6 +7,13 @@
     var nextPage = Math.Min(Model.TotalPages <= 0 ? 1 : Model.TotalPages, Model.CurrentPage + 1);
     var historyPreviousPage = Math.Max(1, Model.SyncHistory.CurrentPage - 1);
     var historyNextPage = Math.Min(Model.SyncHistory.TotalPages <= 0 ? 1 : Model.SyncHistory.TotalPages, Model.SyncHistory.CurrentPage + 1);
+    var deviceTotalPages = Model.TotalPages <= 0 ? 1 : Model.TotalPages;
+    var devicePageWindowStart = Math.Max(1, Model.CurrentPage - 2);
+    var devicePageWindowEnd = Math.Min(deviceTotalPages, Model.CurrentPage + 2);
+    var historyTotalPages = Model.SyncHistory.TotalPages <= 0 ? 1 : Model.SyncHistory.TotalPages;
+    var historyPageWindowStart = Math.Max(1, Model.SyncHistory.CurrentPage - 2);
+    var historyPageWindowEnd = Math.Min(historyTotalPages, Model.SyncHistory.CurrentPage + 2);
+    const string CopyIconMarkup = "<svg class=\"copy-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M8 7a3 3 0 0 1 3-3h6a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-1v1a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-6a3 3 0 0 1 3-3h1V7Zm3-1a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-6Zm-3 4H7a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-1h-3a3 3 0 0 1-3-3v-3Z\"/></svg><svg class=\"check-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"m9.2 16.6-4.1-4.1L3.7 14l5.5 5.5L20.8 7.9l-1.4-1.4L9.2 16.6Z\"/></svg>";
 
     string TerminalStatusClass(string? availability)
     {
@@ -169,17 +176,6 @@
       <h1>Giải pháp KVH</h1>
       <p>Theo dõi trạng thái subscription KVH, Traffic ID, lịch tạm dừng/khôi phục và tiến độ đồng bộ.</p>
     </div>
-    @if (Model.CanManageSolutions)
-    {
-      <div class="device-actions kvh-hero-actions">
-        <form asp-controller="KvhSolutions" asp-action="CreateSyncBatch" method="post" title="Chỉ đồng bộ thiết bị chưa từng sync hoặc chưa có bản ghi subscription KVH hiện hành.">
-          @Html.AntiForgeryToken()
-          <input type="hidden" name="Mode" value="SYNC_MISSING" />
-          <button type="submit" class="btn-secondary">Đồng bộ dữ liệu thiếu</button>
-        </form>
-        <button type="button" class="btn-primary" data-kvh-open-sync-all title="Tạo batch nền để đồng bộ toàn bộ thiết bị KVH có quyền truy cập.">Đồng bộ tất cả</button>
-      </div>
-    }
   </section>
 
   @if (TempData["KvhSolutionSuccess"] is string successMessage)
@@ -192,7 +188,7 @@
   }
 
   <nav class="kvh-tabs" role="tablist" aria-label="Tab KVH Solutions">
-    <a id="kvh-tab-devices-link" class="kvh-tab-button @(Model.ActiveTab == "devices" ? "is-active" : string.Empty)" role="tab" aria-controls="kvh-tab-devices" aria-selected="@(Model.ActiveTab == "devices")" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="devices" asp-route-page="@Model.CurrentPage" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState">Thiết bị KVH</a>
+    <a id="kvh-tab-devices-link" class="kvh-tab-button @(Model.ActiveTab == "devices" ? "is-active" : string.Empty)" role="tab" aria-controls="kvh-tab-devices" aria-selected="@(Model.ActiveTab == "devices")" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="devices" asp-route-page="@Model.CurrentPage" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-planName="@Model.Filter.PlanName" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState" asp-route-syncDateFrom="@Model.Filter.SyncDateFrom?.ToString("yyyy-MM-dd")" asp-route-syncDateTo="@Model.Filter.SyncDateTo?.ToString("yyyy-MM-dd")">Thiết bị KVH</a>
     <a id="kvh-tab-history-link" class="kvh-tab-button @(Model.ActiveTab == "history" ? "is-active" : string.Empty)" role="tab" aria-controls="kvh-tab-history" aria-selected="@(Model.ActiveTab == "history")" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="history" asp-route-historyPage="@Model.SyncHistory.CurrentPage" asp-route-historyPageSize="@Model.SyncHistory.PageSize" asp-route-historySearch="@Model.SyncHistory.Filter.Search" asp-route-historyTenantId="@Model.SyncHistory.Filter.TenantId" asp-route-historyResult="@Model.SyncHistory.Filter.Result" asp-route-historySource="@Model.SyncHistory.Filter.SyncSource" asp-route-historyDateFrom="@Model.SyncHistory.Filter.DateFrom?.ToString("yyyy-MM-dd")" asp-route-historyDateTo="@Model.SyncHistory.Filter.DateTo?.ToString("yyyy-MM-dd")">Lịch sử đồng bộ</a>
     <a id="kvh-tab-batches-link" class="kvh-tab-button @(Model.ActiveTab == "batches" ? "is-active" : string.Empty)" role="tab" aria-controls="kvh-tab-batches" aria-selected="@(Model.ActiveTab == "batches")" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="batches">Batch đồng bộ gần đây</a>
     <a id="kvh-tab-operations-link" class="kvh-tab-button" asp-controller="KvhSubscriptionOperations" asp-action="Index">L&#x1ECB;ch s&#x1EED; Pause/Resume</a>
@@ -209,8 +205,11 @@
           <input type="hidden" name="tab" value="devices" />
           <input type="hidden" name="status" value="@Model.Filter.Status" />
           <input type="hidden" name="region" value="@Model.Filter.Region" />
+          <input type="hidden" name="planName" value="@Model.Filter.PlanName" />
           <input type="hidden" name="tenantId" value="@Model.Filter.TenantId" />
           <input type="hidden" name="syncState" value="@Model.Filter.SyncState" />
+          <input type="hidden" name="syncDateFrom" value="@Model.Filter.SyncDateFrom?.ToString("yyyy-MM-dd")" />
+          <input type="hidden" name="syncDateTo" value="@Model.Filter.SyncDateTo?.ToString("yyyy-MM-dd")" />
           <input type="hidden" name="pageSize" value="@Model.PageSize" />
           <label class="device-search-field">
             <input class="device-search-input" type="search" name="search" value="@Model.Filter.Search" placeholder="Terminal, tàu, KIT, Traffic ID" />
@@ -238,6 +237,10 @@
           <span>Khu vực</span>
           <input type="text" name="region" value="@Model.Filter.Region" placeholder="GLOBAL" />
         </label>
+        <label>
+          <span>Gói KVH</span>
+          <input type="text" name="planName" value="@Model.Filter.PlanName" placeholder="50GB, Global Priority" />
+        </label>
         @if (!Model.IsTenantScoped)
         {
           <label>
@@ -263,10 +266,21 @@
             <option value="missing_traffic" selected="@(Model.Filter.SyncState == "missing_traffic")">Thiếu Traffic ID</option>
           </select>
         </label>
+        <label>
+          <span>Đồng bộ từ ngày</span>
+          <input type="date" name="syncDateFrom" value="@Model.Filter.SyncDateFrom?.ToString("yyyy-MM-dd")" />
+        </label>
+        <label>
+          <span>Đồng bộ đến ngày</span>
+          <input type="date" name="syncDateTo" value="@Model.Filter.SyncDateTo?.ToString("yyyy-MM-dd")" />
+        </label>
         <input type="hidden" name="search" value="@Model.Filter.Search" />
         <div class="kvh-filter-actions">
           <button type="submit" class="btn-primary">Lọc</button>
-          <a asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="devices" class="btn-secondary">Đặt lại</a>
+          <a asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="devices" class="btn-secondary kvh-reset-btn">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5a7 7 0 1 1-6.32 4H3.5A8.5 8.5 0 1 0 12 3.5V1L8.5 4.5 12 8V5Z" fill="currentColor"/></svg>
+            Đặt lại
+          </a>
         </div>
       </form>
 
@@ -282,14 +296,15 @@
             @Html.AntiForgeryToken()
             <input type="hidden" name="Mode" value="SYNC_SELECTED" />
             <span id="kvhSelectedInputs"></span>
-            <button type="submit" class="btn-primary" id="kvhSyncSelectedButton" disabled>Đồng bộ đã chọn</button>
+            <button type="submit" class="btn-primary" id="kvhSyncSelectedButton" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5a7 7 0 1 1-6.32 4H3.5A8.5 8.5 0 1 0 12 3.5V1L8.5 4.5 12 8V5Z" fill="currentColor"/></svg>
+              Đồng bộ đã chọn
+            </button>
           </form>
-          <form asp-controller="KvhSolutions" asp-action="CreateSyncBatch" method="post" title="Chỉ đồng bộ thiết bị chưa từng sync hoặc chưa có bản ghi subscription KVH hiện hành.">
-            @Html.AntiForgeryToken()
-            <input type="hidden" name="Mode" value="SYNC_MISSING" />
-            <button type="submit" class="btn-secondary">Đồng bộ dữ liệu thiếu</button>
-          </form>
-          <button type="button" class="btn-secondary" data-kvh-open-sync-all title="Tạo batch nền để đồng bộ toàn bộ thiết bị KVH có quyền truy cập.">Đồng bộ tất cả</button>
+          <button type="button" class="btn-secondary" data-kvh-open-sync-all title="Tạo batch nền để đồng bộ toàn bộ thiết bị KVH có quyền truy cập.">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5a7 7 0 1 1-6.32 4H3.5A8.5 8.5 0 1 0 12 3.5V1L8.5 4.5 12 8V5Z" fill="currentColor"/></svg>
+            Đồng bộ tất cả
+          </button>
         </div>
       }
 
@@ -335,17 +350,25 @@
                 </td>
                 <td>
                   <a asp-controller="KvhSolutions" asp-action="Details" asp-route-deviceId="@item.DeviceId" class="kvh-primary-link">@item.DeviceName</a>
-                  <div class="kvh-inline-code">
+                  <div class="kvh-inline-code table-copy-value">
                     <span>@(string.IsNullOrWhiteSpace(item.TerminalId) ? "-" : item.TerminalId)</span>
                     @if (!string.IsNullOrWhiteSpace(item.TerminalId))
                     {
-                      <button type="button" class="kvh-copy-btn" data-copy-value="@item.TerminalId" aria-label="Sao chép terminal ID">Sao chép</button>
+                      <button type="button" class="table-copy-btn js-copy-table-value" data-copy-value="@item.TerminalId" data-copy-tooltip="Copy" aria-label="Copy Terminal ID">@Html.Raw(CopyIconMarkup)</button>
                     }
                   </div>
                 </td>
                 <td>@(string.IsNullOrWhiteSpace(item.VesselName) ? "-" : item.VesselName)</td>
                 <td>@(string.IsNullOrWhiteSpace(item.TenantName) ? "-" : item.TenantName)</td>
-                <td>@(string.IsNullOrWhiteSpace(item.KitNumber) ? "-" : item.KitNumber)</td>
+                <td>
+                  <span class="table-copy-value">
+                    <span>@(string.IsNullOrWhiteSpace(item.KitNumber) ? "-" : item.KitNumber)</span>
+                    @if (!string.IsNullOrWhiteSpace(item.KitNumber))
+                    {
+                      <button type="button" class="table-copy-btn js-copy-table-value" data-copy-value="@item.KitNumber" data-copy-tooltip="Copy" aria-label="Copy KIT Number">@Html.Raw(CopyIconMarkup)</button>
+                    }
+                  </span>
+                </td>
                 <td>
                   @if (item.MissingTrafficId)
                   {
@@ -353,8 +376,10 @@
                   }
                   else
                   {
-                    <span>@item.TrafficId</span>
-                    <button type="button" class="kvh-copy-btn" data-copy-value="@item.TrafficId" aria-label="Sao chép Traffic ID">Sao chép</button>
+                    <span class="table-copy-value">
+                      <span>@item.TrafficId</span>
+                      <button type="button" class="table-copy-btn js-copy-table-value" data-copy-value="@item.TrafficId" data-copy-tooltip="Copy" aria-label="Copy Traffic ID">@Html.Raw(CopyIconMarkup)</button>
+                    </span>
                   }
                 </td>
                 <td>@(string.IsNullOrWhiteSpace(item.PlanName) ? "-" : item.PlanName)</td>
@@ -453,8 +478,11 @@
             <input type="hidden" name="search" value="@Model.Filter.Search" />
             <input type="hidden" name="status" value="@Model.Filter.Status" />
             <input type="hidden" name="region" value="@Model.Filter.Region" />
+            <input type="hidden" name="planName" value="@Model.Filter.PlanName" />
             <input type="hidden" name="tenantId" value="@Model.Filter.TenantId" />
             <input type="hidden" name="syncState" value="@Model.Filter.SyncState" />
+            <input type="hidden" name="syncDateFrom" value="@Model.Filter.SyncDateFrom?.ToString("yyyy-MM-dd")" />
+            <input type="hidden" name="syncDateTo" value="@Model.Filter.SyncDateTo?.ToString("yyyy-MM-dd")" />
             <select class="page-size-select" name="pageSize" onchange="this.form.submit()">
               <option value="20" selected="@(Model.PageSize == 20)">20</option>
               <option value="50" selected="@(Model.PageSize == 50)">50</option>
@@ -466,11 +494,21 @@
           <span>Trang @Model.CurrentPage / @(Model.TotalPages == 0 ? 1 : Model.TotalPages)</span>
         </div>
         <div class="device-pagination-actions">
-          <a class="pagination-btn @(Model.HasPreviousPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="devices" asp-route-page="1" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState">Đầu</a>
-          <a class="pagination-btn @(Model.HasPreviousPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="devices" asp-route-page="@previousPage" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState">Trước</a>
-          <span class="pagination-btn is-active" aria-current="page">@Model.CurrentPage</span>
-          <a class="pagination-btn @(Model.HasNextPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="devices" asp-route-page="@nextPage" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState">Sau</a>
-          <a class="pagination-btn @(Model.HasNextPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="devices" asp-route-page="@(Model.TotalPages == 0 ? 1 : Model.TotalPages)" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState">Cuối</a>
+          <a class="pagination-btn @(Model.HasPreviousPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="devices" asp-route-page="1" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-planName="@Model.Filter.PlanName" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState" asp-route-syncDateFrom="@Model.Filter.SyncDateFrom?.ToString("yyyy-MM-dd")" asp-route-syncDateTo="@Model.Filter.SyncDateTo?.ToString("yyyy-MM-dd")">Đầu</a>
+          <a class="pagination-btn @(Model.HasPreviousPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="devices" asp-route-page="@previousPage" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-planName="@Model.Filter.PlanName" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState" asp-route-syncDateFrom="@Model.Filter.SyncDateFrom?.ToString("yyyy-MM-dd")" asp-route-syncDateTo="@Model.Filter.SyncDateTo?.ToString("yyyy-MM-dd")">Trước</a>
+          @for (var pageNumber = devicePageWindowStart; pageNumber <= devicePageWindowEnd; pageNumber++)
+          {
+            if (pageNumber == Model.CurrentPage)
+            {
+              <span class="pagination-btn is-active" aria-current="page">@pageNumber</span>
+            }
+            else
+            {
+              <a class="pagination-btn" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="devices" asp-route-page="@pageNumber" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-planName="@Model.Filter.PlanName" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState" asp-route-syncDateFrom="@Model.Filter.SyncDateFrom?.ToString("yyyy-MM-dd")" asp-route-syncDateTo="@Model.Filter.SyncDateTo?.ToString("yyyy-MM-dd")">@pageNumber</a>
+            }
+          }
+          <a class="pagination-btn @(Model.HasNextPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="devices" asp-route-page="@nextPage" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-planName="@Model.Filter.PlanName" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState" asp-route-syncDateFrom="@Model.Filter.SyncDateFrom?.ToString("yyyy-MM-dd")" asp-route-syncDateTo="@Model.Filter.SyncDateTo?.ToString("yyyy-MM-dd")">Sau</a>
+          <a class="pagination-btn @(Model.HasNextPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="devices" asp-route-page="@deviceTotalPages" asp-route-pageSize="@Model.PageSize" asp-route-search="@Model.Filter.Search" asp-route-status="@Model.Filter.Status" asp-route-region="@Model.Filter.Region" asp-route-planName="@Model.Filter.PlanName" asp-route-tenantId="@Model.Filter.TenantId" asp-route-syncState="@Model.Filter.SyncState" asp-route-syncDateFrom="@Model.Filter.SyncDateFrom?.ToString("yyyy-MM-dd")" asp-route-syncDateTo="@Model.Filter.SyncDateTo?.ToString("yyyy-MM-dd")">Cuối</a>
         </div>
       </footer>
     </div>
@@ -608,9 +646,19 @@
         <div class="device-pagination-actions">
           <a class="pagination-btn @(Model.SyncHistory.HasPreviousPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="history" asp-route-historyPage="1" asp-route-historyPageSize="@Model.SyncHistory.PageSize" asp-route-historySearch="@Model.SyncHistory.Filter.Search" asp-route-historyTenantId="@Model.SyncHistory.Filter.TenantId" asp-route-historyResult="@Model.SyncHistory.Filter.Result" asp-route-historySource="@Model.SyncHistory.Filter.SyncSource" asp-route-historyDateFrom="@Model.SyncHistory.Filter.DateFrom?.ToString("yyyy-MM-dd")" asp-route-historyDateTo="@Model.SyncHistory.Filter.DateTo?.ToString("yyyy-MM-dd")">Đầu</a>
           <a class="pagination-btn @(Model.SyncHistory.HasPreviousPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="history" asp-route-historyPage="@historyPreviousPage" asp-route-historyPageSize="@Model.SyncHistory.PageSize" asp-route-historySearch="@Model.SyncHistory.Filter.Search" asp-route-historyTenantId="@Model.SyncHistory.Filter.TenantId" asp-route-historyResult="@Model.SyncHistory.Filter.Result" asp-route-historySource="@Model.SyncHistory.Filter.SyncSource" asp-route-historyDateFrom="@Model.SyncHistory.Filter.DateFrom?.ToString("yyyy-MM-dd")" asp-route-historyDateTo="@Model.SyncHistory.Filter.DateTo?.ToString("yyyy-MM-dd")">Trước</a>
-          <span class="pagination-btn is-active" aria-current="page">@Model.SyncHistory.CurrentPage</span>
+          @for (var pageNumber = historyPageWindowStart; pageNumber <= historyPageWindowEnd; pageNumber++)
+          {
+            if (pageNumber == Model.SyncHistory.CurrentPage)
+            {
+              <span class="pagination-btn is-active" aria-current="page">@pageNumber</span>
+            }
+            else
+            {
+              <a class="pagination-btn" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="history" asp-route-historyPage="@pageNumber" asp-route-historyPageSize="@Model.SyncHistory.PageSize" asp-route-historySearch="@Model.SyncHistory.Filter.Search" asp-route-historyTenantId="@Model.SyncHistory.Filter.TenantId" asp-route-historyResult="@Model.SyncHistory.Filter.Result" asp-route-historySource="@Model.SyncHistory.Filter.SyncSource" asp-route-historyDateFrom="@Model.SyncHistory.Filter.DateFrom?.ToString("yyyy-MM-dd")" asp-route-historyDateTo="@Model.SyncHistory.Filter.DateTo?.ToString("yyyy-MM-dd")">@pageNumber</a>
+            }
+          }
           <a class="pagination-btn @(Model.SyncHistory.HasNextPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="history" asp-route-historyPage="@historyNextPage" asp-route-historyPageSize="@Model.SyncHistory.PageSize" asp-route-historySearch="@Model.SyncHistory.Filter.Search" asp-route-historyTenantId="@Model.SyncHistory.Filter.TenantId" asp-route-historyResult="@Model.SyncHistory.Filter.Result" asp-route-historySource="@Model.SyncHistory.Filter.SyncSource" asp-route-historyDateFrom="@Model.SyncHistory.Filter.DateFrom?.ToString("yyyy-MM-dd")" asp-route-historyDateTo="@Model.SyncHistory.Filter.DateTo?.ToString("yyyy-MM-dd")">Sau</a>
-          <a class="pagination-btn @(Model.SyncHistory.HasNextPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="history" asp-route-historyPage="@(Model.SyncHistory.TotalPages == 0 ? 1 : Model.SyncHistory.TotalPages)" asp-route-historyPageSize="@Model.SyncHistory.PageSize" asp-route-historySearch="@Model.SyncHistory.Filter.Search" asp-route-historyTenantId="@Model.SyncHistory.Filter.TenantId" asp-route-historyResult="@Model.SyncHistory.Filter.Result" asp-route-historySource="@Model.SyncHistory.Filter.SyncSource" asp-route-historyDateFrom="@Model.SyncHistory.Filter.DateFrom?.ToString("yyyy-MM-dd")" asp-route-historyDateTo="@Model.SyncHistory.Filter.DateTo?.ToString("yyyy-MM-dd")">Cuối</a>
+          <a class="pagination-btn @(Model.SyncHistory.HasNextPage ? string.Empty : "is-disabled")" asp-controller="KvhSolutions" asp-action="Index" asp-route-tab="history" asp-route-historyPage="@historyTotalPages" asp-route-historyPageSize="@Model.SyncHistory.PageSize" asp-route-historySearch="@Model.SyncHistory.Filter.Search" asp-route-historyTenantId="@Model.SyncHistory.Filter.TenantId" asp-route-historyResult="@Model.SyncHistory.Filter.Result" asp-route-historySource="@Model.SyncHistory.Filter.SyncSource" asp-route-historyDateFrom="@Model.SyncHistory.Filter.DateFrom?.ToString("yyyy-MM-dd")" asp-route-historyDateTo="@Model.SyncHistory.Filter.DateTo?.ToString("yyyy-MM-dd")">Cuối</a>
         </div>
       </footer>
     </div>

@@ -445,6 +445,13 @@
                 <span asp-validation-for="CreateForm.IsViewOnly" class="field-error"></span>
               </div>
 
+              <div class="form-group">
+                <label class="remember-box">
+                  <input asp-for="CreateForm.CanManageTransactions" />
+                  <span>Quản lý transaction / Manage transactions</span>
+                </label>
+              </div>
+
               @if (Model.CreatableUserGroups.Count == 1)
               {
                 <input asp-for="CreateForm.UserGroup" type="hidden" value="@Model.CreateForm.UserGroup" />
@@ -627,6 +634,13 @@
                   <span>Chỉ theo dõi / View only</span>
                 </label>
                 <span asp-validation-for="EditForm.IsViewOnly" class="field-error"></span>
+              </div>
+
+              <div class="form-group">
+                <label class="remember-box">
+                  <input asp-for="EditForm.CanManageTransactions" />
+                  <span>Quản lý transaction / Manage transactions</span>
+                </label>
               </div>
 
               @if (Model.CreatableUserGroups.Count == 1)

@@ -18,6 +18,7 @@ public class AuthUserRecord
     public string? IPAccess { get; set; }
     public DateTime? LastUpdatePassword { get; set; }
     public bool IsViewOnly { get; set; }
+    public bool CanManageTransactions { get; set; }
 
     public bool IsTenantUser =>
         string.Equals(UserType?.Trim(), ManagedUserType.Tenant, StringComparison.OrdinalIgnoreCase);

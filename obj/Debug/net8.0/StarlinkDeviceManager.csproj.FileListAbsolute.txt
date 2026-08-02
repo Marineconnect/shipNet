@@ -4097,3 +4097,12 @@ D:\MMC\shipNet\shipNet\obj\Debug\net8.0\refint\StarlinkDeviceManager.dll
 D:\MMC\shipNet\shipNet\obj\Debug\net8.0\StarlinkDeviceManager.pdb
 D:\MMC\shipNet\shipNet\obj\Debug\net8.0\StarlinkDeviceManager.genruntimeconfig.cache
 D:\MMC\shipNet\shipNet\obj\Debug\net8.0\ref\StarlinkDeviceManager.dll
+D:\MMC\shipNet\shipNet\bin\Debug\net8.0\publish\web.config
+D:\MMC\shipNet\shipNet\bin\Debug\net8.0\publish\appsettings.Development.json
+D:\MMC\shipNet\shipNet\bin\Debug\net8.0\publish\appsettings.InvoiceRabbitMq.json
+D:\MMC\shipNet\shipNet\bin\Debug\net8.0\publish\appsettings.json
+D:\MMC\shipNet\shipNet\bin\Debug\net8.0\publish\appsettings.Production.json
+D:\MMC\shipNet\shipNet\bin\Debug\net8.0\publish\sample\invoice-request.json
+D:\MMC\shipNet\shipNet\bin\Debug\net8.0\publish\StarlinkDeviceManager.deps.json
+D:\MMC\shipNet\shipNet\bin\Debug\net8.0\publish\StarlinkDeviceManager.runtimeconfig.json
+D:\MMC\shipNet\shipNet\bin\Debug\net8.0\publish\StarlinkDeviceManager.staticwebassets.endpoints.json

@@ -22,8 +22,11 @@ public class KvhSolutionsController(
         string? search = null,
         string? status = null,
         string? region = null,
+        string? planName = null,
         int? tenantId = null,
         string? syncState = null,
+        DateTime? syncDateFrom = null,
+        DateTime? syncDateTo = null,
         int historyPage = 1,
         int historyPageSize = 20,
         string? historySearch = null,
@@ -35,8 +38,23 @@ public class KvhSolutionsController(
     {
         tab = NormalizeTab(tab);
         var currentUser = await GetCurrentUserAsync();
+        if (!CanAccessSolutions(currentUser))
+        {
+            return Forbid();
+        }
+
         var model = await kvhSubscriptionService.GetSolutionsAsync(
-            new KvhSolutionFilter { Search = search, Status = status, Region = region, TenantId = tenantId, SyncState = syncState },
+            new KvhSolutionFilter
+            {
+                Search = search,
+                Status = status,
+                Region = region,
+                PlanName = planName,
+                TenantId = tenantId,
+                SyncState = syncState,
+                SyncDateFrom = syncDateFrom,
+                SyncDateTo = syncDateTo
+            },
             page,
             pageSize,
             GetAllowedTenantId(currentUser),
@@ -84,6 +102,11 @@ public class KvhSolutionsController(
     public async Task<IActionResult> Details(int deviceId)
     {
         var currentUser = await GetCurrentUserAsync();
+        if (!CanAccessSolutions(currentUser))
+        {
+            return Forbid();
+        }
+
         var detail = await kvhSubscriptionService.GetSolutionDetailAsync(deviceId, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), CanManageSolutions(currentUser), HttpContext.RequestAborted);
         return detail is null ? NotFound() : View(detail);
     }
@@ -93,6 +116,11 @@ public class KvhSolutionsController(
     public async Task<IActionResult> Sync(int deviceId)
     {
         var currentUser = await GetCurrentUserAsync();
+        if (!CanManageSolutions(currentUser))
+        {
+            return Forbid();
+        }
+
         var existingDevice = await deviceService.GetDeviceByIdAsync(deviceId, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
         if (existingDevice is null)
         {
@@ -134,6 +162,11 @@ public class KvhSolutionsController(
     public async Task<IActionResult> BatchStatus(long id)
     {
         var currentUser = await GetCurrentUserAsync();
+        if (!CanAccessSolutions(currentUser))
+        {
+            return Forbid();
+        }
+
         var batch = await kvhBulkSyncService.GetBatchAsync(id, GetAllowedTenantId(currentUser), HttpContext.RequestAborted);
         return batch is null ? NotFound() : Json(batch);
     }
@@ -256,7 +289,12 @@ public class KvhSolutionsController(
 
     private static bool CanManageSolutions(AuthUserRecord? user)
     {
-        return user is not null && !user.IsViewOnly;
+        return CanAccessSolutions(user) && user?.IsViewOnly != true;
+    }
+
+    private static bool CanAccessSolutions(AuthUserRecord? user)
+    {
+        return string.Equals(user?.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string NormalizeTab(string? tab) =>

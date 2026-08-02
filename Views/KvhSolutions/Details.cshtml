@@ -5,6 +5,10 @@
 
     var title = string.IsNullOrWhiteSpace(Model.VesselName) ? Model.DeviceName : Model.VesselName;
     var currentEntry = Model.CurrentSubscriptions.FirstOrDefault();
+    const string RefreshIcon = "<svg class=\"kvh-button-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M17.7 6.3A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.76-4.24L13 11h8V3l-3.3 3.3Z\" fill=\"currentColor\"/></svg>";
+    const string PauseIcon = "<svg class=\"kvh-button-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M7 5h4v14H7V5Zm6 0h4v14h-4V5Z\" fill=\"currentColor\"/></svg>";
+    const string ResumeIcon = "<svg class=\"kvh-button-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M8 5v14l11-7L8 5Z\" fill=\"currentColor\"/></svg>";
+    const string CancelIcon = "<svg class=\"kvh-button-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"m7.05 5.64 11.31 11.31-1.41 1.41L5.64 7.05l1.41-1.41Zm9.9 0 1.41 1.41L7.05 18.36l-1.41-1.41L16.95 5.64Z\" fill=\"currentColor\"/></svg>";
 
     string StatusClass(string? status)
     {
@@ -40,36 +44,6 @@
       <div class="device-brand">SHIPNET PORTAL</div>
       <h1>Chi tiết KVH Solution</h1>
       <p>@title · @(string.IsNullOrWhiteSpace(Model.TerminalId) ? "Chưa có Terminal ID" : Model.TerminalId) · Traffic ID: @(string.IsNullOrWhiteSpace(Model.TrafficId) ? "Chưa có" : Model.TrafficId)</p>
-    </div>
-    <div class="device-actions kvh-hero-actions">
-      <form asp-controller="KvhSolutions" asp-action="Sync" method="post" data-kvh-confirm="Bạn có chắc muốn đồng bộ subscription từ KVH ngay bây giờ?">
-        @Html.AntiForgeryToken()
-        <input type="hidden" name="deviceId" value="@Model.DeviceId" />
-        <button type="submit" class="btn-primary kvh-sync-btn"><span class="kvh-button-icon" aria-hidden="true">↻</span>Đồng bộ subscription</button>
-      </form>
-      @if (Model.CanManageSolutions && currentEntry is not null)
-      {
-        var canPauseCurrent = currentEntry.CanPause;
-        var canResumeCurrent = currentEntry.CanResume;
-        if (canPauseCurrent)
-        {
-          <form asp-controller="KvhSolutions" asp-action="Pause" method="post" data-kvh-confirm="Bạn có chắc muốn Pause subscription này?">
-            @Html.AntiForgeryToken()
-            <input type="hidden" name="DeviceId" value="@Model.DeviceId" />
-            <input type="hidden" name="KvhSubscriptionId" value="@currentEntry.Id" />
-            <button type="submit" class="btn-primary kvh-command-btn kvh-command-btn-pause"><span class="kvh-button-icon" aria-hidden="true">Ⅱ</span>Pause</button>
-          </form>
-        }
-        if (canResumeCurrent)
-        {
-          <form asp-controller="KvhSolutions" asp-action="Resume" method="post" data-kvh-confirm="Bạn có chắc muốn Resume subscription này?">
-            @Html.AntiForgeryToken()
-            <input type="hidden" name="DeviceId" value="@Model.DeviceId" />
-            <input type="hidden" name="KvhSubscriptionId" value="@currentEntry.Id" />
-            <button type="submit" class="btn-primary kvh-command-btn kvh-command-btn-resume"><span class="kvh-button-icon" aria-hidden="true">▶</span>Resume</button>
-          </form>
-        }
-      }
     </div>
   </section>
 
@@ -132,6 +106,16 @@
         <h2>Subscription KVH hiện hành</h2>
         <p>Dữ liệu subscription hiện hành trả về từ KVH.</p>
       </div>
+      @if (Model.CanManageSolutions)
+      {
+        <div class="device-actions kvh-tab-actions">
+          <form asp-controller="KvhSolutions" asp-action="Sync" method="post" data-kvh-confirm="Bạn có chắc muốn đồng bộ subscription từ KVH ngay bây giờ?">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="deviceId" value="@Model.DeviceId" />
+            <button type="submit" class="btn-primary kvh-sync-btn">@Html.Raw(RefreshIcon)Đồng bộ subscription</button>
+          </form>
+        </div>
+      }
     </header>
     <div class="device-table-wrap kvh-table-wrap">
       <table class="device-table subscription-table kvh-table kvh-current-subscriptions-table">
@@ -143,7 +127,6 @@
             <th>Ngày hiệu lực subscription</th>
             <th>Ngày hiệu lực scheduled</th>
             <th>Trạng thái thao tác</th>
-            <th>Tác vụ</th>
           </tr>
         </thead>
         <tbody>
@@ -151,7 +134,7 @@
           {
             var lastLog = Model.SyncLogs.FirstOrDefault();
             <tr>
-              <td colspan="7" class="tenant-empty">
+              <td colspan="6" class="tenant-empty">
                 Chưa có subscription KVH hiện hành.
                 <div class="muted">Lần đồng bộ gần nhất: @(lastLog is null ? "Chưa đồng bộ" : lastLog.StartedDisplay)</div>
                 <div class="muted">Kết quả: @(lastLog is null ? "Chưa đồng bộ" : lastLog.Success && lastLog.ReturnedCount == 0 ? "Không có dữ liệu" : lastLog.Success ? "Thành công" : $"Thất bại {lastLog.ErrorCode}")</div>
@@ -160,8 +143,6 @@
           }
           @foreach (var entry in Model.CurrentSubscriptions)
           {
-            var canPause = Model.CanManageSolutions && entry.CanPause;
-            var canResume = Model.CanManageSolutions && entry.CanResume;
             <tr>
               <td>@(string.IsNullOrWhiteSpace(entry.Region) ? "-" : entry.Region)</td>
               <td><span class="subscription-status @StatusClass(entry.Status)">@(string.IsNullOrWhiteSpace(entry.Status) ? "UNKNOWN" : entry.Status)</span></td>
@@ -190,37 +171,6 @@
                     @entry.OperationStateDisplay
                   }
                 </span>
-              </td>
-              <td>
-                <div class="kvh-row-actions">
-                  @if (canPause)
-                  {
-                    <form asp-controller="KvhSolutions" asp-action="Pause" method="post" data-kvh-confirm="Bạn có chắc muốn Pause subscription này?">
-                      @Html.AntiForgeryToken()
-                      <input type="hidden" name="DeviceId" value="@Model.DeviceId" />
-                      <input type="hidden" name="KvhSubscriptionId" value="@entry.Id" />
-                      <button type="submit" class="table-action-btn kvh-table-command-pause"><span class="kvh-button-icon" aria-hidden="true">Ⅱ</span>Pause</button>
-                    </form>
-                  }
-                  @if (canResume)
-                  {
-                    <form asp-controller="KvhSolutions" asp-action="Resume" method="post" data-kvh-confirm="Bạn có chắc muốn Resume subscription này?">
-                      @Html.AntiForgeryToken()
-                      <input type="hidden" name="DeviceId" value="@Model.DeviceId" />
-                      <input type="hidden" name="KvhSubscriptionId" value="@entry.Id" />
-                      <button type="submit" class="table-action-btn kvh-table-command-resume"><span class="kvh-button-icon" aria-hidden="true">▶</span>Resume</button>
-                    </form>
-                  }
-                  @if (Model.CanManageSolutions && entry.CanCancelSchedule)
-                  {
-                    <form asp-controller="KvhSolutions" asp-action="CancelSchedule" method="post" data-kvh-confirm="Bạn có chắc muốn hủy schedule hiện tại?">
-                      @Html.AntiForgeryToken()
-                      <input type="hidden" name="DeviceId" value="@Model.DeviceId" />
-                      <input type="hidden" name="KvhSubscriptionId" value="@entry.Id" />
-                      <button type="submit" class="table-action-btn kvh-cancel-schedule-btn"><span class="kvh-button-icon" aria-hidden="true">×</span>Cancel schedule</button>
-                    </form>
-                  }
-                </div>
               </td>
             </tr>
           }
@@ -297,6 +247,38 @@
         <h2>Lệnh KVH gần đây</h2>
         <p>Trạng thái các lệnh Pause, Resume và Cancel schedule gần nhất.</p>
       </div>
+      @if (Model.CanManageSolutions && currentEntry is not null)
+      {
+        <div class="device-actions kvh-tab-actions">
+          @if (currentEntry.CanPause)
+          {
+            <form asp-controller="KvhSolutions" asp-action="Pause" method="post" data-kvh-confirm="Bạn có chắc muốn tạm dừng (Pause) subscription này?">
+              @Html.AntiForgeryToken()
+              <input type="hidden" name="DeviceId" value="@Model.DeviceId" />
+              <input type="hidden" name="KvhSubscriptionId" value="@currentEntry.Id" />
+              <button type="submit" class="btn-secondary kvh-command-btn-pause">@Html.Raw(PauseIcon)Tạm dừng / Pause</button>
+            </form>
+          }
+          @if (currentEntry.CanResume)
+          {
+            <form asp-controller="KvhSolutions" asp-action="Resume" method="post" data-kvh-confirm="Bạn có chắc muốn khôi phục (Resume) subscription này?">
+              @Html.AntiForgeryToken()
+              <input type="hidden" name="DeviceId" value="@Model.DeviceId" />
+              <input type="hidden" name="KvhSubscriptionId" value="@currentEntry.Id" />
+              <button type="submit" class="btn-secondary kvh-command-btn-resume">@Html.Raw(ResumeIcon)Khôi phục / Resume</button>
+            </form>
+          }
+          @if (currentEntry.CanCancelSchedule)
+          {
+            <form asp-controller="KvhSolutions" asp-action="CancelSchedule" method="post" data-kvh-confirm="Bạn có chắc muốn hủy schedule hiện tại?">
+              @Html.AntiForgeryToken()
+              <input type="hidden" name="DeviceId" value="@Model.DeviceId" />
+              <input type="hidden" name="KvhSubscriptionId" value="@currentEntry.Id" />
+              <button type="submit" class="btn-secondary kvh-cancel-schedule-btn">@Html.Raw(CancelIcon)Hủy lịch / Cancel schedule</button>
+            </form>
+          }
+        </div>
+      }
     </header>
     <div class="device-table-wrap kvh-table-wrap">
       <table class="device-table subscription-table kvh-table">

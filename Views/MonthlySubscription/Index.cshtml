@@ -13,6 +13,8 @@
     var errorMessage = TempData["SubscriptionError"]?.ToString();
     var devicesJson = JsonSerializer.Serialize(Model.Devices);
     var plansJson = JsonSerializer.Serialize(Model.Plans);
+    var pageWindowStart = Math.Max(1, Model.CurrentPage - 2);
+    var pageWindowEnd = Math.Min(Model.TotalPages, Model.CurrentPage + 2);
 }
 
 <div class="device-page">
@@ -65,7 +67,7 @@
     </section>
 
     <section class="subscription-filter-panel">
-      <form asp-controller="MonthlySubscription" asp-action="Index" method="get" class="subscription-filter-grid">
+      <form asp-controller="MonthlySubscription" asp-action="Index" method="get" class="subscription-filter-grid" id="billingFilterForm">
         <label>
           <span>Tenant / Tenant</span>
           <select name="tenantId" id="filterTenant" @(Model.IsTenantScoped ? "disabled" : "")>
@@ -151,6 +153,15 @@
           <h2>Lịch sử billing cycle / Billing Cycle History</h2>
           <p>Tổng số billing cycle / Total billing cycles: <strong>@Model.TotalItems</strong></p>
         </div>
+        <label class="pagination-size-control">
+          <span>Số dòng / Page size</span>
+          <select name="pageSize" form="billingFilterForm" onchange="document.getElementById('billingFilterForm').submit()">
+            @foreach (var size in new[] { 10, 20, 50, 100 })
+            {
+              <option value="@size" selected="@(Model.PageSize == size)">@size</option>
+            }
+          </select>
+        </label>
         @if (Model.CanManageSubscriptions)
         {
           <button type="button" class="btn-primary subscription-make-qr-btn" id="makeGroupedQrButton">Tạo QR / Make QR</button>
@@ -232,19 +243,40 @@
       </div>
       <div class="device-pagination">
         <div class="device-pagination-meta">
-          <span>Trang / Page</span>
-          <strong>@Model.CurrentPage</strong>
-          <span>/</span>
-          <strong>@Model.TotalPages</strong>
+          <span>
+            Hiển thị
+            @(Model.TotalItems == 0 ? 0 : ((Model.CurrentPage - 1) * Model.PageSize) + 1)-@(Model.TotalItems == 0 ? 0 : Math.Min(Model.CurrentPage * Model.PageSize, Model.TotalItems))
+            trên @Model.TotalItems
+          </span>
+          <span>Trang @Model.CurrentPage / @Model.TotalPages</span>
         </div>
         <div class="device-pagination-actions">
           @if (Model.HasPreviousPage)
           {
-            <a class="pagination-btn" asp-action="Index" asp-route-page="@(Model.CurrentPage - 1)" asp-route-pageSize="@Model.PageSize">Trước / Previous</a>
+            <a class="pagination-btn" asp-action="Index" asp-route-page="1" asp-route-pageSize="@Model.PageSize" asp-route-tenantId="@Model.Filter.TenantId" asp-route-deviceId="@Model.Filter.DeviceId" asp-route-pricingPlanId="@Model.Filter.PricingPlanId" asp-route-kitId="@Model.Filter.KitId" asp-route-status="@Model.Filter.Status" asp-route-invoiceStatus="@Model.Filter.InvoiceStatus" asp-route-monthFrom="@Model.Filter.MonthFrom?.ToString("yyyy-MM-dd")" asp-route-monthTo="@Model.Filter.MonthTo?.ToString("yyyy-MM-dd")" asp-route-nextBillingFrom="@Model.Filter.NextBillingFrom?.ToString("yyyy-MM-dd")" asp-route-nextBillingTo="@Model.Filter.NextBillingTo?.ToString("yyyy-MM-dd")" asp-route-invoicePaidFrom="@Model.Filter.InvoicePaidFrom?.ToString("yyyy-MM-dd")" asp-route-invoicePaidTo="@Model.Filter.InvoicePaidTo?.ToString("yyyy-MM-dd")">Đầu</a>
+          }
+          @if (Model.HasPreviousPage)
+          {
+            <a class="pagination-btn" asp-action="Index" asp-route-page="@(Model.CurrentPage - 1)" asp-route-pageSize="@Model.PageSize" asp-route-tenantId="@Model.Filter.TenantId" asp-route-deviceId="@Model.Filter.DeviceId" asp-route-pricingPlanId="@Model.Filter.PricingPlanId" asp-route-kitId="@Model.Filter.KitId" asp-route-status="@Model.Filter.Status" asp-route-invoiceStatus="@Model.Filter.InvoiceStatus" asp-route-monthFrom="@Model.Filter.MonthFrom?.ToString("yyyy-MM-dd")" asp-route-monthTo="@Model.Filter.MonthTo?.ToString("yyyy-MM-dd")" asp-route-nextBillingFrom="@Model.Filter.NextBillingFrom?.ToString("yyyy-MM-dd")" asp-route-nextBillingTo="@Model.Filter.NextBillingTo?.ToString("yyyy-MM-dd")" asp-route-invoicePaidFrom="@Model.Filter.InvoicePaidFrom?.ToString("yyyy-MM-dd")" asp-route-invoicePaidTo="@Model.Filter.InvoicePaidTo?.ToString("yyyy-MM-dd")">Trước / Previous</a>
+          }
+          @for (var pageNumber = pageWindowStart; pageNumber <= pageWindowEnd; pageNumber++)
+          {
+            if (pageNumber == Model.CurrentPage)
+            {
+              <span class="pagination-btn is-active" aria-current="page">@pageNumber</span>
+            }
+            else
+            {
+              <a class="pagination-btn" asp-action="Index" asp-route-page="@pageNumber" asp-route-pageSize="@Model.PageSize" asp-route-tenantId="@Model.Filter.TenantId" asp-route-deviceId="@Model.Filter.DeviceId" asp-route-pricingPlanId="@Model.Filter.PricingPlanId" asp-route-kitId="@Model.Filter.KitId" asp-route-status="@Model.Filter.Status" asp-route-invoiceStatus="@Model.Filter.InvoiceStatus" asp-route-monthFrom="@Model.Filter.MonthFrom?.ToString("yyyy-MM-dd")" asp-route-monthTo="@Model.Filter.MonthTo?.ToString("yyyy-MM-dd")" asp-route-nextBillingFrom="@Model.Filter.NextBillingFrom?.ToString("yyyy-MM-dd")" asp-route-nextBillingTo="@Model.Filter.NextBillingTo?.ToString("yyyy-MM-dd")" asp-route-invoicePaidFrom="@Model.Filter.InvoicePaidFrom?.ToString("yyyy-MM-dd")" asp-route-invoicePaidTo="@Model.Filter.InvoicePaidTo?.ToString("yyyy-MM-dd")">@pageNumber</a>
+            }
           }
           @if (Model.HasNextPage)
           {
-            <a class="pagination-btn" asp-action="Index" asp-route-page="@(Model.CurrentPage + 1)" asp-route-pageSize="@Model.PageSize">Sau / Next</a>
+            <a class="pagination-btn" asp-action="Index" asp-route-page="@(Model.CurrentPage + 1)" asp-route-pageSize="@Model.PageSize" asp-route-tenantId="@Model.Filter.TenantId" asp-route-deviceId="@Model.Filter.DeviceId" asp-route-pricingPlanId="@Model.Filter.PricingPlanId" asp-route-kitId="@Model.Filter.KitId" asp-route-status="@Model.Filter.Status" asp-route-invoiceStatus="@Model.Filter.InvoiceStatus" asp-route-monthFrom="@Model.Filter.MonthFrom?.ToString("yyyy-MM-dd")" asp-route-monthTo="@Model.Filter.MonthTo?.ToString("yyyy-MM-dd")" asp-route-nextBillingFrom="@Model.Filter.NextBillingFrom?.ToString("yyyy-MM-dd")" asp-route-nextBillingTo="@Model.Filter.NextBillingTo?.ToString("yyyy-MM-dd")" asp-route-invoicePaidFrom="@Model.Filter.InvoicePaidFrom?.ToString("yyyy-MM-dd")" asp-route-invoicePaidTo="@Model.Filter.InvoicePaidTo?.ToString("yyyy-MM-dd")">Sau / Next</a>
+          }
+          @if (Model.HasNextPage)
+          {
+            <a class="pagination-btn" asp-action="Index" asp-route-page="@Model.TotalPages" asp-route-pageSize="@Model.PageSize" asp-route-tenantId="@Model.Filter.TenantId" asp-route-deviceId="@Model.Filter.DeviceId" asp-route-pricingPlanId="@Model.Filter.PricingPlanId" asp-route-kitId="@Model.Filter.KitId" asp-route-status="@Model.Filter.Status" asp-route-invoiceStatus="@Model.Filter.InvoiceStatus" asp-route-monthFrom="@Model.Filter.MonthFrom?.ToString("yyyy-MM-dd")" asp-route-monthTo="@Model.Filter.MonthTo?.ToString("yyyy-MM-dd")" asp-route-nextBillingFrom="@Model.Filter.NextBillingFrom?.ToString("yyyy-MM-dd")" asp-route-nextBillingTo="@Model.Filter.NextBillingTo?.ToString("yyyy-MM-dd")" asp-route-invoicePaidFrom="@Model.Filter.InvoicePaidFrom?.ToString("yyyy-MM-dd")" asp-route-invoicePaidTo="@Model.Filter.InvoicePaidTo?.ToString("yyyy-MM-dd")">Cuối</a>
           }
         </div>
       </div>

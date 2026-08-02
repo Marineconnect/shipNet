@@ -13,6 +13,7 @@ public sealed class KvhJobService(
     IConfiguration configuration,
     IHttpClientFactory httpClientFactory,
     IOptions<KvhJobMonitorOptions> monitorOptions,
+    IKvhSubscriptionService kvhSubscriptionService,
     ILogger<KvhJobService> logger) : IKvhJobService
 {
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")
@@ -180,6 +181,48 @@ public sealed class KvhJobService(
                 : KvhVerificationStatuses.Mismatch;
         var errorCode = result.Success ? string.Empty : result.ErrorCode;
         await CompleteCommandAsync(command.Id, finalStatus, KvhJobStatuses.Success, jobResponseJson, result.ResponseJson, errorCode, result.Message, cancellationToken, verificationStatus);
+
+        if (result.Success && normalizedCommandType is
+            KvhCommandTypes.SubscriptionPause or
+            KvhCommandTypes.SubscriptionResume or
+            KvhCommandTypes.SubscriptionCancelSchedule)
+        {
+            try
+            {
+                var syncResult = await kvhSubscriptionService.SyncForDeviceAsync(
+                    command.DeviceId,
+                    command.TerminalId,
+                    accessToken,
+                    command.TrafficId,
+                    cancellationToken);
+
+                if (!syncResult.Success)
+                {
+                    logger.LogWarning(
+                        "KVH command {CommandId} succeeded, but subscription sync failed for device {DeviceId}. ErrorCode={ErrorCode}; Message={Message}",
+                        command.Id,
+                        command.DeviceId,
+                        syncResult.ErrorCode,
+                        syncResult.MessageEn);
+                }
+                else
+                {
+                    logger.LogInformation(
+                        "Synced KVH subscriptions after successful command {CommandId} for device {DeviceId}. ReturnedCount={ReturnedCount}",
+                        command.Id,
+                        command.DeviceId,
+                        syncResult.ReturnedCount);
+                }
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                logger.LogWarning(
+                    ex,
+                    "KVH command {CommandId} succeeded, but the post-command subscription sync threw an exception for device {DeviceId}.",
+                    command.Id,
+                    command.DeviceId);
+            }
+        }
     }
 
     private async Task<VerificationResult> VerifyDataOptInAsync(KvhCommand command, string accessToken, CancellationToken cancellationToken)
