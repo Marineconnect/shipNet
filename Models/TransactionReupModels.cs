@@ -74,9 +74,9 @@ public sealed class TransactionReupItemViewModel
     public string PayloadJson { get; set; } = string.Empty;
     public string TransactionType { get; set; } = string.Empty;
     public string PaymentMethod { get; set; } = string.Empty;
-    public string BankOrCard { get; set; } = string.Empty;
+    public string BankName { get; set; } = string.Empty;
     public decimal ProcessingFeeVnd { get; set; }
-    public decimal ReceivedAmountVnd { get; set; }
+    public decimal NetAmountVnd { get; set; }
     public string SourceStatus { get; set; } = string.Empty;
     public DateTime? PublishedAtUtc { get; set; }
     public string PublishedAtDisplay => PublishedAtUtc?.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss") ?? "-";
@@ -89,16 +89,16 @@ public sealed record TransactionReupSourceRow(
     string UpdatedAtText,
     string TransactionCode,
     string RequestInvoiceCode,
-    string OriginalRequestCode,
-    string InvoiceCreatorName,
+    string SourceOriginalRequestCode,
+    string SourceCreatedBy,
     string TransactionType,
     string PaymentMethod,
-    string BankOrCard,
+    string BankName,
     decimal TotalAmountVnd,
     decimal ProcessingFee,
     string TransferContent,
     string FeeBearer,
-    decimal ReceivedAmount,
+    decimal NetAmountVnd,
     string SourceStatus,
     IReadOnlyDictionary<string, string> Values);
 

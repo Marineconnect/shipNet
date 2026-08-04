@@ -54,7 +54,7 @@ public sealed class TransactionReupService(
             SELECT [ID], [RowNumber], [SourceTransactionCode], [SourceRequestCode], [InvoiceCode],
                    [GrossAmountVnd], [ValidationStatus], [PublishStatus], [PublishAttemptCount],
                    [RabbitMessageId], [RabbitCorrelationId], [PublishMessage], [PublishLogs], [PayloadJson],
-                   [TransactionType], [PaymentMethod], [BankOrCard], [ProcessingFeeVnd], [ReceivedAmountVnd],
+                   [TransactionType], [PaymentMethod], [BankName], [ProcessingFeeVnd], [NetAmountVnd],
                    [SourceStatus], [PublishedAtUtc]
             FROM [dbo].[TblTransactionReupImportItem]
             WHERE [BatchId] = @batchId
@@ -79,7 +79,7 @@ public sealed class TransactionReupService(
             SELECT [ID], [RowNumber], [SourceTransactionCode], [SourceRequestCode], [InvoiceCode],
                    [GrossAmountVnd], [ValidationStatus], [PublishStatus], [PublishAttemptCount],
                    [RabbitMessageId], [RabbitCorrelationId], [PublishMessage], [PublishLogs], [PayloadJson],
-                   [TransactionType], [PaymentMethod], [BankOrCard], [ProcessingFeeVnd], [ReceivedAmountVnd],
+                   [TransactionType], [PaymentMethod], [BankName], [ProcessingFeeVnd], [NetAmountVnd],
                    [SourceStatus], [PublishedAtUtc]
             FROM [dbo].[TblTransactionReupImportItem]
             WHERE [ID] = @id;
@@ -238,7 +238,7 @@ public sealed class TransactionReupService(
         const string sql = """
             UPDATE [dbo].[TblTransactionReupImportItem]
             SET [PublishStatus] = @status, [RabbitMessageId] = @messageId, [RabbitCorrelationId] = @correlationId,
-                [ExchangeName] = @exchangeName, [RoutingKey] = @routingKey, [QueueName] = @queueName,
+                [RabbitExchange] = @rabbitExchange, [RabbitRoutingKey] = @rabbitRoutingKey, [RabbitQueue] = @rabbitQueue,
                 [PublishMessage] = @message, [PublishLogs] = @logs, [PublishAttemptCount] = @attemptCount,
                 [PublishedAtUtc] = CASE WHEN @success = 1 THEN SYSUTCDATETIME() ELSE [PublishedAtUtc] END,
                 [UpdatedAtUtc] = SYSUTCDATETIME()
@@ -251,9 +251,9 @@ public sealed class TransactionReupService(
         command.Parameters.Add("@status", SqlDbType.NVarChar, 30).Value = result.Success ? TransactionReupStatuses.Published : TransactionReupStatuses.PublishFailed;
         command.Parameters.Add("@messageId", SqlDbType.NVarChar, 100).Value = messageId;
         command.Parameters.Add("@correlationId", SqlDbType.NVarChar, 250).Value = result.CorrelationId;
-        command.Parameters.Add("@exchangeName", SqlDbType.NVarChar, 250).Value = result.ExchangeName;
-        command.Parameters.Add("@routingKey", SqlDbType.NVarChar, 250).Value = result.RoutingKey;
-        command.Parameters.Add("@queueName", SqlDbType.NVarChar, 250).Value = result.QueueName;
+        command.Parameters.Add("@rabbitExchange", SqlDbType.NVarChar, 250).Value = result.ExchangeName;
+        command.Parameters.Add("@rabbitRoutingKey", SqlDbType.NVarChar, 250).Value = result.RoutingKey;
+        command.Parameters.Add("@rabbitQueue", SqlDbType.NVarChar, 250).Value = result.QueueName;
         command.Parameters.Add("@message", SqlDbType.NVarChar, -1).Value = result.Message;
         command.Parameters.Add("@logs", SqlDbType.NVarChar, -1).Value = string.Join(Environment.NewLine, result.Logs);
         command.Parameters.Add("@attemptCount", SqlDbType.Int).Value = attemptCount;
@@ -312,21 +312,21 @@ public sealed class TransactionReupService(
             if (values.Values.All(string.IsNullOrWhiteSpace)) continue;
             result.Add(new TransactionReupSourceRow(
                 index + 1,
-                Get(values, "Thời gian khởi tạo", "CreatedAt"),
-                Get(values, "Thời gian cập nhật", "UpdatedAt"),
-                Get(values, "Mã giao dịch", "TransactionCode"),
-                Get(values, "Mã yêu cầu/Mã hóa đơn", "RequestInvoiceCode"),
-                Get(values, "Mã yêu cầu gốc", "OriginalRequestCode"),
-                Get(values, "Người tạo hoá đơn", "InvoiceCreatorName"),
-                Get(values, "Loại giao dịch", "TransactionType"),
-                Get(values, "Phương thức thanh toán", "PaymentMethod"),
-                Get(values, "Ngân hàng/Thương hiệu thẻ", "BankOrCard"),
-                ParseMoney(Get(values, "Tổng giá trị (VND)", "TotalAmountVnd")),
-                ParseMoney(Get(values, "Phí xử lý", "ProcessingFee")),
-                Get(values, "Nội dung chuyển khoản", "TransferContent"),
-                Get(values, "Đối tượng chịu phí", "FeeBearer"),
-                ParseMoney(Get(values, "Số tiền thực nhận", "ReceivedAmount")),
-                Get(values, "Trạng thái", "SourceStatus"),
+                Get(values, "thoi gian khoi tao", "CreatedAt"),
+                Get(values, "thoi gian cap nhat", "UpdatedAt"),
+                Get(values, "ma giao dich", "TransactionCode"),
+                Get(values, "ma yeu cau ma hoa don", "RequestInvoiceCode"),
+                Get(values, "ma yeu cau goc", "SourceOriginalRequestCode"),
+                Get(values, "nguoi tao hoa don", "SourceCreatedBy"),
+                Get(values, "loai giao dich", "TransactionType"),
+                Get(values, "phuong thuc thanh toan", "PaymentMethod"),
+                Get(values, "ngan hang thuong hieu the", "BankName"),
+                ParseMoney(Get(values, "tong gia tri vnd", "TotalAmountVnd")),
+                ParseMoney(Get(values, "phi xu ly", "ProcessingFee")),
+                Get(values, "noi dung chuyen khoan", "TransferContent"),
+                Get(values, "doi tuong chiu phi", "FeeBearer"),
+                ParseMoney(Get(values, "so tien thuc nhan", "NetAmountVnd")),
+                Get(values, "trang thai", "SourceStatus"),
                 values));
         }
         return result;
@@ -388,20 +388,21 @@ public sealed class TransactionReupService(
                 }
             }
         };
-        return JsonSerializer.Serialize(new
+        var payload = new Dictionary<string, object?>
         {
-            transactionCode = row.TransactionCode,
-            invoiceCode,
-            source = "SHIPNET",
-            paymentTime = paymentUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture),
-            operatorName = string.IsNullOrWhiteSpace(row.InvoiceCreatorName) ? username : row.InvoiceCreatorName,
-            email = "",
-            InvoiceURL = "",
-            PONumber = "",
-            PO_Number = "",
-            invoiceParams,
-            vessels = new[] { vessel }
-        });
+            ["transactionCode"] = row.TransactionCode,
+            ["invoiceCode"] = invoiceCode,
+            ["source"] = "SHIPNET",
+            ["paymentTime"] = paymentUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture),
+            ["operatorName"] = string.IsNullOrWhiteSpace(row.SourceCreatedBy) ? username : row.SourceCreatedBy,
+            ["email"] = "",
+            ["PONumber"] = "",
+            ["PO_Number"] = "",
+            ["invoiceParams"] = invoiceParams,
+            ["vessels"] = new[] { vessel }
+        };
+
+        return JsonSerializer.Serialize(payload);
     }
 
     private static string BuildInvoiceCode(int year, int sequence) => $"SPN-INV-{year % 100:00}-{sequence:00000}";
@@ -451,7 +452,51 @@ public sealed class TransactionReupService(
     }
 
     private static string NormalizeHeader(string value) => value.Trim().TrimStart('\'').Replace("\u00a0", " ", StringComparison.Ordinal).Trim();
-    private static string Get(IReadOnlyDictionary<string, string> values, params string[] keys) => keys.Select(key => values.TryGetValue(key, out var value) ? value : string.Empty).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
+    private static string Get(IReadOnlyDictionary<string, string> values, params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            if (values.TryGetValue(key, out var exactValue) && !string.IsNullOrWhiteSpace(exactValue))
+            {
+                return exactValue;
+            }
+
+            var normalizedKey = NormalizeColumnKey(key);
+            foreach (var item in values)
+            {
+                if (NormalizeColumnKey(item.Key) == normalizedKey && !string.IsNullOrWhiteSpace(item.Value))
+                {
+                    return item.Value;
+                }
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static string NormalizeColumnKey(string value)
+    {
+        var normalized = value.Trim().TrimStart('\'').Replace("\u00a0", " ", StringComparison.Ordinal).Normalize(NormalizationForm.FormD);
+        var builder = new StringBuilder(normalized.Length);
+        foreach (var character in normalized)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(character) != UnicodeCategory.NonSpacingMark)
+            {
+                var lower = char.ToLowerInvariant(character);
+                builder.Append(lower == '\u0111' ? 'd' : lower);
+            }
+        }
+
+        return builder.ToString()
+            .Normalize(NormalizationForm.FormC)
+            .Replace("/", " ", StringComparison.Ordinal)
+            .Replace("(", " ", StringComparison.Ordinal)
+            .Replace(")", " ", StringComparison.Ordinal)
+            .Replace("-", " ", StringComparison.Ordinal)
+            .Replace("_", " ", StringComparison.Ordinal)
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Aggregate(string.Empty, (current, part) => current + part);
+    }
     private static string ReadCell(ICell? cell)
     {
         if (cell is null) return string.Empty;
@@ -482,7 +527,7 @@ public sealed class TransactionReupService(
     {
         const string sql = """
             INSERT INTO [dbo].[TblTransactionReupImportBatch]
-                ([BatchCode], [OriginalFileName], [StoredFileName], [StoredFilePath], [FileSizeBytes], [ContentType], [FileExtension], [Sha256],
+                ([BatchCode], [OriginalFileName], [StoredFileName], [StoredFilePath], [FileSize], [ContentType], [FileExtension], [FileSha256],
                  [ImportedByUserId], [ImportedByUsername], [ImportedAtUtc], [InvoiceStartNumber], [InvoiceEndNumber], [NextInvoiceNumber],
                  [TotalRows], [ValidRows], [PublishedRows], [FailedRows], [SkippedRows], [DuplicateRows], [Status], [CreatedAtUtc], [UpdatedAtUtc])
             OUTPUT INSERTED.[ID]
@@ -510,15 +555,15 @@ public sealed class TransactionReupService(
     {
         const string sql = """
             INSERT INTO [dbo].[TblTransactionReupImportItem]
-                ([BatchId], [RowNumber], [SourceTransactionCode], [SourceRequestCode], [OriginalRequestCode], [InvoiceCreatorName],
-                 [TransactionType], [PaymentMethod], [BankOrCard], [GrossAmountVnd], [ProcessingFeeVnd], [TransferContent], [FeeBearer],
-                 [ReceivedAmountVnd], [SourceStatus], [SourceCreatedAt], [SourceUpdatedAt], [PaymentTimeUtc], [ValidationStatus],
+                ([BatchId], [RowNumber], [SourceTransactionCode], [SourceRequestCode], [SourceOriginalRequestCode], [SourceCreatedBy],
+                 [TransactionType], [PaymentMethod], [BankName], [GrossAmountVnd], [ProcessingFeeVnd], [TransferContent], [FeeBearer],
+                 [NetAmountVnd], [SourceStatus], [SourceCreatedAt], [SourceUpdatedAt], [ValidationStatus],
                  [PublishStatus], [InvoiceYear], [InvoiceSequence], [InvoiceCode], [ExpectedPdfFileName], [PayloadJson],
                  [PublishAttemptCount], [CreatedAtUtc], [UpdatedAtUtc])
             VALUES
-                (@batchId, @rowNumber, @sourceTransactionCode, @sourceRequestCode, @originalRequestCode, @creator, @transactionType, @paymentMethod,
-                 @bankOrCard, @grossAmountVnd, @processingFeeVnd, @transferContent, @feeBearer, @receivedAmountVnd, @sourceStatus,
-                 @sourceCreatedAt, @sourceUpdatedAt, @paymentTimeUtc, @validationStatus, @publishStatus, @invoiceYear, @sequence,
+                (@batchId, @rowNumber, @sourceTransactionCode, @sourceRequestCode, @sourceOriginalRequestCode, @sourceCreatedBy, @transactionType, @paymentMethod,
+                 @bankName, @grossAmountVnd, @processingFeeVnd, @transferContent, @feeBearer, @netAmountVnd, @sourceStatus,
+                 @sourceCreatedAt, @sourceUpdatedAt, @validationStatus, @publishStatus, @invoiceYear, @sequence,
                  @invoiceCode, @expectedFileName, @payload, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
             """;
         await using var command = new SqlCommand(sql, connection, transaction);
@@ -526,20 +571,19 @@ public sealed class TransactionReupService(
         command.Parameters.Add("@rowNumber", SqlDbType.Int).Value = row.RowNumber;
         command.Parameters.Add("@sourceTransactionCode", SqlDbType.NVarChar, 250).Value = row.TransactionCode;
         command.Parameters.Add("@sourceRequestCode", SqlDbType.NVarChar, 250).Value = row.RequestInvoiceCode;
-        command.Parameters.Add("@originalRequestCode", SqlDbType.NVarChar, 250).Value = row.OriginalRequestCode;
-        command.Parameters.Add("@creator", SqlDbType.NVarChar, 250).Value = row.InvoiceCreatorName;
+        command.Parameters.Add("@sourceOriginalRequestCode", SqlDbType.NVarChar, 250).Value = row.SourceOriginalRequestCode;
+        command.Parameters.Add("@sourceCreatedBy", SqlDbType.NVarChar, 250).Value = row.SourceCreatedBy;
         command.Parameters.Add("@transactionType", SqlDbType.NVarChar, 100).Value = row.TransactionType;
         command.Parameters.Add("@paymentMethod", SqlDbType.NVarChar, 100).Value = row.PaymentMethod;
-        command.Parameters.Add("@bankOrCard", SqlDbType.NVarChar, 250).Value = row.BankOrCard;
+        command.Parameters.Add("@bankName", SqlDbType.NVarChar, 250).Value = row.BankName;
         AddDecimal(command, "@grossAmountVnd", row.TotalAmountVnd);
         AddDecimal(command, "@processingFeeVnd", row.ProcessingFee);
         command.Parameters.Add("@transferContent", SqlDbType.NVarChar, 1000).Value = row.TransferContent;
         command.Parameters.Add("@feeBearer", SqlDbType.NVarChar, 250).Value = row.FeeBearer;
-        AddDecimal(command, "@receivedAmountVnd", row.ReceivedAmount);
+        AddDecimal(command, "@netAmountVnd", row.NetAmountVnd);
         command.Parameters.Add("@sourceStatus", SqlDbType.NVarChar, 100).Value = row.SourceStatus;
         command.Parameters.Add("@sourceCreatedAt", SqlDbType.DateTime2).Value = ParseVietnamDate(row.CreatedAtText) is { } created ? created : DBNull.Value;
         command.Parameters.Add("@sourceUpdatedAt", SqlDbType.DateTime2).Value = ParseVietnamDate(row.UpdatedAtText) is { } updated ? updated : DBNull.Value;
-        command.Parameters.Add("@paymentTimeUtc", SqlDbType.DateTime2).Value = ParseVietnamDate(row.UpdatedAtText) is { } payment ? ToUtc(payment) : DBNull.Value;
         command.Parameters.Add("@validationStatus", SqlDbType.NVarChar, 30).Value = validation;
         command.Parameters.Add("@publishStatus", SqlDbType.NVarChar, 30).Value = validation == "Valid" ? TransactionReupStatuses.Pending : validation;
         command.Parameters.Add("@invoiceYear", SqlDbType.Int).Value = sequence > 0 && ParseVietnamDate(row.UpdatedAtText) is { } yearDate ? yearDate.Year : DBNull.Value;
@@ -677,9 +721,9 @@ public sealed class TransactionReupService(
         PayloadJson = ReadText(reader, "PayloadJson"),
         TransactionType = ReadText(reader, "TransactionType"),
         PaymentMethod = ReadText(reader, "PaymentMethod"),
-        BankOrCard = ReadText(reader, "BankOrCard"),
+        BankName = ReadText(reader, "BankName"),
         ProcessingFeeVnd = ReadDecimal(reader, "ProcessingFeeVnd"),
-        ReceivedAmountVnd = ReadDecimal(reader, "ReceivedAmountVnd"),
+        NetAmountVnd = ReadDecimal(reader, "NetAmountVnd"),
         SourceStatus = ReadText(reader, "SourceStatus"),
         PublishedAtUtc = ReadDate(reader, "PublishedAtUtc")
     };

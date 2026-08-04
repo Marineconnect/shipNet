@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "00Z9VCjyyic=",
+  "dgSpecHash": "s7IJzpob3qw=",
   "success": true,
-  "projectFilePath": "D:\\MMC\\shipNet\\shipnet\\StarlinkDeviceManager.csproj",
+  "projectFilePath": "D:\\MMC\\shipNet\\shipNet\\StarlinkDeviceManager.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\PC\\.nuget\\packages\\azure.core\\1.38.0\\azure.core.1.38.0.nupkg.sha512",
     "C:\\Users\\PC\\.nuget\\packages\\azure.identity\\1.11.4\\azure.identity.1.11.4.nupkg.sha512",
