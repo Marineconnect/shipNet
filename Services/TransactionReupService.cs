@@ -103,23 +103,13 @@ public sealed class TransactionReupService(
         await EnsureSchemaExistsAsync(connection, cancellationToken);
         var storedFile = await fileStorage.SaveAsync(model.File, batchCode, cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
-        var seenTransactionCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var nextSequence = model.StartInvoiceNumber;
-        var duplicateCount = 0;
         var validCount = 0;
 
         var batchId = await InsertBatchAsync(connection, transaction, batchCode, storedFile, user, rows.Count, model.StartInvoiceNumber, cancellationToken);
         foreach (var row in rows)
         {
             var validation = ValidateRow(row, out var createdAt, out var updatedAt);
-            var duplicate = !string.IsNullOrWhiteSpace(row.TransactionCode)
-                && (!seenTransactionCodes.Add(row.TransactionCode) || await HasPublishedTransactionAsync(connection, transaction, row.TransactionCode, cancellationToken));
-            if (duplicate)
-            {
-                duplicateCount++;
-                validation = "Duplicate";
-            }
-
             var sequence = 0;
             var invoiceCode = string.Empty;
             var payload = string.Empty;
@@ -136,7 +126,7 @@ public sealed class TransactionReupService(
         }
 
         var endNumber = nextSequence - 1;
-        await UpdateBatchCountsAsync(connection, transaction, batchId, endNumber, nextSequence, validCount, 0, 0, 0, duplicateCount, rows.Count == validCount ? "Completed" : "CompletedWithErrors", cancellationToken);
+        await UpdateBatchCountsAsync(connection, transaction, batchId, endNumber, nextSequence, validCount, 0, 0, 0, 0, rows.Count == validCount ? "Completed" : "CompletedWithErrors", cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         await PublishPendingItemsAsync(batchId, user, cancellationToken);
@@ -592,19 +582,6 @@ public sealed class TransactionReupService(
         command.Parameters.Add("@expectedFileName", SqlDbType.NVarChar, 150).Value = string.IsNullOrWhiteSpace(invoiceCode) ? string.Empty : $"{invoiceCode}.pdf";
         command.Parameters.Add("@payload", SqlDbType.NVarChar, -1).Value = payload;
         await command.ExecuteNonQueryAsync(cancellationToken);
-    }
-
-    private static async Task<bool> HasPublishedTransactionAsync(SqlConnection connection, SqlTransaction transaction, string transactionCode, CancellationToken cancellationToken)
-    {
-        const string sql = """
-            SELECT TOP 1 1
-            FROM [dbo].[TblTransactionReupImportItem] WITH (UPDLOCK, HOLDLOCK)
-            WHERE [SourceTransactionCode] = @transactionCode AND [PublishStatus] = @status;
-            """;
-        await using var command = new SqlCommand(sql, connection, transaction);
-        command.Parameters.Add("@transactionCode", SqlDbType.NVarChar, 250).Value = transactionCode;
-        command.Parameters.Add("@status", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Published;
-        return await command.ExecuteScalarAsync(cancellationToken) is not null;
     }
 
     private static async Task UpdateBatchCountsAsync(SqlConnection connection, SqlTransaction transaction, int batchId, int endNumber, int nextNumber, int valid, int published, int failed, int skipped, int duplicate, string status, CancellationToken cancellationToken)

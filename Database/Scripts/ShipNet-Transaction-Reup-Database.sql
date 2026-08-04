@@ -116,14 +116,10 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'IX_TblTransactionReupI
     CREATE INDEX [IX_TblTransactionReupImportItem_BatchId_RowNumber] ON [dbo].[TblTransactionReupImportItem]([BatchId], [RowNumber], [ID]);
 GO
 
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'UX_TblTransactionReupImportItem_PublishedTransaction' AND [object_id] = OBJECT_ID(N'[dbo].[TblTransactionReupImportItem]'))
-    CREATE UNIQUE INDEX [UX_TblTransactionReupImportItem_PublishedTransaction]
-        ON [dbo].[TblTransactionReupImportItem]([SourceTransactionCode])
-        WHERE [PublishStatus] = N'Published' AND [SourceTransactionCode] <> N'';
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'UX_TblTransactionReupImportItem_PublishedTransaction' AND [object_id] = OBJECT_ID(N'[dbo].[TblTransactionReupImportItem]'))
+    DROP INDEX [UX_TblTransactionReupImportItem_PublishedTransaction] ON [dbo].[TblTransactionReupImportItem];
 GO
 
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'UX_TblTransactionReupImportItem_PublishedInvoiceCode' AND [object_id] = OBJECT_ID(N'[dbo].[TblTransactionReupImportItem]'))
-    CREATE UNIQUE INDEX [UX_TblTransactionReupImportItem_PublishedInvoiceCode]
-        ON [dbo].[TblTransactionReupImportItem]([InvoiceCode])
-        WHERE [PublishStatus] = N'Published' AND [InvoiceCode] <> N'';
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'UX_TblTransactionReupImportItem_PublishedInvoiceCode' AND [object_id] = OBJECT_ID(N'[dbo].[TblTransactionReupImportItem]'))
+    DROP INDEX [UX_TblTransactionReupImportItem_PublishedInvoiceCode] ON [dbo].[TblTransactionReupImportItem];
 GO
