@@ -1,0 +1,40 @@
+@model TransactionReupIndexViewModel
+@{
+    ViewData["ActiveNav"] = "transactions";
+    ViewData["Title"] = "Reup Transaction";
+}
+<div class="device-page"><div class="device-shell"><partial name="_PortalNav" /><div class="device-dashboard transaction-page">
+  <nav class="portal-breadcrumb" aria-label="Breadcrumb">
+    <a asp-controller="Dashboard" asp-action="Index">Tổng quan</a><span>Thương mại</span><span>Transaction Reup</span>
+  </nav>
+  <section class="device-hero"><div><div class="device-brand">PAYMENT OPERATIONS</div><h1>Reup Transaction</h1><p>Import CSV/XLSX, cấp invoice ID tuần tự và theo dõi publish RabbitMQ.</p></div></section>
+  <nav class="transaction-tabs" aria-label="Transaction views">
+    <a asp-controller="Transactions" asp-action="Index" asp-route-tab="history">Lịch sử giao dịch</a><a class="is-active" asp-controller="TransactionReup" asp-action="Index">Reup Transaction</a>
+  </nav>
+  @if (!string.IsNullOrWhiteSpace(Model.Message)) { <div class="tenant-alert @(Model.IsSuccess ? "success" : "danger")">@Model.Message</div> }
+  <section class="device-card transaction-card">
+    <header class="device-card-head"><div><h2>Tạo import mới</h2><p>Chỉ tài khoản admin được phép sử dụng.</p></div></header>
+    <form asp-action="Import" method="post" enctype="multipart/form-data" class="transaction-filter-grid">
+      @Html.AntiForgeryToken()
+      <label><span>File CSV hoặc XLSX</span><input asp-for="Import.File" accept=".csv,.xlsx" /></label>
+      <label><span>ID bắt đầu</span><input asp-for="Import.StartInvoiceNumber" type="number" min="1" /></label>
+      <div class="transaction-filter-actions"><button type="submit" class="btn-primary">Import và publish</button></div>
+      <div asp-validation-summary="ModelOnly" class="tenant-alert danger"></div>
+    </form>
+  </section>
+  <section class="device-card transaction-card">
+    <header class="device-card-head"><div><h2>Lịch sử import</h2><p>@Model.Batches.Count batch</p></div></header>
+    <div class="device-table-wrap transaction-table-wrap"><table class="device-table transaction-table"><thead><tr>
+      <th>Batch</th><th>File</th><th>Người import</th><th>Ngày import</th><th>ID</th><th>Thống kê</th><th>Trạng thái</th><th>Tác vụ</th>
+    </tr></thead><tbody>
+    @if (Model.Batches.Count == 0) { <tr><td colspan="8" class="tenant-empty">Chưa có batch import.</td></tr> }
+    @foreach (var batch in Model.Batches) {
+      <tr><td><strong>@batch.BatchCode</strong></td><td>@batch.OriginalFileName</td><td>@batch.ImportedByUsername</td><td>@batch.ImportedAtDisplay</td>
+      <td>@batch.InvoiceStartNumber - @batch.InvoiceEndNumber<br /><span class="muted">next @batch.NextInvoiceNumber</span></td>
+      <td>@batch.TotalRows dòng · @batch.ValidCount valid · @batch.PublishedCount published<br /><span class="muted">@batch.FailedCount lỗi · @batch.DuplicateCount trùng</span></td>
+      <td><span class="subscription-status @(batch.Status == "Completed" ? "paid" : batch.Status == "CompletedWithErrors" ? "void" : "pending")">@batch.Status</span></td>
+      <td><a class="table-action-btn" asp-action="Details" asp-route-id="@batch.Id">Chi tiết</a><a class="table-action-btn" asp-action="Download" asp-route-id="@batch.Id">Tải file</a></td></tr>
+    }
+    </tbody></table></div>
+  </section>
+</div></div></div>

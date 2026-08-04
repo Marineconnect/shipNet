@@ -38,6 +38,13 @@
         <p>Tìm kiếm giao dịch theo thời gian, invoice, thiết bị, trạng thái thanh toán, QR, log và IPN.</p>
       </div>
     </section>
+    <nav class="transaction-tabs" aria-label="Transaction views">
+      <a class="@(Context.Request.Query["tab"] != "reup" ? "is-active" : "")" asp-controller="Transactions" asp-action="Index" asp-route-tab="history">Lịch sử giao dịch</a>
+      @if (Model.IsTransactionReupAdmin)
+      {
+        <a class="@(Context.Request.Query["tab"] == "reup" ? "is-active" : "")" asp-controller="TransactionReup" asp-action="Index">Reup Transaction</a>
+      }
+    </nav>
 
     <section class="device-card transaction-card">
       <header class="device-card-head">

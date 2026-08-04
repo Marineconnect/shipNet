@@ -48,6 +48,7 @@ public class TransactionsController(
             GetAllowedDeviceId(currentUser),
             CanManageTransactions(currentUser),
             HttpContext.RequestAborted);
+        model.IsTransactionReupAdmin = IsTransactionReupAdmin(currentUser);
 
         return View(model);
     }
@@ -94,6 +95,11 @@ public class TransactionsController(
     private static bool CanManageTransactions(AuthUserRecord? user)
     {
         return CanAccessTransactions(user) && user?.IsViewOnly != true;
+    }
+
+    private static bool IsTransactionReupAdmin(AuthUserRecord? user)
+    {
+        return string.Equals(user?.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
     }
 
     private static int? GetAllowedTenantId(AuthUserRecord? user)
