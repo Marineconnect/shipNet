@@ -41,11 +41,11 @@ public sealed class TransactionReupBatchViewModel
     public int InvoiceEndNumber { get; set; }
     public int NextInvoiceNumber { get; set; }
     public int TotalRows { get; set; }
-    public int ValidCount { get; set; }
-    public int PublishedCount { get; set; }
-    public int FailedCount { get; set; }
-    public int SkippedCount { get; set; }
-    public int DuplicateCount { get; set; }
+    public int ValidRows { get; set; }
+    public int PublishedRows { get; set; }
+    public int FailedRows { get; set; }
+    public int SkippedRows { get; set; }
+    public int DuplicateRows { get; set; }
     public string Status { get; set; } = string.Empty;
     public string ImportedAtDisplay => ImportedAtUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss");
 }
@@ -60,21 +60,27 @@ public sealed class TransactionReupItemViewModel
 {
     public int Id { get; set; }
     public int RowNumber { get; set; }
-    public string TransactionCode { get; set; } = string.Empty;
-    public string RequestInvoiceCode { get; set; } = string.Empty;
+    public string SourceTransactionCode { get; set; } = string.Empty;
+    public string SourceRequestCode { get; set; } = string.Empty;
     public string InvoiceCode { get; set; } = string.Empty;
-    public decimal TotalAmountVnd { get; set; }
+    public decimal GrossAmountVnd { get; set; }
     public string ValidationStatus { get; set; } = string.Empty;
-    public string RabbitMqStatus { get; set; } = string.Empty;
-    public string MessageId { get; set; } = string.Empty;
-    public string CorrelationId { get; set; } = string.Empty;
+    public string PublishStatus { get; set; } = string.Empty;
+    public int PublishAttemptCount { get; set; }
+    public string RabbitMessageId { get; set; } = string.Empty;
+    public string RabbitCorrelationId { get; set; } = string.Empty;
     public string PublishMessage { get; set; } = string.Empty;
     public string PublishLogs { get; set; } = string.Empty;
     public string PayloadJson { get; set; } = string.Empty;
-    public int AttemptCount { get; set; }
+    public string TransactionType { get; set; } = string.Empty;
+    public string PaymentMethod { get; set; } = string.Empty;
+    public string BankOrCard { get; set; } = string.Empty;
+    public decimal ProcessingFeeVnd { get; set; }
+    public decimal ReceivedAmountVnd { get; set; }
+    public string SourceStatus { get; set; } = string.Empty;
     public DateTime? PublishedAtUtc { get; set; }
     public string PublishedAtDisplay => PublishedAtUtc?.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss") ?? "-";
-    public bool CanRetry => string.Equals(RabbitMqStatus, TransactionReupStatuses.PublishFailed, StringComparison.OrdinalIgnoreCase);
+    public bool CanRetry => string.Equals(PublishStatus, TransactionReupStatuses.PublishFailed, StringComparison.OrdinalIgnoreCase);
 }
 
 public sealed record TransactionReupSourceRow(
@@ -102,4 +108,3 @@ public sealed record TransactionReupImportResult(
     int FirstInvoiceNumber,
     int LastInvoiceNumber,
     int NextInvoiceNumber);
-

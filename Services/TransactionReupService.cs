@@ -28,7 +28,7 @@ public sealed class TransactionReupService(
         const string sql = """
             SELECT [ID], [BatchCode], [OriginalFileName], [ImportedByUsername], [ImportedAtUtc],
                    [InvoiceStartNumber], [InvoiceEndNumber], [NextInvoiceNumber], [TotalRows],
-                   [ValidCount], [PublishedCount], [FailedCount], [SkippedCount], [DuplicateCount], [Status]
+                   [ValidRows], [PublishedRows], [FailedRows], [SkippedRows], [DuplicateRows], [Status]
             FROM [dbo].[TblTransactionReupImportBatch]
             ORDER BY [ImportedAtUtc] DESC, [ID] DESC;
             """;
@@ -51,9 +51,11 @@ public sealed class TransactionReupService(
         if (batch is null) return null;
         var items = new List<TransactionReupItemViewModel>();
         const string sql = """
-            SELECT [ID], [RowNumber], [TransactionCode], [RequestInvoiceCode], [InvoiceCode],
-                   [TotalAmountVnd], [ValidationStatus], [RabbitMqStatus], [MessageId], [CorrelationId],
-                   [PublishMessage], [PublishLogs], [PayloadJson], [AttemptCount], [PublishedAtUtc]
+            SELECT [ID], [RowNumber], [SourceTransactionCode], [SourceRequestCode], [InvoiceCode],
+                   [GrossAmountVnd], [ValidationStatus], [PublishStatus], [PublishAttemptCount],
+                   [RabbitMessageId], [RabbitCorrelationId], [PublishMessage], [PublishLogs], [PayloadJson],
+                   [TransactionType], [PaymentMethod], [BankOrCard], [ProcessingFeeVnd], [ReceivedAmountVnd],
+                   [SourceStatus], [PublishedAtUtc]
             FROM [dbo].[TblTransactionReupImportItem]
             WHERE [BatchId] = @batchId
             ORDER BY [RowNumber], [ID];
@@ -74,9 +76,11 @@ public sealed class TransactionReupService(
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await EnsureSchemaExistsAsync(connection, cancellationToken);
         const string sql = """
-            SELECT [ID], [RowNumber], [TransactionCode], [RequestInvoiceCode], [InvoiceCode],
-                   [TotalAmountVnd], [ValidationStatus], [RabbitMqStatus], [MessageId], [CorrelationId],
-                   [PublishMessage], [PublishLogs], [PayloadJson], [AttemptCount], [PublishedAtUtc]
+            SELECT [ID], [RowNumber], [SourceTransactionCode], [SourceRequestCode], [InvoiceCode],
+                   [GrossAmountVnd], [ValidationStatus], [PublishStatus], [PublishAttemptCount],
+                   [RabbitMessageId], [RabbitCorrelationId], [PublishMessage], [PublishLogs], [PayloadJson],
+                   [TransactionType], [PaymentMethod], [BankOrCard], [ProcessingFeeVnd], [ReceivedAmountVnd],
+                   [SourceStatus], [PublishedAtUtc]
             FROM [dbo].[TblTransactionReupImportItem]
             WHERE [ID] = @id;
             """;
@@ -143,7 +147,7 @@ public sealed class TransactionReupService(
     {
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await EnsureSchemaExistsAsync(connection, cancellationToken);
-        const string sql = "SELECT [ID] FROM [dbo].[TblTransactionReupImportItem] WHERE [BatchId] = @batchId AND [RabbitMqStatus] = @status ORDER BY [RowNumber], [ID];";
+        const string sql = "SELECT [ID] FROM [dbo].[TblTransactionReupImportItem] WHERE [BatchId] = @batchId AND [PublishStatus] = @status ORDER BY [RowNumber], [ID];";
         var ids = new List<int>();
         await using (var command = new SqlCommand(sql, connection))
         {
@@ -159,14 +163,14 @@ public sealed class TransactionReupService(
     public async Task RetryItemAsync(int itemId, AuthUserRecord user, CancellationToken cancellationToken)
     {
         var item = await LoadRetryItemAsync(itemId, cancellationToken);
-        if (item is null || !string.Equals(item.RabbitMqStatus, TransactionReupStatuses.PublishFailed, StringComparison.OrdinalIgnoreCase))
+        if (item is null || !string.Equals(item.PublishStatus, TransactionReupStatuses.PublishFailed, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
         var messageId = Guid.NewGuid().ToString();
-        var result = await PublishAsync(item.PayloadJson, item.TransactionCode, messageId, user, cancellationToken);
-        await UpdatePublishResultAsync(itemId, result, messageId, item.AttemptCount + 1, cancellationToken);
+        var result = await PublishAsync(item.PayloadJson, item.SourceTransactionCode, messageId, user, cancellationToken);
+        await UpdatePublishResultAsync(itemId, result, messageId, item.PublishAttemptCount + 1, cancellationToken);
         await RecalculateItemBatchAsync(itemId, cancellationToken);
     }
 
@@ -185,9 +189,9 @@ public sealed class TransactionReupService(
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await EnsureSchemaExistsAsync(connection, cancellationToken);
         const string sql = """
-            SELECT [ID], [TransactionCode], [PayloadJson], [AttemptCount]
+            SELECT [ID], [SourceTransactionCode], [PayloadJson], [PublishAttemptCount]
             FROM [dbo].[TblTransactionReupImportItem]
-            WHERE [BatchId] = @batchId AND [RabbitMqStatus] = @status
+            WHERE [BatchId] = @batchId AND [PublishStatus] = @status
             ORDER BY [RowNumber], [ID];
             """;
         var items = new List<(int Id, string Code, string Payload, int Attempts)>();
@@ -233,9 +237,9 @@ public sealed class TransactionReupService(
     {
         const string sql = """
             UPDATE [dbo].[TblTransactionReupImportItem]
-            SET [RabbitMqStatus] = @status, [MessageId] = @messageId, [CorrelationId] = @correlationId,
+            SET [PublishStatus] = @status, [RabbitMessageId] = @messageId, [RabbitCorrelationId] = @correlationId,
                 [ExchangeName] = @exchangeName, [RoutingKey] = @routingKey, [QueueName] = @queueName,
-                [PublishMessage] = @message, [PublishLogs] = @logs, [AttemptCount] = @attemptCount,
+                [PublishMessage] = @message, [PublishLogs] = @logs, [PublishAttemptCount] = @attemptCount,
                 [PublishedAtUtc] = CASE WHEN @success = 1 THEN SYSUTCDATETIME() ELSE [PublishedAtUtc] END,
                 [UpdatedAtUtc] = SYSUTCDATETIME()
             WHERE [ID] = @id;
@@ -480,7 +484,7 @@ public sealed class TransactionReupService(
             INSERT INTO [dbo].[TblTransactionReupImportBatch]
                 ([BatchCode], [OriginalFileName], [StoredFileName], [StoredFilePath], [FileSizeBytes], [ContentType], [FileExtension], [Sha256],
                  [ImportedByUserId], [ImportedByUsername], [ImportedAtUtc], [InvoiceStartNumber], [InvoiceEndNumber], [NextInvoiceNumber],
-                 [TotalRows], [ValidCount], [PublishedCount], [FailedCount], [SkippedCount], [DuplicateCount], [Status], [CreatedAtUtc], [UpdatedAtUtc])
+                 [TotalRows], [ValidRows], [PublishedRows], [FailedRows], [SkippedRows], [DuplicateRows], [Status], [CreatedAtUtc], [UpdatedAtUtc])
             OUTPUT INSERTED.[ID]
             VALUES
                 (@batchCode, @originalFileName, @storedFileName, @storedFilePath, @fileSize, @contentType, @extension, @sha256,
@@ -506,38 +510,38 @@ public sealed class TransactionReupService(
     {
         const string sql = """
             INSERT INTO [dbo].[TblTransactionReupImportItem]
-                ([BatchId], [RowNumber], [TransactionCode], [RequestInvoiceCode], [OriginalRequestCode], [InvoiceCreatorName],
-                 [TransactionType], [PaymentMethod], [BankOrCard], [TotalAmountVnd], [ProcessingFee], [TransferContent], [FeeBearer],
-                 [ReceivedAmount], [SourceStatus], [CreatedAtSource], [UpdatedAtSource], [PaymentTimeUtc], [ValidationStatus],
-                 [RabbitMqStatus], [InvoiceYear], [InvoiceSequence], [InvoiceCode], [ExpectedPdfFileName], [PayloadJson],
-                 [AttemptCount], [CreatedAtUtc], [UpdatedAtUtc])
+                ([BatchId], [RowNumber], [SourceTransactionCode], [SourceRequestCode], [OriginalRequestCode], [InvoiceCreatorName],
+                 [TransactionType], [PaymentMethod], [BankOrCard], [GrossAmountVnd], [ProcessingFeeVnd], [TransferContent], [FeeBearer],
+                 [ReceivedAmountVnd], [SourceStatus], [SourceCreatedAt], [SourceUpdatedAt], [PaymentTimeUtc], [ValidationStatus],
+                 [PublishStatus], [InvoiceYear], [InvoiceSequence], [InvoiceCode], [ExpectedPdfFileName], [PayloadJson],
+                 [PublishAttemptCount], [CreatedAtUtc], [UpdatedAtUtc])
             VALUES
-                (@batchId, @rowNumber, @transactionCode, @requestCode, @originalRequestCode, @creator, @transactionType, @paymentMethod,
-                 @bankOrCard, @totalAmount, @processingFee, @transferContent, @feeBearer, @receivedAmount, @sourceStatus,
-                 @createdAtSource, @updatedAtSource, @paymentTimeUtc, @validationStatus, @rabbitStatus, @invoiceYear, @sequence,
+                (@batchId, @rowNumber, @sourceTransactionCode, @sourceRequestCode, @originalRequestCode, @creator, @transactionType, @paymentMethod,
+                 @bankOrCard, @grossAmountVnd, @processingFeeVnd, @transferContent, @feeBearer, @receivedAmountVnd, @sourceStatus,
+                 @sourceCreatedAt, @sourceUpdatedAt, @paymentTimeUtc, @validationStatus, @publishStatus, @invoiceYear, @sequence,
                  @invoiceCode, @expectedFileName, @payload, 0, SYSUTCDATETIME(), SYSUTCDATETIME());
             """;
         await using var command = new SqlCommand(sql, connection, transaction);
         command.Parameters.Add("@batchId", SqlDbType.Int).Value = batchId;
         command.Parameters.Add("@rowNumber", SqlDbType.Int).Value = row.RowNumber;
-        command.Parameters.Add("@transactionCode", SqlDbType.NVarChar, 250).Value = row.TransactionCode;
-        command.Parameters.Add("@requestCode", SqlDbType.NVarChar, 250).Value = row.RequestInvoiceCode;
+        command.Parameters.Add("@sourceTransactionCode", SqlDbType.NVarChar, 250).Value = row.TransactionCode;
+        command.Parameters.Add("@sourceRequestCode", SqlDbType.NVarChar, 250).Value = row.RequestInvoiceCode;
         command.Parameters.Add("@originalRequestCode", SqlDbType.NVarChar, 250).Value = row.OriginalRequestCode;
         command.Parameters.Add("@creator", SqlDbType.NVarChar, 250).Value = row.InvoiceCreatorName;
         command.Parameters.Add("@transactionType", SqlDbType.NVarChar, 100).Value = row.TransactionType;
         command.Parameters.Add("@paymentMethod", SqlDbType.NVarChar, 100).Value = row.PaymentMethod;
         command.Parameters.Add("@bankOrCard", SqlDbType.NVarChar, 250).Value = row.BankOrCard;
-        AddDecimal(command, "@totalAmount", row.TotalAmountVnd);
-        AddDecimal(command, "@processingFee", row.ProcessingFee);
+        AddDecimal(command, "@grossAmountVnd", row.TotalAmountVnd);
+        AddDecimal(command, "@processingFeeVnd", row.ProcessingFee);
         command.Parameters.Add("@transferContent", SqlDbType.NVarChar, 1000).Value = row.TransferContent;
         command.Parameters.Add("@feeBearer", SqlDbType.NVarChar, 250).Value = row.FeeBearer;
-        AddDecimal(command, "@receivedAmount", row.ReceivedAmount);
+        AddDecimal(command, "@receivedAmountVnd", row.ReceivedAmount);
         command.Parameters.Add("@sourceStatus", SqlDbType.NVarChar, 100).Value = row.SourceStatus;
-        command.Parameters.Add("@createdAtSource", SqlDbType.DateTime2).Value = ParseVietnamDate(row.CreatedAtText) is { } created ? created : DBNull.Value;
-        command.Parameters.Add("@updatedAtSource", SqlDbType.DateTime2).Value = ParseVietnamDate(row.UpdatedAtText) is { } updated ? updated : DBNull.Value;
+        command.Parameters.Add("@sourceCreatedAt", SqlDbType.DateTime2).Value = ParseVietnamDate(row.CreatedAtText) is { } created ? created : DBNull.Value;
+        command.Parameters.Add("@sourceUpdatedAt", SqlDbType.DateTime2).Value = ParseVietnamDate(row.UpdatedAtText) is { } updated ? updated : DBNull.Value;
         command.Parameters.Add("@paymentTimeUtc", SqlDbType.DateTime2).Value = ParseVietnamDate(row.UpdatedAtText) is { } payment ? ToUtc(payment) : DBNull.Value;
         command.Parameters.Add("@validationStatus", SqlDbType.NVarChar, 30).Value = validation;
-        command.Parameters.Add("@rabbitStatus", SqlDbType.NVarChar, 30).Value = validation == "Valid" ? TransactionReupStatuses.Pending : validation;
+        command.Parameters.Add("@publishStatus", SqlDbType.NVarChar, 30).Value = validation == "Valid" ? TransactionReupStatuses.Pending : validation;
         command.Parameters.Add("@invoiceYear", SqlDbType.Int).Value = sequence > 0 && ParseVietnamDate(row.UpdatedAtText) is { } yearDate ? yearDate.Year : DBNull.Value;
         command.Parameters.Add("@sequence", SqlDbType.Int).Value = sequence > 0 ? sequence : DBNull.Value;
         command.Parameters.Add("@invoiceCode", SqlDbType.NVarChar, 100).Value = invoiceCode;
@@ -551,7 +555,7 @@ public sealed class TransactionReupService(
         const string sql = """
             SELECT TOP 1 1
             FROM [dbo].[TblTransactionReupImportItem] WITH (UPDLOCK, HOLDLOCK)
-            WHERE [TransactionCode] = @transactionCode AND [RabbitMqStatus] = @status;
+            WHERE [SourceTransactionCode] = @transactionCode AND [PublishStatus] = @status;
             """;
         await using var command = new SqlCommand(sql, connection, transaction);
         command.Parameters.Add("@transactionCode", SqlDbType.NVarChar, 250).Value = transactionCode;
@@ -563,9 +567,9 @@ public sealed class TransactionReupService(
     {
         const string sql = """
             UPDATE [dbo].[TblTransactionReupImportBatch]
-            SET [InvoiceEndNumber] = @endNumber, [NextInvoiceNumber] = @nextNumber, [ValidCount] = @valid,
-                [PublishedCount] = @published, [FailedCount] = @failed, [SkippedCount] = @skipped,
-                [DuplicateCount] = @duplicate, [Status] = @status, [UpdatedAtUtc] = SYSUTCDATETIME()
+            SET [InvoiceEndNumber] = @endNumber, [NextInvoiceNumber] = @nextNumber, [ValidRows] = @valid,
+                [PublishedRows] = @published, [FailedRows] = @failed, [SkippedRows] = @skipped,
+                [DuplicateRows] = @duplicate, [Status] = @status, [UpdatedAtUtc] = SYSUTCDATETIME()
             WHERE [ID] = @id;
             """;
         await using var command = new SqlCommand(sql, connection, transaction);
@@ -587,17 +591,17 @@ public sealed class TransactionReupService(
         await EnsureSchemaExistsAsync(connection, cancellationToken);
         const string sql = """
             UPDATE b SET
-                [PublishedCount] = x.PublishedCount, [FailedCount] = x.FailedCount, [SkippedCount] = x.SkippedCount,
-                [DuplicateCount] = x.DuplicateCount,
-                [Status] = CASE WHEN x.FailedCount > 0 OR x.DuplicateCount > 0 OR x.SkippedCount > 0 THEN N'CompletedWithErrors' ELSE N'Completed' END,
+                [PublishedRows] = x.PublishedRows, [FailedRows] = x.FailedRows, [SkippedRows] = x.SkippedRows,
+                [DuplicateRows] = x.DuplicateRows,
+                [Status] = CASE WHEN x.FailedRows > 0 OR x.DuplicateRows > 0 OR x.SkippedRows > 0 THEN N'CompletedWithErrors' ELSE N'Completed' END,
                 [UpdatedAtUtc] = SYSUTCDATETIME()
             FROM [dbo].[TblTransactionReupImportBatch] b
             CROSS APPLY (
                 SELECT
-                    SUM(CASE WHEN [RabbitMqStatus] = N'Published' THEN 1 ELSE 0 END) PublishedCount,
-                    SUM(CASE WHEN [RabbitMqStatus] = N'PublishFailed' THEN 1 ELSE 0 END) FailedCount,
-                    SUM(CASE WHEN [RabbitMqStatus] = N'Skipped' THEN 1 ELSE 0 END) SkippedCount,
-                    SUM(CASE WHEN [RabbitMqStatus] = N'Duplicate' THEN 1 ELSE 0 END) DuplicateCount
+                    SUM(CASE WHEN [PublishStatus] = N'Published' THEN 1 ELSE 0 END) PublishedRows,
+                    SUM(CASE WHEN [PublishStatus] = N'PublishFailed' THEN 1 ELSE 0 END) FailedRows,
+                    SUM(CASE WHEN [PublishStatus] = N'Skipped' THEN 1 ELSE 0 END) SkippedRows,
+                    SUM(CASE WHEN [PublishStatus] = N'Duplicate' THEN 1 ELSE 0 END) DuplicateRows
                 FROM [dbo].[TblTransactionReupImportItem] WHERE [BatchId] = b.[ID]
             ) x WHERE b.[ID] = @id;
             """;
@@ -627,7 +631,7 @@ public sealed class TransactionReupService(
         const string sql = """
             SELECT [ID], [BatchCode], [OriginalFileName], [ImportedByUsername], [ImportedAtUtc],
                    [InvoiceStartNumber], [InvoiceEndNumber], [NextInvoiceNumber], [TotalRows],
-                   [ValidCount], [PublishedCount], [FailedCount], [SkippedCount], [DuplicateCount], [Status]
+                   [ValidRows], [PublishedRows], [FailedRows], [SkippedRows], [DuplicateRows], [Status]
             FROM [dbo].[TblTransactionReupImportBatch] WHERE [ID] = @id;
             """;
         await using var command = new SqlCommand(sql, connection);
@@ -647,11 +651,11 @@ public sealed class TransactionReupService(
         InvoiceEndNumber = ReadInt(reader, "InvoiceEndNumber"),
         NextInvoiceNumber = ReadInt(reader, "NextInvoiceNumber"),
         TotalRows = ReadInt(reader, "TotalRows"),
-        ValidCount = ReadInt(reader, "ValidCount"),
-        PublishedCount = ReadInt(reader, "PublishedCount"),
-        FailedCount = ReadInt(reader, "FailedCount"),
-        SkippedCount = ReadInt(reader, "SkippedCount"),
-        DuplicateCount = ReadInt(reader, "DuplicateCount"),
+        ValidRows = ReadInt(reader, "ValidRows"),
+        PublishedRows = ReadInt(reader, "PublishedRows"),
+        FailedRows = ReadInt(reader, "FailedRows"),
+        SkippedRows = ReadInt(reader, "SkippedRows"),
+        DuplicateRows = ReadInt(reader, "DuplicateRows"),
         Status = ReadText(reader, "Status")
     };
 
@@ -659,18 +663,24 @@ public sealed class TransactionReupService(
     {
         Id = ReadInt(reader, "ID"),
         RowNumber = ReadInt(reader, "RowNumber"),
-        TransactionCode = ReadText(reader, "TransactionCode"),
-        RequestInvoiceCode = ReadText(reader, "RequestInvoiceCode"),
+        SourceTransactionCode = ReadText(reader, "SourceTransactionCode"),
+        SourceRequestCode = ReadText(reader, "SourceRequestCode"),
         InvoiceCode = ReadText(reader, "InvoiceCode"),
-        TotalAmountVnd = ReadDecimal(reader, "TotalAmountVnd"),
+        GrossAmountVnd = ReadDecimal(reader, "GrossAmountVnd"),
         ValidationStatus = ReadText(reader, "ValidationStatus"),
-        RabbitMqStatus = ReadText(reader, "RabbitMqStatus"),
-        MessageId = ReadText(reader, "MessageId"),
-        CorrelationId = ReadText(reader, "CorrelationId"),
+        PublishStatus = ReadText(reader, "PublishStatus"),
+        PublishAttemptCount = ReadInt(reader, "PublishAttemptCount"),
+        RabbitMessageId = ReadText(reader, "RabbitMessageId"),
+        RabbitCorrelationId = ReadText(reader, "RabbitCorrelationId"),
         PublishMessage = ReadText(reader, "PublishMessage"),
         PublishLogs = ReadText(reader, "PublishLogs"),
         PayloadJson = ReadText(reader, "PayloadJson"),
-        AttemptCount = ReadInt(reader, "AttemptCount"),
+        TransactionType = ReadText(reader, "TransactionType"),
+        PaymentMethod = ReadText(reader, "PaymentMethod"),
+        BankOrCard = ReadText(reader, "BankOrCard"),
+        ProcessingFeeVnd = ReadDecimal(reader, "ProcessingFeeVnd"),
+        ReceivedAmountVnd = ReadDecimal(reader, "ReceivedAmountVnd"),
+        SourceStatus = ReadText(reader, "SourceStatus"),
         PublishedAtUtc = ReadDate(reader, "PublishedAtUtc")
     };
 

@@ -35,10 +35,28 @@ public sealed class TransactionReupController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> Import(TransactionReupImportViewModel model)
+    public async Task<IActionResult> Import([Bind(Prefix = "Import")] TransactionReupImportViewModel model)
     {
         var user = await GetCurrentUserAsync();
         if (!IsAdmin(user)) return Forbid();
+        if (!ModelState.IsValid)
+        {
+            var invalidModel = new TransactionReupIndexViewModel
+            {
+                Import = model,
+                Message = "Please correct the import form errors before continuing.",
+                IsSuccess = false
+            };
+            try
+            {
+                invalidModel.Batches = (await service.GetBatchesAsync(HttpContext.RequestAborted)).ToList();
+            }
+            catch (InvalidOperationException exception)
+            {
+                invalidModel.Message = exception.Message;
+            }
+            return View(nameof(Index), invalidModel);
+        }
         try
         {
             var result = await service.ImportAsync(model, user!, HttpContext.RequestAborted);
