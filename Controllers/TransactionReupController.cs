@@ -143,5 +143,6 @@ public sealed class TransactionReupController(
     }
 
     private static bool IsAdmin(AuthUserRecord? user) =>
-        string.Equals(user?.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
+        user is not null &&
+        (user.IsAdmin || string.Equals(user.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase));
 }

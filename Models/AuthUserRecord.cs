@@ -20,6 +20,9 @@ public class AuthUserRecord
     public bool IsViewOnly { get; set; }
     public bool CanManageTransactions { get; set; }
 
+    public bool IsAdmin =>
+        string.Equals(UserType?.Trim(), ManagedUserType.Admin, StringComparison.OrdinalIgnoreCase);
+
     public bool IsTenantUser =>
         string.Equals(UserType?.Trim(), ManagedUserType.Tenant, StringComparison.OrdinalIgnoreCase);
 

@@ -99,7 +99,8 @@ public class TransactionsController(
 
     private static bool IsTransactionReupAdmin(AuthUserRecord? user)
     {
-        return string.Equals(user?.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
+        return user is not null &&
+            (user.IsAdmin || string.Equals(user.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase));
     }
 
     private static int? GetAllowedTenantId(AuthUserRecord? user)

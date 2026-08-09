@@ -35,7 +35,7 @@
     var canAccessTransactions = User.HasClaim("CanManageTransactions", "true")
         || isAdmin
         || string.Equals(User.Identity?.Name?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
-    var canAccessKvhSolutions = string.Equals(User.Identity?.Name?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
+    var canAccessKvhSolutions = isAdmin || string.Equals(User.Identity?.Name?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
     var canAccessUsers = !isCrew;
     var canAccessSettings = !isTenant && !isShipAdmin && !isCrew;
 

@@ -492,6 +492,7 @@ public class DashboardController(
                 return Forbid();
             }
 
+            ApplyTenantScope(request, currentUser);
             var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
             int? userId = int.TryParse(userIdValue, out var parsedUserId) ? parsedUserId : null;
             var result = await deviceService.CreateDeviceAsync(request, userId, HttpContext.RequestAborted);
@@ -526,6 +527,7 @@ public class DashboardController(
             }
 
             var allowedTenantId = GetAllowedTenantId(currentUser);
+            ApplyTenantScope(request, currentUser);
             var existingDevice = await deviceService.GetDeviceByIdAsync(request.Id, allowedTenantId, GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
             if (existingDevice is null)
             {
@@ -737,7 +739,7 @@ public class DashboardController(
 
     private static bool CanManageDevices(AuthUserRecord? user)
     {
-        return user is not null && !user.IsViewOnly && !user.IsTenantUser && !user.IsShipAdmin && !user.IsCrew;
+        return user?.IsViewOnly != true && (IsAdminAccount(user) || IsTenantAdmin(user));
     }
 
     private static bool CanViewMap(AuthUserRecord? user)
@@ -747,9 +749,34 @@ public class DashboardController(
 
     private static bool CanManageDataOptIn(AuthUserRecord? user)
     {
-        return user?.IsViewOnly != true &&
-            (string.Equals(user?.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(user?.UserType?.Trim(), ManagedUserType.Admin, StringComparison.OrdinalIgnoreCase));
+        return user?.IsViewOnly != true && (IsAdminAccount(user) || IsTenantAdmin(user));
+    }
+
+    private static bool IsAdminAccount(AuthUserRecord? user)
+    {
+        return user is not null &&
+            (user.IsAdmin || string.Equals(user.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsTenantAdmin(AuthUserRecord? user)
+    {
+        return user?.IsTenantUser == true && user.HasTenantScope;
+    }
+
+    private static void ApplyTenantScope(CreateDeviceRequest request, AuthUserRecord? user)
+    {
+        if (IsTenantAdmin(user))
+        {
+            request.TenantId = user!.TenantId;
+        }
+    }
+
+    private static void ApplyTenantScope(UpdateDeviceRequest request, AuthUserRecord? user)
+    {
+        if (IsTenantAdmin(user))
+        {
+            request.TenantId = user!.TenantId;
+        }
     }
 
     private static string? NormalizeSearchTerm(string? search)

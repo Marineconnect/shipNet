@@ -249,7 +249,7 @@ public sealed class KvhSubscriptionOperationsController(
     [HttpGet("DownloadTemplate")]
     public IActionResult DownloadTemplate()
     {
-        if (!string.Equals(User.Identity?.Name?.Trim(), "admin", StringComparison.OrdinalIgnoreCase)) return Forbid();
+        if (!IsAdminPrincipal()) return Forbid();
 
         var content = operationService.BuildTemplate();
         return File(content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "kvh-subscription-operation-template.xlsx");
@@ -314,6 +314,13 @@ public sealed class KvhSubscriptionOperationsController(
 
     private static bool CanAccessSolutions(AuthUserRecord? user)
     {
-        return string.Equals(user?.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
+        return user is not null &&
+            (user.IsAdmin || string.Equals(user.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool IsAdminPrincipal()
+    {
+        return User.HasClaim("UserType", ManagedUserType.Admin) ||
+            string.Equals(User.Identity?.Name?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
     }
 }

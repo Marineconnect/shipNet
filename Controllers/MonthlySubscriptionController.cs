@@ -363,12 +363,18 @@ public class MonthlySubscriptionController(
 
     private static bool CanViewQrSessions(AuthUserRecord? user)
     {
-        return string.Equals(user?.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
+        return IsAdminAccount(user);
     }
 
     private static bool CanViewIntegrationLogs(AuthUserRecord? user)
     {
-        return string.Equals(user?.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
+        return IsAdminAccount(user);
+    }
+
+    private static bool IsAdminAccount(AuthUserRecord? user)
+    {
+        return user is not null &&
+            (user.IsAdmin || string.Equals(user.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase));
     }
 
     private (int? UserId, string Username) GetCurrentAuditContext()

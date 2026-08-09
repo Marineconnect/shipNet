@@ -357,12 +357,129 @@
             });
         }
 
+        function initFloatingTableScroll() {
+            const wrapperSelector = ".table-wrap, .device-table-wrap, .kvh-table-wrap, .transaction-table-wrap";
+            const registeredWrappers = new WeakSet();
+            const floatingScroll = document.createElement("div");
+            const floatingInner = document.createElement("div");
+            let activeWrapper = null;
+            let syncing = false;
+            let frame = 0;
+
+            floatingScroll.className = "shipnet-floating-scroll";
+            floatingInner.className = "shipnet-floating-scroll-inner";
+            floatingScroll.hidden = true;
+            floatingScroll.setAttribute("aria-hidden", "true");
+            floatingScroll.appendChild(floatingInner);
+            document.body.appendChild(floatingScroll);
+
+            function getWrappers() {
+                return Array.from(document.querySelectorAll(wrapperSelector))
+                    .filter((wrapper) => wrapper instanceof HTMLElement);
+            }
+
+            function isHorizontallyScrollable(wrapper) {
+                return wrapper.scrollWidth - wrapper.clientWidth > 2;
+            }
+
+            function pickActiveWrapper() {
+                const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+                const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+                let best = null;
+                let bestScore = 0;
+
+                getWrappers().forEach((wrapper) => {
+                    if (!isHorizontallyScrollable(wrapper)) return;
+
+                    const rect = wrapper.getBoundingClientRect();
+                    const visibleWidth = Math.min(rect.right, viewportWidth) - Math.max(rect.left, 0);
+                    const visibleHeight = Math.min(rect.bottom, viewportHeight) - Math.max(rect.top, 0);
+                    if (visibleWidth < 120 || visibleHeight < 60) return;
+
+                    const nativeScrollbarVisible = rect.bottom <= viewportHeight - 24;
+                    if (nativeScrollbarVisible) return;
+
+                    const score = visibleWidth * visibleHeight;
+                    if (score > bestScore) {
+                        best = wrapper;
+                        bestScore = score;
+                    }
+                });
+
+                return best;
+            }
+
+            function syncFromWrapper(wrapper) {
+                if (syncing || wrapper !== activeWrapper) return;
+                syncing = true;
+                floatingScroll.scrollLeft = wrapper.scrollLeft;
+                syncing = false;
+            }
+
+            function registerWrapper(wrapper) {
+                if (registeredWrappers.has(wrapper)) return;
+                registeredWrappers.add(wrapper);
+                wrapper.addEventListener("scroll", () => syncFromWrapper(wrapper), { passive: true });
+            }
+
+            function updateFloatingScroll() {
+                frame = 0;
+                getWrappers().forEach(registerWrapper);
+
+                const wrapper = pickActiveWrapper();
+                activeWrapper = wrapper;
+
+                if (!wrapper) {
+                    floatingScroll.hidden = true;
+                    return;
+                }
+
+                const rect = wrapper.getBoundingClientRect();
+                const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+                const left = Math.max(8, rect.left);
+                const right = Math.min(viewportWidth - 8, rect.right);
+                const width = Math.max(0, right - left);
+
+                if (width < 120) {
+                    floatingScroll.hidden = true;
+                    return;
+                }
+
+                floatingInner.style.width = `${wrapper.scrollWidth}px`;
+                floatingScroll.style.left = `${left}px`;
+                floatingScroll.style.width = `${width}px`;
+                floatingScroll.hidden = false;
+
+                syncing = true;
+                floatingScroll.scrollLeft = wrapper.scrollLeft;
+                syncing = false;
+            }
+
+            function requestUpdate() {
+                if (frame) return;
+                frame = window.requestAnimationFrame(updateFloatingScroll);
+            }
+
+            floatingScroll.addEventListener("scroll", () => {
+                if (syncing || !activeWrapper) return;
+                syncing = true;
+                activeWrapper.scrollLeft = floatingScroll.scrollLeft;
+                syncing = false;
+            }, { passive: true });
+
+            window.addEventListener("scroll", requestUpdate, { passive: true });
+            window.addEventListener("resize", requestUpdate);
+            new MutationObserver(requestUpdate).observe(document.body, { childList: true, subtree: true });
+            requestUpdate();
+        }
+
         window.shipnetApplySplitLanguage = applySplitLanguage;
         window.shipnetEnhanceSelectSearch = enhanceAllSelectSearch;
         document.addEventListener("DOMContentLoaded", () => {
             enhanceAllSelectSearch();
             applySplitLanguage();
             applyViewOnlyMode();
+            initFloatingTableScroll();
             let enhanceTimer = null;
             const observer = new MutationObserver((mutations) => {
                 if (!mutations.some((mutation) => mutation.target instanceof HTMLSelectElement || Array.from(mutation.addedNodes).some((node) => node instanceof HTMLSelectElement || (node instanceof Element && node.querySelector?.("select"))))) {

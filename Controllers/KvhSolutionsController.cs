@@ -294,7 +294,8 @@ public class KvhSolutionsController(
 
     private static bool CanAccessSolutions(AuthUserRecord? user)
     {
-        return string.Equals(user?.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
+        return user is not null &&
+            (user.IsAdmin || string.Equals(user.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase));
     }
 
     private static string NormalizeTab(string? tab) =>

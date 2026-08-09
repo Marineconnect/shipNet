@@ -2477,6 +2477,45 @@ body::before{
   background:linear-gradient(180deg, rgba(114,158,235,.85), rgba(66,110,189,.85));
 }
 
+.shipnet-floating-scroll{
+  position:fixed;
+  left:16px;
+  bottom:10px;
+  z-index:1200;
+  height:18px;
+  overflow-x:auto;
+  overflow-y:hidden;
+  border:1px solid rgba(88,130,199,.42);
+  border-radius:999px;
+  background:rgba(5,14,31,.92);
+  box-shadow:0 12px 28px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.04);
+  scrollbar-width:thin;
+  scrollbar-color:rgba(103,146,219,.8) rgba(8,18,37,.32);
+}
+
+.shipnet-floating-scroll[hidden]{
+  display:none;
+}
+
+.shipnet-floating-scroll::-webkit-scrollbar{
+  height:12px;
+}
+
+.shipnet-floating-scroll::-webkit-scrollbar-track{
+  background:rgba(8,18,37,.18);
+  border-radius:999px;
+}
+
+.shipnet-floating-scroll::-webkit-scrollbar-thumb{
+  background:linear-gradient(90deg, rgba(89,132,207,.85), rgba(52,198,255,.72));
+  border-radius:999px;
+  border:2px solid rgba(5,14,31,.92);
+}
+
+.shipnet-floating-scroll-inner{
+  height:1px;
+}
+
 .device-table{
   width:100%;
   border-collapse:collapse;

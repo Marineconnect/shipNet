@@ -245,7 +245,7 @@ public sealed class InvoicesController(
 
     private static bool CanViewIntegrationLogs(AuthUserRecord user)
     {
-        return string.Equals(user.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
+        return user.IsAdmin || string.Equals(user.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string SanitizeDownloadName(string value)
