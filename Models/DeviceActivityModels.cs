@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using StarlinkDeviceManager.Services;
 
 namespace StarlinkDeviceManager.Models;
@@ -37,15 +38,20 @@ public static class DeviceActivityActions
     public const string InvoiceStatusChanged = "INVOICE_STATUS_CHANGED";
     public const string SubscriptionPauseRequested = "SUBSCRIPTION_PAUSE_REQUESTED";
     public const string SubscriptionPaused = "SUBSCRIPTION_PAUSED";
+    public const string SubscriptionPauseFailed = "SUBSCRIPTION_PAUSE_FAILED";
     public const string SubscriptionResumeRequested = "SUBSCRIPTION_RESUME_REQUESTED";
     public const string SubscriptionResumed = "SUBSCRIPTION_RESUMED";
     public const string SubscriptionResumeFailed = "SUBSCRIPTION_RESUME_FAILED";
     public const string SubscriptionResumeSkipped = "SUBSCRIPTION_RESUME_SKIPPED";
     public const string SubscriptionCancelScheduleRequested = "SUBSCRIPTION_CANCEL_SCHEDULE_REQUESTED";
+    public const string SubscriptionCancelScheduleCompleted = "SUBSCRIPTION_CANCEL_SCHEDULE_COMPLETED";
+    public const string SubscriptionCancelScheduleFailed = "SUBSCRIPTION_CANCEL_SCHEDULE_FAILED";
     public const string DataOptInRequested = "DATA_OPT_IN_REQUESTED";
     public const string DataOptInCompleted = "DATA_OPT_IN_COMPLETED";
+    public const string DataOptInFailed = "DATA_OPT_IN_FAILED";
     public const string DataOptOutRequested = "DATA_OPT_OUT_REQUESTED";
     public const string DataOptOutCompleted = "DATA_OPT_OUT_COMPLETED";
+    public const string DataOptOutFailed = "DATA_OPT_OUT_FAILED";
     public const string WifiUpdateRequested = "WIFI_UPDATE_REQUESTED";
     public const string WifiUpdateCompleted = "WIFI_UPDATE_COMPLETED";
     public const string WifiUpdateFailed = "WIFI_UPDATE_FAILED";
@@ -60,10 +66,19 @@ public static class DeviceActivityActions
 public static class DeviceActivitySources
 {
     public const string BankTransfer = "BANK_TRANSFER";
+    public const string NinePayIpn = "9PAY_IPN";
     public const string ManualInvoiceUpdate = "MANUAL_INVOICE_UPDATE";
     public const string Dashboard = "DASHBOARD";
     public const string KvhWorker = "KVH_WORKER";
     public const string System = "SYSTEM";
+}
+
+public static class DeviceActivityActorTypes
+{
+    public const string User = "USER";
+    public const string System = "SYSTEM";
+    public const string PaymentProvider = "PAYMENT_PROVIDER";
+    public const string Kvh = "KVH";
 }
 
 public sealed class DeviceActivityLogEntry
@@ -78,11 +93,14 @@ public sealed class DeviceActivityLogEntry
     public string Summary { get; set; } = string.Empty;
     public string? DetailJson { get; set; }
     public string? Source { get; set; }
+    public string? ActorType { get; set; }
     public int? UserId { get; set; }
     public string? PerformedBy { get; set; }
     public string? ReferenceType { get; set; }
     public string? ReferenceId { get; set; }
     public string? CorrelationId { get; set; }
+    public string? EventKey { get; set; }
+    public DateTime? OccurredAtUtc { get; set; }
     public DateTime? CreatedAtUtc { get; set; }
 
     public static string ToSafeJson(object value)
@@ -129,6 +147,8 @@ public sealed class DeviceActivityItem
     public string ReferenceType { get; set; } = string.Empty;
     public string ReferenceId { get; set; } = string.Empty;
     public string CorrelationId { get; set; } = string.Empty;
+    public string EventKey { get; set; } = string.Empty;
+    public string ActorType { get; set; } = string.Empty;
     public bool IsLegacy { get; set; }
 }
 
@@ -136,6 +156,7 @@ public sealed class KvhPaymentResumeRequest
 {
     public int SubscriptionId { get; set; }
     public string Source { get; set; } = string.Empty;
+    public string ActorType { get; set; } = string.Empty;
     public int? UserId { get; set; }
     public string PerformedBy { get; set; } = string.Empty;
     public string ReferenceType { get; set; } = string.Empty;
@@ -175,7 +196,21 @@ public sealed class KvhPaymentResumePrecheckResult
 
 public static class DeviceActivitySanitizer
 {
-    private static readonly string[] SecretMarkers = ["accesstoken", "authorization", "api key", "apikey", "secret", "password", "client_secret"];
+    private static readonly HashSet<string> SecretPropertyNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "authorization",
+        "accessToken",
+        "access_token",
+        "token",
+        "apiKey",
+        "api_key",
+        "clientSecret",
+        "client_secret",
+        "secret",
+        "password",
+        "refreshToken",
+        "refresh_token"
+    };
 
     public static string Sanitize(string? value)
     {
@@ -184,16 +219,53 @@ public static class DeviceActivitySanitizer
             return string.Empty;
         }
 
-        var sanitized = value;
-        foreach (var marker in SecretMarkers)
+        try
         {
-            if (sanitized.Contains(marker, StringComparison.OrdinalIgnoreCase))
+            var node = JsonNode.Parse(value);
+            RedactJson(node);
+            var json = node?.ToJsonString(new JsonSerializerOptions { WriteIndented = false }) ?? string.Empty;
+            return json.Length <= 8000 ? json : json[..8000];
+        }
+        catch (JsonException)
+        {
+            var sanitized = SanitizeText(value);
+            return sanitized.Length <= 8000 ? sanitized : sanitized[..8000];
+        }
+    }
+
+    private static void RedactJson(JsonNode? node)
+    {
+        if (node is JsonObject obj)
+        {
+            foreach (var property in obj.ToList())
             {
-                sanitized = RedactMarkerValue(sanitized, marker);
+                if (SecretPropertyNames.Contains(property.Key))
+                {
+                    obj[property.Key] = "***";
+                }
+                else
+                {
+                    RedactJson(property.Value);
+                }
             }
         }
+        else if (node is JsonArray array)
+        {
+            foreach (var child in array)
+            {
+                RedactJson(child);
+            }
+        }
+    }
 
-        return sanitized.Length <= 8000 ? sanitized : sanitized[..8000];
+    private static string SanitizeText(string value)
+    {
+        foreach (var marker in SecretPropertyNames)
+        {
+            value = RedactMarkerValue(value, marker);
+        }
+
+        return value;
     }
 
     private static string RedactMarkerValue(string value, string marker)
@@ -202,11 +274,7 @@ public static class DeviceActivitySanitizer
         while (index >= 0)
         {
             var end = value.IndexOfAny([',', '\n', '\r', '}'], index);
-            if (end < 0)
-            {
-                end = value.Length;
-            }
-
+            if (end < 0) end = value.Length;
             value = string.Concat(value.AsSpan(0, index), marker, ":***", value.AsSpan(end));
             index = value.IndexOf(marker, index + marker.Length + 4, StringComparison.OrdinalIgnoreCase);
         }

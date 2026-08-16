@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using StarlinkDeviceManager.Models;
@@ -113,7 +113,7 @@ public class MonthlySubscriptionController(
         NormalizeCreateModel(model);
         if (!ValidateCreateModel(model))
         {
-            TempData["SubscriptionError"] = "Vui lòng nhập đầy đủ thông tin billing cycle hợp lệ.";
+            TempData["SubscriptionError"] = "Vui lÃ²ng nháº­p Ä‘áº§y Ä‘á»§ thÃ´ng tin billing cycle há»£p lá»‡.";
             return RedirectToAction(nameof(Index));
         }
 
@@ -123,8 +123,8 @@ public class MonthlySubscriptionController(
             var subscriptionIds = await subscriptionService.CreateSubscriptionAsync(model, userId, username, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
             var firstSubscriptionId = subscriptionIds.FirstOrDefault();
             TempData["SubscriptionSuccess"] = subscriptionIds.Count == 1
-                ? $"Tạo billing cycle #{firstSubscriptionId} thành công."
-                : $"Tạo {subscriptionIds.Count} billing cycle theo từng chu kỳ thành công.";
+                ? $"Táº¡o billing cycle #{firstSubscriptionId} thÃ nh cÃ´ng."
+                : $"Táº¡o {subscriptionIds.Count} billing cycle theo tá»«ng chu ká»³ thÃ nh cÃ´ng.";
             return firstSubscriptionId > 0
                 ? RedirectToAction(nameof(Details), new { id = firstSubscriptionId })
                 : RedirectToAction(nameof(Index));
@@ -132,7 +132,7 @@ public class MonthlySubscriptionController(
         catch (Exception exception)
         {
             logger.LogError(exception, "Failed to create billing cycle.");
-            TempData["SubscriptionError"] = $"Không thể tạo billing cycle. Chi tiết: {exception.GetBaseException().Message}";
+            TempData["SubscriptionError"] = $"KhÃ´ng thá»ƒ táº¡o billing cycle. Chi tiáº¿t: {exception.GetBaseException().Message}";
             return RedirectToAction(nameof(Index));
         }
     }
@@ -200,7 +200,7 @@ public class MonthlySubscriptionController(
         {
             logger.LogError(exception, "Failed to upload invoice PDF. InvoiceCode={InvoiceCode}.", invoiceCode);
             Response.StatusCode = StatusCodes.Status500InternalServerError;
-            return Json(new { success = false, errorCode = "storage_error", message = "Không thể lưu file PDF.", messageEn = "Cannot save the PDF file." });
+            return Json(new { success = false, errorCode = "storage_error", message = "KhÃ´ng thá»ƒ lÆ°u file PDF.", messageEn = "Cannot save the PDF file." });
         }
     }
 
@@ -229,7 +229,7 @@ public class MonthlySubscriptionController(
         {
             logger.LogError(exception, "Failed to delete invoice PDF. InvoiceCode={InvoiceCode}.", invoiceCode);
             Response.StatusCode = StatusCodes.Status500InternalServerError;
-            return Json(new { success = false, errorCode = "delete_failed", message = "Không thể xóa file PDF.", messageEn = "Cannot delete the PDF file." });
+            return Json(new { success = false, errorCode = "delete_failed", message = "KhÃ´ng thá»ƒ xÃ³a file PDF.", messageEn = "Cannot delete the PDF file." });
         }
     }
 
@@ -247,19 +247,20 @@ public class MonthlySubscriptionController(
         {
             var (userId, username) = GetCurrentAuditContext();
             await subscriptionService.CreateInvoiceAsync(model, userId, username, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
-            TempData["SubscriptionSuccess"] = "Tạo invoice thành công.";
+            TempData["SubscriptionSuccess"] = "Táº¡o invoice thÃ nh cÃ´ng.";
         }
         catch (Exception exception)
         {
             logger.LogError(exception, "Failed to create subscription invoice.");
-            TempData["SubscriptionError"] = $"Không thể tạo invoice. Chi tiết: {exception.GetBaseException().Message}";
+            TempData["SubscriptionError"] = $"KhÃ´ng thá»ƒ táº¡o invoice. Chi tiáº¿t: {exception.GetBaseException().Message}";
         }
 
         return RedirectToAction(nameof(Details), new { id = model.SubscriptionId });
     }
 
-    [HttpGet]
-    public async Task<IActionResult> KvhPaymentResumePrecheck(int invoiceId, int subscriptionId)
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> KvhPaymentResumePrecheck([FromForm] int invoiceId, [FromForm] int subscriptionId)
     {
         var currentUser = await GetCurrentUserAsync();
         if (!CanManageSubscriptions(currentUser))
@@ -300,18 +301,23 @@ public class MonthlySubscriptionController(
         try
         {
             var (userId, username) = GetCurrentAuditContext();
+            var operationCorrelationId = $"INV-{model.InvoiceId}-{Guid.NewGuid():N}";
+            model.OperationCorrelationId = operationCorrelationId;
             var updateResult = await subscriptionService.UpdateInvoiceAsync(model, userId, username, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            var successMessage = "Cap nhat invoice thanh cong.";
+            string? warningMessage = null;
             if (model.ResumeKvh && updateResult.BecamePaid)
             {
                 var resumeResult = await kvhPaymentResumeService.HandlePaidSubscriptionAsync(new KvhPaymentResumeRequest
                 {
                     SubscriptionId = updateResult.SubscriptionId,
                     Source = DeviceActivitySources.ManualInvoiceUpdate,
+                    ActorType = DeviceActivityActorTypes.User,
                     UserId = userId,
                     PerformedBy = username,
                     ReferenceType = "INVOICE",
                     ReferenceId = updateResult.InvoiceId.ToString(),
-                    CorrelationId = $"INV-{updateResult.InvoiceId}-{Guid.NewGuid():N}",
+                    CorrelationId = operationCorrelationId,
                     AllowedTenantId = GetAllowedTenantId(currentUser),
                     AllowedDeviceId = GetAllowedDeviceId(currentUser),
                     DetailJson = DeviceActivityLogEntry.ToSafeJson(new { updateResult.InvoiceId, updateResult.InvoiceNumber, updateResult.OldStatus, updateResult.NewStatus })
@@ -319,23 +325,27 @@ public class MonthlySubscriptionController(
 
                 if (!resumeResult.Success)
                 {
-                    TempData["SubscriptionWarning"] = $"Invoice da cap nhat Paid nhung KVH Resume that bai: {resumeResult.Message}";
+                    warningMessage = $"Invoice da cap nhat Paid nhung KVH Resume that bai: {resumeResult.Message}";
                 }
                 else if (resumeResult.Skipped)
                 {
-                    TempData["SubscriptionWarning"] = $"Invoice da cap nhat Paid. KVH Resume duoc bo qua: {resumeResult.Message}";
+                    warningMessage = $"Invoice da cap nhat Paid. KVH Resume duoc bo qua: {resumeResult.Message}";
                 }
                 else if (resumeResult.ResumeSubmitted)
                 {
-                    TempData["SubscriptionSuccess"] = "Cap nhat invoice thanh cong va da gui lenh Resume KVH.";
+                    successMessage = "Cap nhat invoice thanh cong va da gui lenh Resume KVH.";
                 }
             }
-            TempData["SubscriptionSuccess"] = "Cập nhật invoice thành công.";
+            TempData["SubscriptionSuccess"] = successMessage;
+            if (!string.IsNullOrWhiteSpace(warningMessage))
+            {
+                TempData["SubscriptionWarning"] = warningMessage;
+            }
         }
         catch (Exception exception)
         {
             logger.LogError(exception, "Failed to update subscription invoice.");
-            TempData["SubscriptionError"] = $"Không thể cập nhật invoice. Chi tiết: {exception.GetBaseException().Message}";
+            TempData["SubscriptionError"] = $"KhÃ´ng thá»ƒ cáº­p nháº­t invoice. Chi tiáº¿t: {exception.GetBaseException().Message}";
         }
 
         return RedirectToAction(nameof(Details), new { id = model.SubscriptionId });
@@ -355,12 +365,12 @@ public class MonthlySubscriptionController(
         {
             var (userId, username) = GetCurrentAuditContext();
             await subscriptionService.UpdateSubscriptionBillingAsync(model, userId, username, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
-            TempData["SubscriptionSuccess"] = "Cập nhật billing period thành công.";
+            TempData["SubscriptionSuccess"] = "Cáº­p nháº­t billing period thÃ nh cÃ´ng.";
         }
         catch (Exception exception)
         {
             logger.LogError(exception, "Failed to update billing cycle billing.");
-            TempData["SubscriptionError"] = $"Không thể cập nhật billing period. Chi tiết: {exception.GetBaseException().Message}";
+            TempData["SubscriptionError"] = $"KhÃ´ng thá»ƒ cáº­p nháº­t billing period. Chi tiáº¿t: {exception.GetBaseException().Message}";
         }
 
         return RedirectToAction(nameof(Details), new { id = model.SubscriptionId });
@@ -380,12 +390,12 @@ public class MonthlySubscriptionController(
         {
             var (userId, username) = GetCurrentAuditContext();
             await subscriptionService.UpdateSubscriptionStatusAsync(model, userId, username, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
-            TempData["SubscriptionSuccess"] = "Cập nhật trạng thái billing cycle thành công.";
+            TempData["SubscriptionSuccess"] = "Cáº­p nháº­t tráº¡ng thÃ¡i billing cycle thÃ nh cÃ´ng.";
         }
         catch (Exception exception)
         {
             logger.LogError(exception, "Failed to update billing cycle status.");
-            TempData["SubscriptionError"] = $"Không thể cập nhật trạng thái billing cycle. Chi tiết: {exception.GetBaseException().Message}";
+            TempData["SubscriptionError"] = $"KhÃ´ng thá»ƒ cáº­p nháº­t tráº¡ng thÃ¡i billing cycle. Chi tiáº¿t: {exception.GetBaseException().Message}";
         }
 
         return RedirectToAction(nameof(Details), new { id = model.SubscriptionId });
@@ -418,7 +428,7 @@ public class MonthlySubscriptionController(
 
     private static bool CanManageSubscriptions(AuthUserRecord? user)
     {
-        return user is not null && !user.IsViewOnly && IsAdminAccount(user);
+        return user is not null && !user.IsViewOnly && (IsAdminAccount(user) || IsTenantAdmin(user));
     }
 
     private static bool CanCreateSubscriptions(AuthUserRecord? user)

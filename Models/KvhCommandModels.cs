@@ -169,6 +169,7 @@ public sealed class KvhCommandSubmitResult
     public string Message { get; set; } = string.Empty;
     public string MessageEn { get; set; } = string.Empty;
     public int DeviceId { get; set; }
+    public int? TenantId { get; set; }
     public string TerminalId { get; set; } = string.Empty;
     public string KvhDeviceId { get; set; } = string.Empty;
     public long? CommandId { get; set; }

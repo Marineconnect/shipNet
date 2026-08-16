@@ -1425,6 +1425,7 @@ public class PaymentTransactionService(
 
         var isPaidStatus = IsNinePayPaidStatus(providerStatus);
         DateTime? completedAt = isPaidStatus ? providerCreatedAt ?? DateTime.UtcNow : null;
+        var oldInvoiceStatuses = new Dictionary<int, string>();
         foreach (var invoice in mappedInvoices)
         {
             await UpsertTransactionAsync(
@@ -1453,6 +1454,7 @@ public class PaymentTransactionService(
         {
             foreach (var invoice in mappedInvoices)
             {
+                oldInvoiceStatuses[invoice.InvoiceId] = await GetInvoiceStatusAsync(connection, transaction, invoice.InvoiceId, cancellationToken) ?? string.Empty;
                 await MarkInvoicePaidAsync(connection, transaction, (invoice.InvoiceId, invoice.SubscriptionId, invoice.InvoiceAmount), paymentNo, completedAt.Value, cancellationToken);
                 await RecalculateSubscriptionTotalsAsync(connection, transaction, invoice.SubscriptionId, cancellationToken);
                 await InsertAuditAsync(connection, transaction, invoice.SubscriptionId, $"9Pay IPN paid invoice '{invoice.InvoiceNumber}' with payment_no '{paymentNo}'.", cancellationToken);
@@ -1531,6 +1533,8 @@ public class PaymentTransactionService(
                     paymentNo,
                     providerStatus,
                     rawJson,
+                    oldInvoiceStatuses.GetValueOrDefault(invoice.InvoiceId) ?? string.Empty,
+                    completedAt ?? DateTime.UtcNow,
                     cancellationToken);
             }
         }
@@ -1552,6 +1556,8 @@ public class PaymentTransactionService(
         string paymentNo,
         string providerStatus,
         string rawJson,
+        string oldInvoiceStatus,
+        DateTime occurredAtUtc,
         CancellationToken cancellationToken)
     {
         try
@@ -1566,28 +1572,32 @@ public class PaymentTransactionService(
                     Category = DeviceActivityCategories.Payment,
                     Action = DeviceActivityActions.InvoicePaid,
                     Status = DeviceActivityStatuses.Succeeded,
-                    OldValue = "pending",
+                    OldValue = string.IsNullOrWhiteSpace(oldInvoiceStatus) ? null : oldInvoiceStatus,
                     NewValue = "paid",
                     Summary = $"Invoice {invoiceNumber} was paid by 9Pay bank transfer.",
                     DetailJson = DeviceActivityLogEntry.ToSafeJson(new { invoiceId, invoiceNumber, providerInvoiceNumber, paymentNo, providerStatus }),
-                    Source = DeviceActivitySources.BankTransfer,
+                    Source = DeviceActivitySources.NinePayIpn,
+                    ActorType = DeviceActivityActorTypes.PaymentProvider,
                     PerformedBy = "Thanh toán chuyển khoản",
                     ReferenceType = "PAYMENT",
                     ReferenceId = paymentNo,
-                    CorrelationId = paymentNo
+                    CorrelationId = paymentNo,
+                    EventKey = $"INVOICE_PAID:{context.Value.DeviceId}:{invoiceId}:{paymentNo}",
+                    OccurredAtUtc = occurredAtUtc
                 }, cancellationToken);
             }
 
             var resumeResult = await kvhPaymentResumeService.HandlePaidSubscriptionAsync(new KvhPaymentResumeRequest
             {
                 SubscriptionId = subscriptionId,
-                Source = DeviceActivitySources.BankTransfer,
+                Source = DeviceActivitySources.NinePayIpn,
+                ActorType = DeviceActivityActorTypes.PaymentProvider,
                 UserId = null,
                 PerformedBy = "Thanh toán chuyển khoản",
                 ReferenceType = "PAYMENT",
                 ReferenceId = paymentNo,
                 CorrelationId = paymentNo,
-                DetailJson = DeviceActivityLogEntry.ToSafeJson(new { invoiceId, invoiceNumber, providerInvoiceNumber, paymentNo, providerStatus, rawJson })
+                DetailJson = DeviceActivityLogEntry.ToSafeJson(new { invoiceId, invoiceNumber, providerInvoiceNumber, paymentNo, providerStatus })
             }, cancellationToken);
             if (!resumeResult.Success)
             {
@@ -1619,6 +1629,15 @@ public class PaymentTransactionService(
         }
 
         return (Convert.ToInt32(reader["DeviceId"]), Convert.ToInt32(reader["TenantId"]));
+    }
+
+    private static async Task<string?> GetInvoiceStatusAsync(SqlConnection connection, SqlTransaction transaction, int invoiceId, CancellationToken cancellationToken)
+    {
+        const string query = "SELECT TOP 1 [Status] FROM [dbo].[TblSubscriptionInvoice] WHERE [ID] = @invoiceId";
+        await using var command = new SqlCommand(query, connection, transaction);
+        command.Parameters.Add("@invoiceId", SqlDbType.Int).Value = invoiceId;
+        var value = await command.ExecuteScalarAsync(cancellationToken);
+        return value == DBNull.Value || value is null ? null : value.ToString();
     }
 
     private async Task SendNinePayIpnTelegramNotificationAsync(

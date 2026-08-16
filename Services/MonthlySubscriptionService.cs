@@ -475,6 +475,9 @@ public class MonthlySubscriptionService(
         var status = NormalizeInvoiceStatus(model.Status);
         var amount = Math.Round(Math.Max(0, model.Amount), 2, MidpointRounding.AwayFromZero);
         var refundAmount = Math.Round(Math.Max(0, model.RefundAmount), 2, MidpointRounding.AwayFromZero);
+        var operationCorrelationId = string.IsNullOrWhiteSpace(model.OperationCorrelationId)
+            ? $"INV-{model.InvoiceId}-{Guid.NewGuid():N}"
+            : model.OperationCorrelationId.Trim();
 
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -557,11 +560,13 @@ public class MonthlySubscriptionService(
             Summary = $"Updated invoice {invoiceNumber}.",
             DetailJson = DeviceActivityLogEntry.ToSafeJson(new { model.InvoiceId, model.SubscriptionId, amount, refundAmount, status }),
             Source = DeviceActivitySources.ManualInvoiceUpdate,
+            ActorType = DeviceActivityActorTypes.User,
             UserId = userId,
             PerformedBy = username,
             ReferenceType = "INVOICE",
             ReferenceId = model.InvoiceId.ToString(),
-            CorrelationId = $"INV-{model.InvoiceId}-{DateTime.UtcNow:yyyyMMddHHmmss}"
+            CorrelationId = operationCorrelationId,
+            EventKey = $"{DeviceActivityActions.InvoiceUpdated}:{subscription.DeviceId}:{model.InvoiceId}:{operationCorrelationId}"
         }, cancellationToken);
 
         if (updateResult.StatusChanged)
@@ -578,11 +583,13 @@ public class MonthlySubscriptionService(
                 Summary = $"Invoice {invoiceNumber} status changed from {oldStatus} to {status}.",
                 DetailJson = DeviceActivityLogEntry.ToSafeJson(new { model.InvoiceId, model.SubscriptionId }),
                 Source = DeviceActivitySources.ManualInvoiceUpdate,
+                ActorType = DeviceActivityActorTypes.User,
                 UserId = userId,
                 PerformedBy = username,
                 ReferenceType = "INVOICE",
                 ReferenceId = model.InvoiceId.ToString(),
-                CorrelationId = $"INV-{model.InvoiceId}-{DateTime.UtcNow:yyyyMMddHHmmss}"
+                CorrelationId = operationCorrelationId,
+                EventKey = $"{(updateResult.BecamePaid ? DeviceActivityActions.InvoicePaid : DeviceActivityActions.InvoiceStatusChanged)}:{subscription.DeviceId}:{model.InvoiceId}:{operationCorrelationId}"
             }, cancellationToken);
         }
 

@@ -38,6 +38,7 @@ public sealed class KvhCommandService(
                 Message = "Thiet bi da o trang thai duoc chon.",
                 MessageEn = "The terminal is already in the selected state.",
                 DeviceId = request.Id,
+                TenantId = context.TenantId,
                 TerminalId = context.TerminalId,
                 KvhDeviceId = context.KvhDeviceId,
                 OldDataOptInStatus = oldStatus,
@@ -185,6 +186,7 @@ public sealed class KvhCommandService(
                 Message = $"Vui long doi {cooldown.RemainingSeconds} giay truoc khi gui lenh KVH tiep theo.",
                 MessageEn = $"Please wait {cooldown.RemainingSeconds} seconds before sending another KVH command.",
                 DeviceId = context.DeviceId,
+                TenantId = context.TenantId,
                 TerminalId = context.TerminalId,
                 KvhDeviceId = context.KvhDeviceId,
                 RemainingSeconds = cooldown.RemainingSeconds,
@@ -213,6 +215,7 @@ public sealed class KvhCommandService(
                 Message = submitResult.ErrorMessage,
                 MessageEn = submitResult.ErrorMessage,
                 DeviceId = context.DeviceId,
+                TenantId = context.TenantId,
                 TerminalId = context.TerminalId,
                 KvhDeviceId = context.KvhDeviceId,
                 CommandId = commandId,
@@ -233,6 +236,7 @@ public sealed class KvhCommandService(
                 Message = "KVH da tiep nhan request nhung khong tra ve Job ID.",
                 MessageEn = "KVH accepted the request but did not return a job id.",
                 DeviceId = context.DeviceId,
+                TenantId = context.TenantId,
                 TerminalId = context.TerminalId,
                 KvhDeviceId = context.KvhDeviceId,
                 CommandId = commandId,
@@ -250,6 +254,7 @@ public sealed class KvhCommandService(
             Message = "KVH da tiep nhan lenh. He thong dang theo doi Job.",
             MessageEn = "KVH accepted the command. The job is being monitored.",
             DeviceId = context.DeviceId,
+            TenantId = context.TenantId,
             TerminalId = context.TerminalId,
             KvhDeviceId = context.KvhDeviceId,
             CommandId = commandId,
@@ -312,6 +317,7 @@ public sealed class KvhCommandService(
         {
             Success = true,
             DeviceId = id,
+            TenantId = device.TenantId,
             TerminalId = terminalId,
             KvhDeviceId = kvhDeviceId,
             AccessToken = accessToken
@@ -561,7 +567,7 @@ public sealed class KvhCommandService(
     private async Task<DeviceRow?> GetDeviceAsync(SqlConnection connection, int id, int? tenantId, int? allowedDeviceId, CancellationToken cancellationToken)
     {
         const string query = """
-            SELECT TOP 1 [ID], [DeviceCode], [KITID], [TokenString], [TokenExpiredTime]
+            SELECT TOP 1 [ID], [TenantID], [DeviceCode], [KITID], [TokenString], [TokenExpiredTime]
             FROM [dbo].[TblDevices]
             WHERE [ID] = @id
               AND (@tenantId IS NULL OR [TenantID] = @tenantId)
@@ -580,6 +586,7 @@ public sealed class KvhCommandService(
         return new DeviceRow
         {
             Id = Convert.ToInt32(reader["ID"]),
+            TenantId = reader["TenantID"] == DBNull.Value ? null : Convert.ToInt32(reader["TenantID"]),
             DeviceCode = reader["DeviceCode"]?.ToString() ?? string.Empty,
             KitId = reader["KITID"]?.ToString() ?? string.Empty,
             TokenString = reader["TokenString"]?.ToString() ?? string.Empty,
@@ -694,6 +701,7 @@ public sealed class KvhCommandService(
     private sealed class DeviceRow
     {
         public int Id { get; set; }
+        public int? TenantId { get; set; }
         public string DeviceCode { get; set; } = string.Empty;
         public string KitId { get; set; } = string.Empty;
         public string TokenString { get; set; } = string.Empty;
@@ -704,6 +712,7 @@ public sealed class KvhCommandService(
     {
         public bool Success { get; set; }
         public int DeviceId { get; set; }
+        public int? TenantId { get; set; }
         public string TerminalId { get; set; } = string.Empty;
         public string KvhDeviceId { get; set; } = string.Empty;
         public string AccessToken { get; set; } = string.Empty;
@@ -728,6 +737,7 @@ public sealed class KvhCommandService(
             Message = Message,
             MessageEn = MessageEn,
             DeviceId = deviceId,
+            TenantId = TenantId,
             TerminalId = TerminalId,
             KvhDeviceId = KvhDeviceId
         };

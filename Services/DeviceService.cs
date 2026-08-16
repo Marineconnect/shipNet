@@ -2227,19 +2227,24 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         await WriteActivitySafeAsync(new DeviceActivityLogEntry
         {
             DeviceId = request.Id,
+            TenantId = await GetDeviceTenantIdAsync(request.Id, cancellationToken),
             Category = DeviceActivityCategories.Data,
             Action = request.Enabled ? DeviceActivityActions.DataOptInRequested : DeviceActivityActions.DataOptOutRequested,
             Status = submit.Success ? DeviceActivityStatuses.Requested : DeviceActivityStatuses.Failed,
             OldValue = submit.OldDataOptInStatus.HasValue ? (submit.OldDataOptInStatus.Value ? "on" : "off") : null,
             NewValue = request.Enabled ? "on" : "off",
             Summary = request.Enabled ? "Data opt-in command submitted." : "Data opt-out command submitted.",
-            DetailJson = DeviceActivityLogEntry.ToSafeJson(new { historyId, submit.CommandId, submit.JobId, submit.HttpStatusCode, submit.ErrorCode, submit.Message, submit.RawResponse }),
+            DetailJson = DeviceActivityLogEntry.ToSafeJson(new { historyId, submit.CommandId, submit.JobId, submit.HttpStatusCode, submit.ErrorCode, submit.Message }),
             Source = DeviceActivitySources.Dashboard,
+            ActorType = DeviceActivityActorTypes.User,
             UserId = userId,
             PerformedBy = performedBy,
             ReferenceType = "DATA_OPT_IN_HISTORY",
             ReferenceId = historyId.ToString(),
-            CorrelationId = submit.JobId ?? submit.CommandId?.ToString() ?? historyId.ToString()
+            CorrelationId = submit.JobId ?? submit.CommandId?.ToString() ?? historyId.ToString(),
+            EventKey = submit.CommandId.HasValue
+                ? $"{(request.Enabled ? DeviceActivityActions.DataOptInRequested : DeviceActivityActions.DataOptOutRequested)}:{request.Id}:{submit.CommandId.Value}"
+                : null
         }, cancellationToken);
         return new DeviceDataOptInHistoryItem
         {
@@ -2288,19 +2293,26 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         await WriteActivitySafeAsync(new DeviceActivityLogEntry
         {
             DeviceId = request.Id,
+            TenantId = await GetDeviceTenantIdAsync(request.Id, cancellationToken),
             Category = DeviceActivityCategories.Data,
-            Action = request.Enabled ? DeviceActivityActions.DataOptInCompleted : DeviceActivityActions.DataOptOutCompleted,
+            Action = request.Enabled
+                ? apiResult.Success ? DeviceActivityActions.DataOptInCompleted : DeviceActivityActions.DataOptInFailed
+                : apiResult.Success ? DeviceActivityActions.DataOptOutCompleted : DeviceActivityActions.DataOptOutFailed,
             Status = apiResult.Success ? DeviceActivityStatuses.Succeeded : DeviceActivityStatuses.Failed,
             OldValue = oldStatus.HasValue ? (oldStatus.Value ? "on" : "off") : null,
-            NewValue = request.Enabled ? "on" : "off",
+            NewValue = apiResult.Success ? request.Enabled ? "on" : "off" : null,
             Summary = request.Enabled ? "Data opt-in completed." : "Data opt-out completed.",
-            DetailJson = DeviceActivityLogEntry.ToSafeJson(new { historyId, apiResult.JobId, apiResult.HttpStatusCode, apiResult.ErrorCode, apiResult.Message, apiResult.RawResponse }),
+            DetailJson = DeviceActivityLogEntry.ToSafeJson(new { historyId, apiResult.JobId, apiResult.HttpStatusCode, apiResult.ErrorCode, apiResult.Message }),
             Source = DeviceActivitySources.Dashboard,
+            ActorType = DeviceActivityActorTypes.User,
             UserId = userId,
             PerformedBy = performedBy,
             ReferenceType = "DATA_OPT_IN_HISTORY",
             ReferenceId = historyId.ToString(),
-            CorrelationId = apiResult.JobId ?? historyId.ToString()
+            CorrelationId = apiResult.JobId ?? historyId.ToString(),
+            EventKey = $"{(request.Enabled
+                ? apiResult.Success ? DeviceActivityActions.DataOptInCompleted : DeviceActivityActions.DataOptInFailed
+                : apiResult.Success ? DeviceActivityActions.DataOptOutCompleted : DeviceActivityActions.DataOptOutFailed)}:{request.Id}:{historyId}"
         }, cancellationToken);
         var historyItem = new DeviceDataOptInHistoryItem { Id = historyId, DeviceId = request.Id, UserId = userId, PerformedBy = performedBy, PerformedAtUtc = performedAtUtc, OldStatus = oldStatus, NewStatus = request.Enabled, ApiSuccess = apiResult.Success, HttpStatusCode = apiResult.HttpStatusCode, ApiResponse = apiResult.RawResponse, JobId = apiResult.JobId };
         return new DeviceDataOptInChangeResult { Success = apiResult.Success, ErrorCode = apiResult.ErrorCode, Message = apiResult.Message, MessageEn = apiResult.MessageEn, DeviceId = request.Id, TerminalId = terminalId, OldStatus = oldStatus, NewStatus = request.Enabled, HttpStatusCode = apiResult.HttpStatusCode, ApiResponse = apiResult.RawResponse, JobId = apiResult.JobId, HistoryItem = historyItem };
@@ -2684,6 +2696,16 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         catch when (!cancellationToken.IsCancellationRequested)
         {
         }
+    }
+
+    private async Task<int?> GetDeviceTenantIdAsync(int deviceId, CancellationToken cancellationToken)
+    {
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new SqlCommand("SELECT TOP 1 [TenantID] FROM [dbo].[TblDevices] WHERE [ID] = @deviceId", connection);
+        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = deviceId;
+        var scalar = await command.ExecuteScalarAsync(cancellationToken);
+        return scalar is null or DBNull ? null : Convert.ToInt32(scalar);
     }
 
     private async Task<(bool Success, string ErrorCode, string Message, string MessageEn, string RawResponse, string? AccessToken, DateTime? ExpiredTime)> RequestDeviceTokenAsync(

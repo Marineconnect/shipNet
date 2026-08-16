@@ -617,9 +617,9 @@ public sealed class KvhSubscriptionService(
         {
             var action = commandType switch
             {
-                KvhCommandTypes.SubscriptionPause => DeviceActivityActions.SubscriptionPauseRequested,
+                KvhCommandTypes.SubscriptionPause => submitted ? DeviceActivityActions.SubscriptionPauseRequested : DeviceActivityActions.SubscriptionPauseFailed,
                 KvhCommandTypes.SubscriptionResume => submitted ? DeviceActivityActions.SubscriptionResumeRequested : DeviceActivityActions.SubscriptionResumeFailed,
-                KvhCommandTypes.SubscriptionCancelSchedule => DeviceActivityActions.SubscriptionCancelScheduleRequested,
+                KvhCommandTypes.SubscriptionCancelSchedule => submitted ? DeviceActivityActions.SubscriptionCancelScheduleRequested : DeviceActivityActions.SubscriptionCancelScheduleFailed,
                 _ => string.Empty
             };
             if (string.IsNullOrWhiteSpace(action))
@@ -630,19 +630,22 @@ public sealed class KvhSubscriptionService(
             await deviceActivityLogService.WriteAsync(new DeviceActivityLogEntry
             {
                 DeviceId = context.DeviceId,
+                TenantId = context.TenantId,
                 Category = DeviceActivityCategories.Subscription,
                 Action = action,
                 Status = submitted ? DeviceActivityStatuses.Requested : DeviceActivityStatuses.Failed,
                 OldValue = context.SubscriptionStatus,
-                NewValue = submitted ? "requested" : context.SubscriptionStatus,
+                NewValue = submitted ? ResolveRequestedValue(commandType) : context.SubscriptionStatus,
                 Summary = submitted ? $"KVH {commandType} command submitted." : $"KVH {commandType} command failed.",
                 DetailJson = DeviceActivityLogEntry.ToSafeJson(new { commandId, jobId, context.KvhSubscriptionId, context.TrafficId, context.Region, errorCode, errorMessage }),
                 Source = DeviceActivitySources.Dashboard,
+                ActorType = DeviceActivityActorTypes.User,
                 UserId = userId,
                 PerformedBy = requestedBy,
                 ReferenceType = "KVH_COMMAND",
                 ReferenceId = commandId.ToString(),
-                CorrelationId = string.IsNullOrWhiteSpace(jobId) ? commandId.ToString() : jobId
+                CorrelationId = string.IsNullOrWhiteSpace(jobId) ? commandId.ToString() : jobId,
+                EventKey = $"{action}:{context.DeviceId}:{context.KvhSubscriptionId}:{commandId}"
             }, cancellationToken);
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
@@ -654,7 +657,7 @@ public sealed class KvhSubscriptionService(
     private async Task<CommandContext> GetSubscriptionCommandContextAsync(SqlConnection connection, KvhSolutionCommandRequest request, int? allowedTenantId, int? allowedDeviceId, CancellationToken cancellationToken)
     {
         const string query = """
-            SELECT TOP 1 d.[ID], d.[DeviceCode], d.[TokenString], d.[TokenExpiredTime],
+            SELECT TOP 1 d.[ID], d.[TenantID], d.[DeviceCode], d.[TokenString], d.[TokenExpiredTime],
                    s.[ID] AS [KvhSubscriptionId], s.[TrafficId], s.[Region], s.[Status], s.[ScheduledAction], s.[ScheduleId], s.[ScheduledEffectiveDateUtc],
                    pending.[HasPendingCommand], pending.[CooldownUntilUtc]
             FROM [dbo].[TblKvhSubscription] s
@@ -691,6 +694,7 @@ public sealed class KvhSubscriptionService(
             {
                 Success = true,
                 DeviceId = Convert.ToInt32(reader["ID"]),
+                TenantId = reader["TenantID"] == DBNull.Value ? null : Convert.ToInt32(reader["TenantID"]),
                 TerminalId = reader["DeviceCode"]?.ToString() ?? string.Empty,
                 AccessToken = reader["TokenString"]?.ToString() ?? string.Empty,
                 TokenExpiredTime = reader["TokenExpiredTime"] == DBNull.Value ? null : Convert.ToDateTime(reader["TokenExpiredTime"]),
@@ -1563,6 +1567,14 @@ public sealed class KvhSubscriptionService(
 
     private static string Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
     private static string? NormalizeNullable(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private static string ResolveRequestedValue(string commandType) => commandType switch
+    {
+        KvhCommandTypes.SubscriptionPause => "pause_requested",
+        KvhCommandTypes.SubscriptionResume => "resume_requested",
+        KvhCommandTypes.SubscriptionCancelSchedule => "cancel_schedule_requested",
+        _ => "requested"
+    };
+
     private static bool IsTokenExpired(DateTime? tokenExpiredTime) => !tokenExpiredTime.HasValue || DateTime.SpecifyKind(tokenExpiredTime.Value, DateTimeKind.Utc) <= DateTime.UtcNow;
     private static bool HasColumn(SqlDataReader reader, string columnName)
     {
@@ -1621,6 +1633,7 @@ public sealed class KvhSubscriptionService(
     {
         public bool Success { get; set; }
         public int DeviceId { get; set; }
+        public int? TenantId { get; set; }
         public string TerminalId { get; set; } = string.Empty;
         public string AccessToken { get; set; } = string.Empty;
         public DateTime? TokenExpiredTime { get; set; }

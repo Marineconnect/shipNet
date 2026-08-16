@@ -247,6 +247,8 @@ public class UpdateSubscriptionInvoiceViewModel
     public DateTime? CompletedAt { get; set; }
 
     public bool ResumeKvh { get; set; }
+
+    public string OperationCorrelationId { get; set; } = string.Empty;
 }
 
 public sealed class SubscriptionInvoiceUpdateResult

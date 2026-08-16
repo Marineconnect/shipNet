@@ -221,19 +221,21 @@ public class DashboardController(
             await deviceActivityLogService.WriteAsync(new DeviceActivityLogEntry
             {
                 DeviceId = request.Id,
-                TenantId = GetAllowedTenantId(currentUser),
+                TenantId = submit.TenantId,
                 Category = DeviceActivityCategories.Networking,
                 Action = submit.Success ? DeviceActivityActions.WifiUpdateRequested : DeviceActivityActions.WifiUpdateFailed,
                 Status = submit.Success ? DeviceActivityStatuses.Requested : DeviceActivityStatuses.Failed,
                 NewValue = request.Ssid,
                 Summary = submit.Success ? "WiFi update command submitted." : "WiFi update command failed.",
-                DetailJson = DeviceActivityLogEntry.ToSafeJson(new { request.Ssid, request.Enabled, submit.CommandId, submit.JobId, submit.ErrorCode, submit.Message, submit.HttpStatusCode, submit.RawResponse }),
+                DetailJson = DeviceActivityLogEntry.ToSafeJson(new { request.Ssid, request.Enabled, submit.CommandId, submit.JobId, submit.ErrorCode, submit.Message, submit.HttpStatusCode }),
                 Source = DeviceActivitySources.Dashboard,
+                ActorType = DeviceActivityActorTypes.User,
                 UserId = userId,
                 PerformedBy = requestedBy,
                 ReferenceType = submit.CommandId.HasValue ? "KVH_COMMAND" : "DEVICE",
                 ReferenceId = submit.CommandId?.ToString() ?? request.Id.ToString(),
-                CorrelationId = submit.JobId ?? submit.CommandId?.ToString() ?? Guid.NewGuid().ToString("N")
+                CorrelationId = submit.JobId ?? submit.CommandId?.ToString() ?? Guid.NewGuid().ToString("N"),
+                EventKey = submit.CommandId.HasValue ? $"{(submit.Success ? DeviceActivityActions.WifiUpdateRequested : DeviceActivityActions.WifiUpdateFailed)}:{request.Id}:{submit.CommandId.Value}" : null
             }, HttpContext.RequestAborted);
             var result = MapCommandSubmitResult(submit, "Da gui lenh cap nhat WiFi. He thong dang theo doi KVH Job.", "WiFi update command was submitted. The KVH job is being monitored.");
             if (!result.Success)
@@ -444,18 +446,20 @@ public class DashboardController(
             await deviceActivityLogService.WriteAsync(new DeviceActivityLogEntry
             {
                 DeviceId = id,
-                TenantId = GetAllowedTenantId(currentUser),
+                TenantId = submit.TenantId,
                 Category = DeviceActivityCategories.Networking,
                 Action = submit.Success ? DeviceActivityActions.RouterRebootRequested : DeviceActivityActions.RouterRebootFailed,
                 Status = submit.Success ? DeviceActivityStatuses.Requested : DeviceActivityStatuses.Failed,
                 Summary = submit.Success ? "Router reboot command submitted." : "Router reboot command failed.",
-                DetailJson = DeviceActivityLogEntry.ToSafeJson(new { submit.CommandId, submit.JobId, submit.ErrorCode, submit.Message, submit.HttpStatusCode, submit.RawResponse }),
+                DetailJson = DeviceActivityLogEntry.ToSafeJson(new { submit.CommandId, submit.JobId, submit.ErrorCode, submit.Message, submit.HttpStatusCode }),
                 Source = DeviceActivitySources.Dashboard,
+                ActorType = DeviceActivityActorTypes.User,
                 UserId = userId,
                 PerformedBy = requestedBy,
                 ReferenceType = submit.CommandId.HasValue ? "KVH_COMMAND" : "DEVICE",
                 ReferenceId = submit.CommandId?.ToString() ?? id.ToString(),
-                CorrelationId = submit.JobId ?? submit.CommandId?.ToString() ?? Guid.NewGuid().ToString("N")
+                CorrelationId = submit.JobId ?? submit.CommandId?.ToString() ?? Guid.NewGuid().ToString("N"),
+                EventKey = submit.CommandId.HasValue ? $"{(submit.Success ? DeviceActivityActions.RouterRebootRequested : DeviceActivityActions.RouterRebootFailed)}:{id}:{submit.CommandId.Value}" : null
             }, HttpContext.RequestAborted);
             var result = MapCommandSubmitResult(submit, "Da gui lenh reboot router. He thong dang theo doi KVH Job.", "Router reboot command was submitted. The KVH job is being monitored.");
             if (!result.Success)
@@ -824,7 +828,7 @@ public class DashboardController(
 
     private static bool CanManageDevices(AuthUserRecord? user)
     {
-        return user is not null && !user.IsViewOnly && IsAdminAccount(user);
+        return user is not null && !user.IsViewOnly && (IsAdminAccount(user) || IsTenantAdmin(user));
     }
 
     private static bool CanCreateSubscriptions(AuthUserRecord? user)
@@ -839,7 +843,7 @@ public class DashboardController(
 
     private static bool CanManageDataOptIn(AuthUserRecord? user)
     {
-        return user is not null && !user.IsViewOnly && IsAdminAccount(user);
+        return user is not null && !user.IsViewOnly && (IsAdminAccount(user) || IsTenantAdmin(user));
     }
 
     private static bool IsAdminAccount(AuthUserRecord? user)

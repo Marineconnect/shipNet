@@ -28,30 +28,41 @@ public sealed class DeviceActivityLogService(
         const string query = """
             INSERT INTO [dbo].[TblDeviceActivityLog]
                 ([DeviceId], [TenantId], [Category], [Action], [Status], [OldValue], [NewValue], [Summary], [DetailJson], [Source],
-                 [UserId], [PerformedBy], [ReferenceType], [ReferenceId], [CorrelationId], [CreatedAtUtc])
+                 [ActorType], [UserId], [PerformedBy], [ReferenceType], [ReferenceId], [CorrelationId], [EventKey], [OccurredAtUtc], [RecordedAtUtc], [CreatedAtUtc])
             VALUES
                 (@deviceId, @tenantId, @category, @action, @status, @oldValue, @newValue, @summary, @detailJson, @source,
-                 @userId, @performedBy, @referenceType, @referenceId, @correlationId, @createdAtUtc)
+                 @actorType, @userId, @performedBy, @referenceType, @referenceId, @correlationId, @eventKey, @occurredAtUtc, @recordedAtUtc, @recordedAtUtc)
             """;
 
-        await using var command = new SqlCommand(query, connection);
-        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = entry.DeviceId;
-        command.Parameters.Add("@tenantId", SqlDbType.Int).Value = (object?)entry.TenantId ?? DBNull.Value;
-        command.Parameters.Add("@category", SqlDbType.NVarChar, 50).Value = Trim(entry.Category, 50);
-        command.Parameters.Add("@action", SqlDbType.NVarChar, 100).Value = Trim(entry.Action, 100);
-        command.Parameters.Add("@status", SqlDbType.NVarChar, 30).Value = Trim(entry.Status, 30);
-        command.Parameters.Add("@oldValue", SqlDbType.NVarChar, 500).Value = DbText(entry.OldValue, 500);
-        command.Parameters.Add("@newValue", SqlDbType.NVarChar, 500).Value = DbText(entry.NewValue, 500);
-        command.Parameters.Add("@summary", SqlDbType.NVarChar, 500).Value = Trim(string.IsNullOrWhiteSpace(entry.Summary) ? entry.Action : entry.Summary, 500);
-        command.Parameters.Add("@detailJson", SqlDbType.NVarChar, -1).Value = DbText(DeviceActivitySanitizer.Sanitize(entry.DetailJson));
-        command.Parameters.Add("@source", SqlDbType.NVarChar, 50).Value = DbText(entry.Source, 50);
-        command.Parameters.Add("@userId", SqlDbType.Int).Value = (object?)entry.UserId ?? DBNull.Value;
-        command.Parameters.Add("@performedBy", SqlDbType.NVarChar, 250).Value = DbText(entry.PerformedBy, 250);
-        command.Parameters.Add("@referenceType", SqlDbType.NVarChar, 50).Value = DbText(entry.ReferenceType, 50);
-        command.Parameters.Add("@referenceId", SqlDbType.NVarChar, 100).Value = DbText(entry.ReferenceId, 100);
-        command.Parameters.Add("@correlationId", SqlDbType.NVarChar, 100).Value = DbText(entry.CorrelationId, 100);
-        command.Parameters.Add("@createdAtUtc", SqlDbType.DateTime2).Value = entry.CreatedAtUtc ?? DateTime.UtcNow;
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        try
+        {
+            var recordedAtUtc = DateTime.UtcNow;
+            await using var command = new SqlCommand(query, connection);
+            command.Parameters.Add("@deviceId", SqlDbType.Int).Value = entry.DeviceId;
+            command.Parameters.Add("@tenantId", SqlDbType.Int).Value = (object?)entry.TenantId ?? DBNull.Value;
+            command.Parameters.Add("@category", SqlDbType.NVarChar, 50).Value = Trim(entry.Category, 50);
+            command.Parameters.Add("@action", SqlDbType.NVarChar, 100).Value = Trim(entry.Action, 100);
+            command.Parameters.Add("@status", SqlDbType.NVarChar, 30).Value = Trim(entry.Status, 30);
+            command.Parameters.Add("@oldValue", SqlDbType.NVarChar, 500).Value = DbText(entry.OldValue, 500);
+            command.Parameters.Add("@newValue", SqlDbType.NVarChar, 500).Value = DbText(entry.NewValue, 500);
+            command.Parameters.Add("@summary", SqlDbType.NVarChar, 500).Value = Trim(string.IsNullOrWhiteSpace(entry.Summary) ? entry.Action : entry.Summary, 500);
+            command.Parameters.Add("@detailJson", SqlDbType.NVarChar, -1).Value = DbText(DeviceActivitySanitizer.Sanitize(entry.DetailJson));
+            command.Parameters.Add("@source", SqlDbType.NVarChar, 50).Value = DbText(entry.Source, 50);
+            command.Parameters.Add("@actorType", SqlDbType.NVarChar, 30).Value = DbText(entry.ActorType, 30);
+            command.Parameters.Add("@userId", SqlDbType.Int).Value = (object?)entry.UserId ?? DBNull.Value;
+            command.Parameters.Add("@performedBy", SqlDbType.NVarChar, 250).Value = DbText(entry.PerformedBy, 250);
+            command.Parameters.Add("@referenceType", SqlDbType.NVarChar, 50).Value = DbText(entry.ReferenceType, 50);
+            command.Parameters.Add("@referenceId", SqlDbType.NVarChar, 100).Value = DbText(entry.ReferenceId, 100);
+            command.Parameters.Add("@correlationId", SqlDbType.NVarChar, 100).Value = DbText(entry.CorrelationId, 100);
+            command.Parameters.Add("@eventKey", SqlDbType.NVarChar, 250).Value = DbText(entry.EventKey, 250);
+            command.Parameters.Add("@occurredAtUtc", SqlDbType.DateTime2).Value = entry.OccurredAtUtc ?? entry.CreatedAtUtc ?? recordedAtUtc;
+            command.Parameters.Add("@recordedAtUtc", SqlDbType.DateTime2).Value = recordedAtUtc;
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        catch (SqlException exception) when (IsDuplicateKey(exception) && !string.IsNullOrWhiteSpace(entry.EventKey))
+        {
+            logger.LogInformation("Skipped duplicate device activity event. EventKey={EventKey}", entry.EventKey);
+        }
     }
 
     public async Task<DeviceActivityPageResult> GetDeviceActivityAsync(
@@ -76,8 +87,8 @@ public sealed class DeviceActivityLogService(
 
         var category = NormalizeFilter(filter.Category);
         var status = NormalizeFilter(filter.Status);
-        var fromUtc = filter.DateFrom?.Date;
-        var toUtcExclusive = filter.DateTo?.Date.AddDays(1);
+        var fromUtc = ToUtcFromVietnamDate(filter.DateFrom);
+        var toUtcExclusive = ToUtcFromVietnamDate(filter.DateTo?.Date.AddDays(1));
         var offset = (page - 1) * pageSize;
 
         const string query = """
@@ -94,21 +105,23 @@ public sealed class DeviceActivityLogService(
                 [DetailJson] nvarchar(max) NULL,
                 [Source] nvarchar(50) NULL,
                 [PerformedBy] nvarchar(250) NULL,
+                [ActorType] nvarchar(30) NULL,
                 [ReferenceType] nvarchar(50) NULL,
                 [ReferenceId] nvarchar(100) NULL,
                 [CorrelationId] nvarchar(100) NULL,
+                [EventKey] nvarchar(250) NULL,
                 [IsLegacy] bit NOT NULL
             );
 
             INSERT INTO #Activity
-                ([Id], [TimeUtc], [Category], [Action], [Status], [OldValue], [NewValue], [Summary], [DetailJson], [Source], [PerformedBy], [ReferenceType], [ReferenceId], [CorrelationId], [IsLegacy])
-            SELECT [ID], [CreatedAtUtc], [Category], [Action], [Status], [OldValue], [NewValue], [Summary], [DetailJson], [Source], [PerformedBy], [ReferenceType], [ReferenceId], [CorrelationId], CAST(0 AS bit)
+                ([Id], [TimeUtc], [Category], [Action], [Status], [OldValue], [NewValue], [Summary], [DetailJson], [Source], [PerformedBy], [ActorType], [ReferenceType], [ReferenceId], [CorrelationId], [EventKey], [IsLegacy])
+            SELECT [ID], [OccurredAtUtc], [Category], [Action], [Status], [OldValue], [NewValue], [Summary], [DetailJson], [Source], [PerformedBy], [ActorType], [ReferenceType], [ReferenceId], [CorrelationId], [EventKey], CAST(0 AS bit)
             FROM [dbo].[TblDeviceActivityLog]
             WHERE [DeviceId] = @deviceId
               AND (@category IS NULL OR [Category] = @category)
               AND (@status IS NULL OR [Status] = @status)
-              AND (@fromUtc IS NULL OR [CreatedAtUtc] >= @fromUtc)
-              AND (@toUtc IS NULL OR [CreatedAtUtc] < @toUtc);
+              AND (@fromUtc IS NULL OR [OccurredAtUtc] >= @fromUtc)
+              AND (@toUtc IS NULL OR [OccurredAtUtc] < @toUtc);
 
             IF OBJECT_ID(N'[dbo].[TblAudit]', N'U') IS NOT NULL
             BEGIN
@@ -185,7 +198,7 @@ public sealed class DeviceActivityLogService(
 
             SELECT COUNT(1) FROM #Activity WHERE (@status IS NULL OR [Status] = @status);
 
-            SELECT [Id], [TimeUtc], [Category], [Action], [Status], [OldValue], [NewValue], [Summary], [DetailJson], [Source], [PerformedBy], [ReferenceType], [ReferenceId], [CorrelationId], [IsLegacy]
+            SELECT [Id], [TimeUtc], [Category], [Action], [Status], [OldValue], [NewValue], [Summary], [DetailJson], [Source], [PerformedBy], [ActorType], [ReferenceType], [ReferenceId], [CorrelationId], [EventKey], [IsLegacy]
             FROM #Activity
             WHERE (@status IS NULL OR [Status] = @status)
             ORDER BY [TimeUtc] DESC, [Id] DESC, [IsLegacy]
@@ -225,9 +238,11 @@ public sealed class DeviceActivityLogService(
                     DetailJson = DeviceActivitySanitizer.Sanitize(ReadText(reader, "DetailJson")),
                     Source = ReadText(reader, "Source"),
                     PerformedBy = ReadText(reader, "PerformedBy"),
+                    ActorType = ReadText(reader, "ActorType"),
                     ReferenceType = ReadText(reader, "ReferenceType"),
                     ReferenceId = ReadText(reader, "ReferenceId"),
                     CorrelationId = ReadText(reader, "CorrelationId"),
+                    EventKey = ReadText(reader, "EventKey"),
                     IsLegacy = reader["IsLegacy"] != DBNull.Value && Convert.ToBoolean(reader["IsLegacy"])
                 });
             }
@@ -269,17 +284,39 @@ public sealed class DeviceActivityLogService(
                     [Summary] nvarchar(500) NOT NULL,
                     [DetailJson] nvarchar(max) NULL,
                     [Source] nvarchar(50) NULL,
+                    [ActorType] nvarchar(30) NULL,
                     [UserId] int NULL,
                     [PerformedBy] nvarchar(250) NULL,
                     [ReferenceType] nvarchar(50) NULL,
                     [ReferenceId] nvarchar(100) NULL,
                     [CorrelationId] nvarchar(100) NULL,
+                    [EventKey] nvarchar(250) NULL,
+                    [OccurredAtUtc] datetime2 NOT NULL CONSTRAINT [DF_TblDeviceActivityLog_OccurredAtUtc] DEFAULT SYSUTCDATETIME(),
+                    [RecordedAtUtc] datetime2 NOT NULL CONSTRAINT [DF_TblDeviceActivityLog_RecordedAtUtc] DEFAULT SYSUTCDATETIME(),
                     [CreatedAtUtc] datetime2 NOT NULL CONSTRAINT [DF_TblDeviceActivityLog_CreatedAtUtc] DEFAULT SYSUTCDATETIME()
                 );
             END;
 
+            IF COL_LENGTH(N'[dbo].[TblDeviceActivityLog]', N'ActorType') IS NULL
+                ALTER TABLE [dbo].[TblDeviceActivityLog] ADD [ActorType] nvarchar(30) NULL;
+            IF COL_LENGTH(N'[dbo].[TblDeviceActivityLog]', N'EventKey') IS NULL
+                ALTER TABLE [dbo].[TblDeviceActivityLog] ADD [EventKey] nvarchar(250) NULL;
+            IF COL_LENGTH(N'[dbo].[TblDeviceActivityLog]', N'OccurredAtUtc') IS NULL
+                ALTER TABLE [dbo].[TblDeviceActivityLog] ADD [OccurredAtUtc] datetime2 NOT NULL CONSTRAINT [DF_TblDeviceActivityLog_OccurredAtUtc_Existing] DEFAULT SYSUTCDATETIME() WITH VALUES;
+            IF COL_LENGTH(N'[dbo].[TblDeviceActivityLog]', N'RecordedAtUtc') IS NULL
+                ALTER TABLE [dbo].[TblDeviceActivityLog] ADD [RecordedAtUtc] datetime2 NOT NULL CONSTRAINT [DF_TblDeviceActivityLog_RecordedAtUtc_Existing] DEFAULT SYSUTCDATETIME() WITH VALUES;
+
+            UPDATE [dbo].[TblDeviceActivityLog]
+            SET [OccurredAtUtc] = [CreatedAtUtc]
+            WHERE [OccurredAtUtc] IS NULL;
+            UPDATE [dbo].[TblDeviceActivityLog]
+            SET [RecordedAtUtc] = [CreatedAtUtc]
+            WHERE [RecordedAtUtc] IS NULL;
+
             IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_TblDeviceActivityLog_Device_CreatedAtUtc' AND object_id = OBJECT_ID(N'[dbo].[TblDeviceActivityLog]'))
                 CREATE INDEX [IX_TblDeviceActivityLog_Device_CreatedAtUtc] ON [dbo].[TblDeviceActivityLog]([DeviceId], [CreatedAtUtc] DESC);
+            IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_TblDeviceActivityLog_Device_OccurredAtUtc' AND object_id = OBJECT_ID(N'[dbo].[TblDeviceActivityLog]'))
+                CREATE INDEX [IX_TblDeviceActivityLog_Device_OccurredAtUtc] ON [dbo].[TblDeviceActivityLog]([DeviceId], [OccurredAtUtc] DESC);
             IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_TblDeviceActivityLog_Device_Category_CreatedAtUtc' AND object_id = OBJECT_ID(N'[dbo].[TblDeviceActivityLog]'))
                 CREATE INDEX [IX_TblDeviceActivityLog_Device_Category_CreatedAtUtc] ON [dbo].[TblDeviceActivityLog]([DeviceId], [Category], [CreatedAtUtc] DESC);
             IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_TblDeviceActivityLog_Device_Status_CreatedAtUtc' AND object_id = OBJECT_ID(N'[dbo].[TblDeviceActivityLog]'))
@@ -288,6 +325,8 @@ public sealed class DeviceActivityLogService(
                 CREATE INDEX [IX_TblDeviceActivityLog_CorrelationId] ON [dbo].[TblDeviceActivityLog]([CorrelationId]) WHERE [CorrelationId] IS NOT NULL;
             IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_TblDeviceActivityLog_Reference' AND object_id = OBJECT_ID(N'[dbo].[TblDeviceActivityLog]'))
                 CREATE INDEX [IX_TblDeviceActivityLog_Reference] ON [dbo].[TblDeviceActivityLog]([ReferenceType], [ReferenceId]) WHERE [ReferenceType] IS NOT NULL AND [ReferenceId] IS NOT NULL;
+            IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_TblDeviceActivityLog_EventKey' AND object_id = OBJECT_ID(N'[dbo].[TblDeviceActivityLog]'))
+                CREATE UNIQUE INDEX [UX_TblDeviceActivityLog_EventKey] ON [dbo].[TblDeviceActivityLog]([EventKey]) WHERE [EventKey] IS NOT NULL;
             """;
         await using var command = new SqlCommand(query, connection);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -298,6 +337,32 @@ public sealed class DeviceActivityLogService(
         value = value?.Trim();
         return string.IsNullOrWhiteSpace(value) || value.Equals("All", StringComparison.OrdinalIgnoreCase) ? null : value;
     }
+
+    private static DateTime? ToUtcFromVietnamDate(DateTime? localDate)
+    {
+        if (!localDate.HasValue)
+        {
+            return null;
+        }
+
+        var vietnamUnspecified = DateTime.SpecifyKind(localDate.Value.Date, DateTimeKind.Unspecified);
+        return TimeZoneInfo.ConvertTimeToUtc(vietnamUnspecified, ResolveVietnamTimeZone());
+    }
+
+    private static TimeZoneInfo ResolveVietnamTimeZone()
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh");
+        }
+    }
+
+    private static bool IsDuplicateKey(SqlException exception) =>
+        exception.Number is 2601 or 2627;
 
     private static object DbText(string? value, int maxLength = 0)
     {

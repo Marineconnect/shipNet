@@ -1690,7 +1690,15 @@
     if (formFields.resumeKvh) formFields.resumeKvh.value = "false";
     const invoiceId = formFields.id?.value || "";
     try {
-      const response = await fetch(`${kvhPaymentResumePrecheckAction}?invoiceId=${encodeURIComponent(invoiceId)}&subscriptionId=@Model.Subscription.Id`, { headers: { "Accept": "application/json" } });
+      const token = updateInvoiceForm.querySelector("input[name='__RequestVerificationToken']")?.value || "";
+      const body = new FormData();
+      body.append("invoiceId", invoiceId);
+      body.append("subscriptionId", "@Model.Subscription.Id");
+      if (token) body.append("__RequestVerificationToken", token);
+      const response = await fetch(kvhPaymentResumePrecheckAction, { method: "POST", headers: { "Accept": "application/json" }, body });
+      if (!response.ok) {
+        throw new Error(`precheck_http_${response.status}`);
+      }
       const data = await response.json();
       if (data.success && data.canResume) {
         const message = [
@@ -1707,9 +1715,23 @@
         }
       } else if (data.success && data.kvhStatus) {
         window.alert(`Subscription tren KVH dang ${data.kvhStatus}. Khong can Resume.`);
+      } else if (!data.success) {
+        const shouldContinue = window.confirm([
+          "Khong kiem tra duoc trang thai KVH.",
+          "",
+          data.message || "Precheck KVH that bai.",
+          "",
+          "Tiep tuc cap nhat invoice thanh Paid ma KHONG gui lenh Resume KVH?"
+        ].join("\n"));
+        if (!shouldContinue) return;
       }
     } catch {
-      window.alert("Khong the precheck KVH. Invoice se chi cap nhat thanh toan.");
+      const shouldContinue = window.confirm([
+        "Khong the precheck KVH.",
+        "",
+        "Tiep tuc cap nhat invoice thanh Paid ma KHONG gui lenh Resume KVH?"
+      ].join("\n"));
+      if (!shouldContinue) return;
     }
 
     updateInvoiceForm.dataset.kvhResumeChecked = "true";

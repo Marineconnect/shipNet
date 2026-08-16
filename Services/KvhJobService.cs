@@ -181,12 +181,13 @@ public sealed class KvhJobService(
                 ? KvhVerificationStatuses.Timeout
                 : KvhVerificationStatuses.Mismatch;
         var errorCode = result.Success ? string.Empty : result.ErrorCode;
-        await CompleteCommandAsync(command.Id, finalStatus, KvhJobStatuses.Success, jobResponseJson, result.ResponseJson, errorCode, result.Message, cancellationToken, verificationStatus);
-
-        if (result.Success && normalizedCommandType is
+        var isSubscriptionCommand = normalizedCommandType is
             KvhCommandTypes.SubscriptionPause or
             KvhCommandTypes.SubscriptionResume or
-            KvhCommandTypes.SubscriptionCancelSchedule)
+            KvhCommandTypes.SubscriptionCancelSchedule;
+        await CompleteCommandAsync(command.Id, finalStatus, KvhJobStatuses.Success, jobResponseJson, result.ResponseJson, errorCode, result.Message, cancellationToken, verificationStatus, writeActivity: !isSubscriptionCommand || !result.Success);
+
+        if (result.Success && isSubscriptionCommand)
         {
             try
             {
@@ -205,6 +206,7 @@ public sealed class KvhJobService(
                         command.DeviceId,
                         syncResult.ErrorCode,
                         syncResult.MessageEn);
+                    await WriteSubscriptionCompletionAfterSyncSafeAsync(command, normalizedCommandType, false, "subscription_sync_failed", syncResult.MessageEn, cancellationToken);
                 }
                 else
                 {
@@ -213,6 +215,7 @@ public sealed class KvhJobService(
                         command.Id,
                         command.DeviceId,
                         syncResult.ReturnedCount);
+                    await WriteSubscriptionCompletionAfterSyncSafeAsync(command, normalizedCommandType, true, string.Empty, string.Empty, cancellationToken);
                 }
             }
             catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
@@ -222,6 +225,7 @@ public sealed class KvhJobService(
                     "KVH command {CommandId} succeeded, but the post-command subscription sync threw an exception for device {DeviceId}.",
                     command.Id,
                     command.DeviceId);
+                await WriteSubscriptionCompletionAfterSyncSafeAsync(command, normalizedCommandType, false, ex.GetBaseException().GetType().Name, ex.GetBaseException().Message, cancellationToken);
             }
         }
     }
@@ -543,7 +547,7 @@ public sealed class KvhJobService(
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private async Task CompleteCommandAsync(long commandId, string commandStatus, string jobStatus, string? jobResponseJson, string? verificationResponseJson, string? errorCode, string? errorMessage, CancellationToken cancellationToken, string? verificationStatus = null)
+    private async Task CompleteCommandAsync(long commandId, string commandStatus, string jobStatus, string? jobResponseJson, string? verificationResponseJson, string? errorCode, string? errorMessage, CancellationToken cancellationToken, string? verificationStatus = null, bool writeActivity = true)
     {
         const string query = """
             UPDATE [dbo].[TblKvhCommand]
@@ -570,7 +574,10 @@ public sealed class KvhJobService(
         command.Parameters.Add("@errorCode", SqlDbType.NVarChar, 100).Value = errorCode ?? string.Empty;
         command.Parameters.Add("@errorMessage", SqlDbType.NVarChar, -1).Value = errorMessage ?? string.Empty;
         await command.ExecuteNonQueryAsync(cancellationToken);
-        await WriteCommandCompletionActivitySafeAsync(commandId, commandStatus, verificationStatus, errorCode, errorMessage, cancellationToken);
+        if (writeActivity)
+        {
+            await WriteCommandCompletionActivitySafeAsync(commandId, commandStatus, verificationStatus, errorCode, errorMessage, cancellationToken);
+        }
     }
 
     private async Task WriteCommandCompletionActivitySafeAsync(long commandId, string commandStatus, string? verificationStatus, string? errorCode, string? errorMessage, CancellationToken cancellationToken)
@@ -597,11 +604,14 @@ public sealed class KvhJobService(
             var success = commandStatus.Equals(KvhCommandStatuses.Completed, StringComparison.OrdinalIgnoreCase)
                 || commandStatus.Equals(KvhCommandStatuses.Verified, StringComparison.OrdinalIgnoreCase)
                 || commandStatus.Equals(KvhCommandStatuses.Success, StringComparison.OrdinalIgnoreCase);
-            var (category, action) = ResolveCompletionActivity(commandType, success, verificationStatus);
+            var requestedValue = reader["RequestedValue"]?.ToString() ?? string.Empty;
+            var (category, action) = ResolveCompletionActivity(commandType, success, requestedValue);
             if (string.IsNullOrWhiteSpace(action))
             {
                 return;
             }
+            var oldValue = ResolveCompletionOldValue(commandType, requestedValue, success);
+            var newValue = ResolveCompletionNewValue(commandType, requestedValue, success);
 
             await deviceActivityLogService.WriteAsync(new DeviceActivityLogEntry
             {
@@ -610,15 +620,18 @@ public sealed class KvhJobService(
                 Category = category,
                 Action = action,
                 Status = success ? DeviceActivityStatuses.Succeeded : DeviceActivityStatuses.Failed,
-                NewValue = success ? commandStatus : errorCode,
+                OldValue = oldValue,
+                NewValue = newValue,
                 Summary = success ? $"KVH command {commandType} completed." : $"KVH command {commandType} failed.",
                 DetailJson = DeviceActivityLogEntry.ToSafeJson(new { commandId, commandType, commandStatus, verificationStatus, errorCode, errorMessage }),
                 Source = DeviceActivitySources.KvhWorker,
+                ActorType = DeviceActivityActorTypes.System,
                 UserId = reader["RequestedByUserId"] == DBNull.Value ? null : Convert.ToInt32(reader["RequestedByUserId"]),
-                PerformedBy = reader["RequestedBy"]?.ToString(),
+                PerformedBy = "KVH Worker",
                 ReferenceType = "KVH_COMMAND",
                 ReferenceId = commandId.ToString(),
-                CorrelationId = reader["JobId"]?.ToString() ?? commandId.ToString()
+                CorrelationId = reader["JobId"]?.ToString() ?? commandId.ToString(),
+                EventKey = $"{action}:{Convert.ToInt32(reader["DeviceId"])}:{commandId}"
             }, cancellationToken);
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
@@ -627,19 +640,157 @@ public sealed class KvhJobService(
         }
     }
 
-    private static (string Category, string Action) ResolveCompletionActivity(string commandType, bool success, string? verificationStatus)
+    private async Task WriteSubscriptionCompletionAfterSyncSafeAsync(KvhCommand command, string commandType, bool syncSucceeded, string errorCode, string errorMessage, CancellationToken cancellationToken)
     {
+        try
+        {
+            var current = syncSucceeded ? await GetCurrentKvhSubscriptionStateAsync(command.DeviceId, command.KvhSubscriptionId, cancellationToken) : null;
+            var confirmed = commandType switch
+            {
+                KvhCommandTypes.SubscriptionResume => current is not null && IsActiveSubscriptionStatus(current.Status),
+                KvhCommandTypes.SubscriptionPause => current is not null && IsPausedSubscriptionStatus(current.Status),
+                KvhCommandTypes.SubscriptionCancelSchedule => current is not null && string.IsNullOrWhiteSpace(current.ScheduledAction),
+                _ => false
+            };
+            var action = commandType switch
+            {
+                KvhCommandTypes.SubscriptionResume => confirmed ? DeviceActivityActions.SubscriptionResumed : DeviceActivityActions.SubscriptionResumeFailed,
+                KvhCommandTypes.SubscriptionPause => confirmed ? DeviceActivityActions.SubscriptionPaused : DeviceActivityActions.SubscriptionPauseFailed,
+                KvhCommandTypes.SubscriptionCancelSchedule => confirmed ? DeviceActivityActions.SubscriptionCancelScheduleCompleted : DeviceActivityActions.SubscriptionCancelScheduleFailed,
+                _ => string.Empty
+            };
+            if (string.IsNullOrWhiteSpace(action))
+            {
+                return;
+            }
+
+            await deviceActivityLogService.WriteAsync(new DeviceActivityLogEntry
+            {
+                DeviceId = command.DeviceId,
+                TenantId = await GetDeviceTenantIdAsync(command.DeviceId, cancellationToken),
+                Category = DeviceActivityCategories.Subscription,
+                Action = action,
+                Status = confirmed ? DeviceActivityStatuses.Succeeded : DeviceActivityStatuses.Failed,
+                OldValue = confirmed ? ResolveSubscriptionOldState(commandType) : null,
+                NewValue = confirmed ? ResolveSubscriptionNewState(commandType, current) : current?.Status,
+                Summary = confirmed ? $"KVH subscription {commandType} completed after sync." : $"KVH subscription {commandType} could not be confirmed after sync.",
+                DetailJson = DeviceActivityLogEntry.ToSafeJson(new { commandId = command.Id, commandType, command.JobId, command.KvhSubscriptionId, currentStatus = current?.Status, currentScheduledAction = current?.ScheduledAction, errorCode, errorMessage }),
+                Source = DeviceActivitySources.KvhWorker,
+                ActorType = DeviceActivityActorTypes.System,
+                PerformedBy = "KVH Worker",
+                ReferenceType = "KVH_COMMAND",
+                ReferenceId = command.Id.ToString(),
+                CorrelationId = string.IsNullOrWhiteSpace(command.JobId) ? command.Id.ToString() : command.JobId,
+                EventKey = $"{action}:{command.DeviceId}:{command.Id}"
+            }, cancellationToken);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(exception, "Failed to write KVH subscription completion activity after sync. CommandId={CommandId}", command.Id);
+        }
+    }
+
+    private static (string Category, string Action) ResolveCompletionActivity(string commandType, bool success, string requestedValue)
+    {
+        var requestedEnabled = TryReadRequestedBool(requestedValue, "enabled");
         return commandType switch
         {
             KvhCommandTypes.WifiUpdate => (DeviceActivityCategories.Networking, success ? DeviceActivityActions.WifiUpdateCompleted : DeviceActivityActions.WifiUpdateFailed),
             KvhCommandTypes.Reboot => (DeviceActivityCategories.Networking, success ? DeviceActivityActions.RouterRebootCompleted : DeviceActivityActions.RouterRebootFailed),
-            KvhCommandTypes.DataOptIn => (DeviceActivityCategories.Data, success ? DeviceActivityActions.DataOptInCompleted : DeviceActivityActions.DataOptOutCompleted),
-            KvhCommandTypes.SubscriptionResume => (DeviceActivityCategories.Subscription, success ? DeviceActivityActions.SubscriptionResumed : DeviceActivityActions.SubscriptionResumeFailed),
-            KvhCommandTypes.SubscriptionPause => (DeviceActivityCategories.Subscription, success ? DeviceActivityActions.SubscriptionPaused : DeviceActivityActions.SubscriptionPauseRequested),
-            KvhCommandTypes.SubscriptionCancelSchedule => (DeviceActivityCategories.Subscription, DeviceActivityActions.SubscriptionCancelScheduleRequested),
+            KvhCommandTypes.DataOptIn => (DeviceActivityCategories.Data, requestedEnabled == false
+                ? success ? DeviceActivityActions.DataOptOutCompleted : DeviceActivityActions.DataOptOutFailed
+                : success ? DeviceActivityActions.DataOptInCompleted : DeviceActivityActions.DataOptInFailed),
+            KvhCommandTypes.SubscriptionResume => (DeviceActivityCategories.Subscription, DeviceActivityActions.SubscriptionResumeFailed),
+            KvhCommandTypes.SubscriptionPause => (DeviceActivityCategories.Subscription, DeviceActivityActions.SubscriptionPauseFailed),
+            KvhCommandTypes.SubscriptionCancelSchedule => (DeviceActivityCategories.Subscription, DeviceActivityActions.SubscriptionCancelScheduleFailed),
             _ => (string.Empty, string.Empty)
         };
     }
+
+    private async Task<KvhSubscriptionState?> GetCurrentKvhSubscriptionStateAsync(int deviceId, long? kvhSubscriptionId, CancellationToken cancellationToken)
+    {
+        const string query = """
+            SELECT TOP 1 [ID], [Status], [ScheduledAction]
+            FROM [dbo].[TblKvhSubscription]
+            WHERE [DeviceId] = @deviceId
+              AND [IsCurrent] = 1
+              AND (@kvhSubscriptionId IS NULL OR [ID] = @kvhSubscriptionId)
+            ORDER BY [LastSeenAtUtc] DESC, [ID] DESC
+            """;
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new SqlCommand(query, connection);
+        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = deviceId;
+        command.Parameters.Add("@kvhSubscriptionId", SqlDbType.BigInt).Value = (object?)kvhSubscriptionId ?? DBNull.Value;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return new KvhSubscriptionState(
+            Convert.ToInt64(reader["ID"]),
+            reader["Status"]?.ToString() ?? string.Empty,
+            reader["ScheduledAction"]?.ToString() ?? string.Empty);
+    }
+
+    private async Task<int?> GetDeviceTenantIdAsync(int deviceId, CancellationToken cancellationToken)
+    {
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new SqlCommand("SELECT TOP 1 [TenantID] FROM [dbo].[TblDevices] WHERE [ID] = @deviceId", connection);
+        command.Parameters.Add("@deviceId", SqlDbType.Int).Value = deviceId;
+        var scalar = await command.ExecuteScalarAsync(cancellationToken);
+        return scalar is null or DBNull ? null : Convert.ToInt32(scalar);
+    }
+
+    private static string? ResolveCompletionOldValue(string commandType, string requestedValue, bool success)
+    {
+        if (!success)
+        {
+            return null;
+        }
+
+        return commandType == KvhCommandTypes.DataOptIn ? null : null;
+    }
+
+    private static string? ResolveCompletionNewValue(string commandType, string requestedValue, bool success)
+    {
+        if (!success)
+        {
+            return null;
+        }
+
+        if (commandType == KvhCommandTypes.DataOptIn)
+        {
+            return TryReadRequestedBool(requestedValue, "enabled") == false ? "off" : "on";
+        }
+
+        return null;
+    }
+
+    private static string? ResolveSubscriptionOldState(string commandType) => commandType switch
+    {
+        KvhCommandTypes.SubscriptionResume => "paused",
+        KvhCommandTypes.SubscriptionPause => "active",
+        KvhCommandTypes.SubscriptionCancelSchedule => "cancel_scheduled",
+        _ => null
+    };
+
+    private static string? ResolveSubscriptionNewState(string commandType, KvhSubscriptionState? current) => commandType switch
+    {
+        KvhCommandTypes.SubscriptionResume => "active",
+        KvhCommandTypes.SubscriptionPause => "paused",
+        KvhCommandTypes.SubscriptionCancelSchedule => string.IsNullOrWhiteSpace(current?.ScheduledAction) ? null : current.ScheduledAction,
+        _ => current?.Status
+    };
+
+    private static bool IsActiveSubscriptionStatus(string status) =>
+        status.Contains("ACTIVE", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsPausedSubscriptionStatus(string status) =>
+        status.Contains("SUSPEND", StringComparison.OrdinalIgnoreCase) ||
+        status.Contains("PAUSE", StringComparison.OrdinalIgnoreCase);
 
     private TimeSpan ResolveBackoff(int pollCount)
     {
@@ -784,6 +935,8 @@ public sealed class KvhJobService(
         public bool Refreshed { get; set; }
         public string ErrorMessage { get; set; } = string.Empty;
     }
+
+    private sealed record KvhSubscriptionState(long Id, string Status, string ScheduledAction);
 
     private sealed class VerificationResult
     {
