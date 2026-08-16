@@ -193,12 +193,15 @@
 	                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5c5.23 0 9.27 4.11 10.57 6-.85 1.23-2.98 3.64-6.06 5.08C15.1 16.75 13.57 17 12 17c-5.23 0-9.27-4.11-10.57-6C2.73 9.11 6.77 5 12 5Zm0 2c-3.73 0-6.93 2.46-8.43 4 1.5 1.54 4.7 4 8.43 4s6.93-2.46 8.43-4C18.93 9.46 15.73 7 12 7Zm0 1.5A2.5 2.5 0 1 1 9.5 11 2.5 2.5 0 0 1 12 8.5Zm0 2A.5.5 0 1 0 12.5 11 .5.5 0 0 0 12 10.5Z"/></svg>
 	                      <span data-i18n="view_action">Chi ti?t</span>
 	                    </button>
-                    @if (Model.CanManageDevices)
+                    @if (Model.CanCreateSubscriptions)
                     {
                       <a class="table-action-menu-item" href="@Url.Action("Index", "MonthlySubscription", new { openCreate = true, deviceId = device.Id })">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z"/></svg>
                         <span>Tạo sub</span>
                       </a>
+                    }
+                    @if (Model.CanManageDevices)
+                    {
                       <button type="button" class="table-action-menu-item js-edit-device" data-device-id="@device.Id">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.86 3.59a2 2 0 0 1 2.83 0l.72.72a2 2 0 0 1 0 2.83L8.75 18.8 4 20l1.2-4.75L16.86 3.59Zm1.41 1.41L7 16.27 6.55 17.45 7.73 17 19 5.73 18.27 5Z"/></svg>
                         <span data-i18n="edit_action">S?a</span>
@@ -262,6 +265,7 @@
         <button type="button" class="detail-tab-btn" data-detail-tab="telemetry" data-i18n="detail_tab_telemetry">Telemetry</button>
         <button type="button" class="detail-tab-btn" data-detail-tab="plan" data-i18n="detail_tab_plan">Plan Management</button>
         <button type="button" class="detail-tab-btn" data-detail-tab="networking" data-i18n="detail_tab_networking">Networking</button>
+        <button type="button" class="detail-tab-btn" data-detail-tab="activity" data-i18n="detail_tab_activity">Activity Log</button>
       </div>
       <div class="device-detail-content">
         <div class="detail-loading" id="detailLoading" hidden>
@@ -373,6 +377,58 @@
               </form>
             </section>
           </div>
+        </section>
+        <section class="detail-tab-panel" data-detail-panel="activity" hidden>
+          <section class="detail-panel">
+            <div class="detail-panel-head">
+              <span data-i18n="detail_activity_title">Activity Log</span>
+              <span class="detail-network-status" id="detailActivityStatus" data-i18n="detail_activity_loading">Loading activity...</span>
+            </div>
+            <div class="detail-activity-filters">
+              <select id="detailActivityCategory" class="input">
+                <option value="">All</option>
+                <option value="BILLING">Billing</option>
+                <option value="PAYMENT">Payment</option>
+                <option value="SUBSCRIPTION">Subscription</option>
+                <option value="KVH">KVH</option>
+                <option value="DATA">Data</option>
+                <option value="NETWORKING">Networking</option>
+                <option value="PLAN">Plan</option>
+                <option value="DEVICE">Device</option>
+              </select>
+              <select id="detailActivityStatusFilter" class="input">
+                <option value="">All</option>
+                <option value="Succeeded">Succeeded</option>
+                <option value="Failed">Failed</option>
+                <option value="Pending">Pending</option>
+                <option value="Requested">Requested</option>
+                <option value="Skipped">Skipped</option>
+              </select>
+              <input id="detailActivityFrom" class="input" type="date" />
+              <input id="detailActivityTo" class="input" type="date" />
+              <button type="button" class="detail-ghost-btn" id="detailActivityReload">Reload</button>
+            </div>
+            <div class="detail-activity-table-wrap">
+              <table class="detail-plan-table detail-activity-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Category</th>
+                    <th>Activity</th>
+                    <th>Change</th>
+                    <th>Performed By</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="detailActivityBody"></tbody>
+              </table>
+            </div>
+            <div class="detail-command-actions">
+              <button type="button" class="detail-ghost-btn" id="detailActivityPrev">Prev</button>
+              <span class="detail-network-status" id="detailActivityPage">1</span>
+              <button type="button" class="detail-ghost-btn" id="detailActivityNext">Next</button>
+            </div>
+          </section>
         </section>
         <section class="detail-tab-panel" data-detail-panel="telemetry" hidden>
           <section class="detail-chart-section">
@@ -1025,6 +1081,7 @@
   const deviceSearchIconButton = q("#deviceSearchIconButton");
   const initialPageData = JSON.parse(q("#initialDevicePageData").textContent);
   const canManageDevices = @Json.Serialize(Model.CanManageDevices);
+  const canCreateSubscriptions = @Json.Serialize(Model.CanCreateSubscriptions);
   const canViewMap = @Json.Serialize(Model.CanViewMap);
   const canManageDataOptIn = @Json.Serialize(Model.CanManageDataOptIn);
   const pageCache = new Map();
@@ -1042,6 +1099,7 @@
   const deleteDevicePlanAction = "@Url.Action("DeleteDevicePlan", "Dashboard")";
   const deviceDataOptInDataAction = "@Url.Action("DeviceDataOptInData", "Dashboard")";
   const updateDeviceDataOptInAction = "@Url.Action("UpdateDeviceDataOptIn", "Dashboard")";
+  const deviceActivityDataAction = "@Url.Action("DeviceActivityData", "Dashboard")";
   const kvhCommandStatusAction = "@Url.Action("GetKvhCommandStatus", "Dashboard")";
   const recentKvhCommandsAction = "@Url.Action("GetRecentKvhCommands", "Dashboard")";
   const telemetryTimelineAction = "@Url.Action("TelemetryTimeline", "Dashboard")";
@@ -1066,6 +1124,16 @@
   const detailPlanFinalOverChargePrice = q("#detailPlanFinalOverChargePrice");
   const detailPlanSaveButton = q("#detailPlanSaveButton");
   const detailPlanList = q("#detailPlanList");
+  const detailActivityStatus = q("#detailActivityStatus");
+  const detailActivityCategory = q("#detailActivityCategory");
+  const detailActivityStatusFilter = q("#detailActivityStatusFilter");
+  const detailActivityFrom = q("#detailActivityFrom");
+  const detailActivityTo = q("#detailActivityTo");
+  const detailActivityReload = q("#detailActivityReload");
+  const detailActivityBody = q("#detailActivityBody");
+  const detailActivityPrev = q("#detailActivityPrev");
+  const detailActivityNext = q("#detailActivityNext");
+  const detailActivityPage = q("#detailActivityPage");
   const dataOptInCurrent = q("#dataOptInCurrent");
   const dataOptInAction = q("#dataOptInAction");
   const dataOptInMessage = q("#dataOptInMessage");
@@ -1086,6 +1154,8 @@
   let selectedTelemetryRangeSeconds = 900;
   let currentDetailDeviceId = 0;
   let currentDetailDeviceCode = "";
+  let currentActivityPage = 1;
+  let currentActivityTotalItems = 0;
   let currentTelemetryByMetric = new Map();
   let kvhCommandPollTimer = null;
   let openActionMenu = null;
@@ -1773,6 +1843,10 @@
     detailPlanList.innerHTML = `<div class="detail-plan-empty">${text("detail_plan_empty")}</div>`;
     detailPlanStatus.textContent = text("detail_plan_loading");
     detailPlanAddButton.disabled = !canManageDevices;
+    detailActivityBody.innerHTML = `<tr><td colspan="6">No activity.</td></tr>`;
+    detailActivityStatus.textContent = "Loading activity...";
+    detailActivityPage.textContent = "1";
+    currentActivityPage = 1;
     closeDevicePlanEditor();
     q("#detailTotalUsage").textContent = "-";
     q("#detailTotalUsageLimit").textContent = "-";
@@ -1964,6 +2038,75 @@
       }
       detailNetworkStatus.textContent = `${text("detail_network_error")}: ${error.message || text("generic_error")}`;
     }
+  }
+
+  async function loadActivityData(page = 1, requestId = currentDetailRequestId) {
+    if (!currentDetailDeviceId || requestId !== currentDetailRequestId) return;
+    currentActivityPage = Math.max(1, page);
+    detailActivityStatus.textContent = "Loading activity...";
+    const params = new URLSearchParams({
+      id: `${currentDetailDeviceId}`,
+      page: `${currentActivityPage}`,
+      pageSize: "50",
+      category: detailActivityCategory.value,
+      status: detailActivityStatusFilter.value,
+      dateFrom: detailActivityFrom.value,
+      dateTo: detailActivityTo.value
+    });
+    try {
+      const response = await fetch(`${deviceActivityDataAction}?${params.toString()}`, { headers: { "Accept": "application/json" } });
+      const data = await response.json();
+      if (!response.ok || data.success === false) throw new Error(data.message || "Cannot load activity log.");
+      if (requestId !== currentDetailRequestId) return;
+      currentActivityTotalItems = Number(data.totalItems || data.TotalItems || 0);
+      renderActivityRows(data.items || data.Items || []);
+      const maxPage = Math.max(1, Math.ceil(currentActivityTotalItems / 50));
+      detailActivityPage.textContent = `${currentActivityPage} / ${maxPage}`;
+      detailActivityPrev.disabled = currentActivityPage <= 1;
+      detailActivityNext.disabled = currentActivityPage >= maxPage;
+      detailActivityStatus.textContent = currentActivityTotalItems > 0 ? `${currentActivityTotalItems} activities` : "No activity";
+    } catch (error) {
+      detailActivityBody.innerHTML = `<tr><td colspan="6">${escapeHtml(error.message || "Cannot load activity log.")}</td></tr>`;
+      detailActivityStatus.textContent = "Activity load failed";
+    }
+  }
+
+  function renderActivityRows(items) {
+    if (!items.length) {
+      detailActivityBody.innerHTML = `<tr><td colspan="6">No activity.</td></tr>`;
+      return;
+    }
+
+    detailActivityBody.innerHTML = items.map((item, index) => {
+      const time = item.timeDisplay ?? item.TimeDisplay ?? item.timeUtc ?? item.TimeUtc ?? "-";
+      const category = item.category ?? item.Category ?? "-";
+      const action = item.action ?? item.Action ?? "-";
+      const status = item.status ?? item.Status ?? "-";
+      const change = item.change ?? item.Change ?? "-";
+      const performedBy = item.performedBy ?? item.PerformedBy ?? "-";
+      const summary = item.summary ?? item.Summary ?? "";
+      const detailJson = item.detailJson ?? item.DetailJson ?? "";
+      const legacy = (item.isLegacy ?? item.IsLegacy) ? " legacy" : "";
+      return `
+        <tr class="detail-activity-row${legacy}" data-activity-index="${index}">
+          <td>${escapeHtml(time)}</td>
+          <td>${escapeHtml(category)}</td>
+          <td>${escapeHtml(action)}<div class="detail-muted">${escapeHtml(summary)}</div></td>
+          <td>${escapeHtml(change)}</td>
+          <td>${escapeHtml(performedBy || "-")}</td>
+          <td>${escapeHtml(status)}</td>
+        </tr>
+        <tr class="detail-activity-detail" data-activity-detail="${index}" hidden>
+          <td colspan="6"><pre>${escapeHtml(detailJson || summary || "-")}</pre></td>
+        </tr>`;
+    }).join("");
+
+    detailActivityBody.querySelectorAll(".detail-activity-row").forEach((row) => {
+      row.addEventListener("click", () => {
+        const detailRow = detailActivityBody.querySelector(`[data-activity-detail="${row.dataset.activityIndex}"]`);
+        if (detailRow) detailRow.hidden = !detailRow.hidden;
+      });
+    });
   }
 
   function formatPrice(value) {
@@ -2550,6 +2693,9 @@
         detailTelemetryReload?.classList.remove("is-loading");
       }
     }
+    if (tabName === "activity") {
+      loadActivityData(1);
+    }
   }
 
   function antiForgeryToken(formElement) {
@@ -2621,11 +2767,13 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5c5.23 0 9.27 4.11 10.57 6-.85 1.23-2.98 3.64-6.06 5.08C15.1 16.75 13.57 17 12 17c-5.23 0-9.27-4.11-10.57-6C2.73 9.11 6.77 5 12 5Zm0 2c-3.73 0-6.93 2.46-8.43 4 1.5 1.54 4.7 4 8.43 4s6.93-2.46 8.43-4C18.93 9.46 15.73 7 12 7Zm0 1.5A2.5 2.5 0 1 1 9.5 11 2.5 2.5 0 0 1 12 8.5Zm0 2A.5.5 0 1 0 12.5 11 .5.5 0 0 0 12 10.5Z"/></svg>
           <span data-i18n="view_action">${text("view_action")}</span>
         </button>
-        ${canManageDevices ? `
+        ${canCreateSubscriptions ? `
         <a class="table-action-menu-item" href="${buildCreateSubscriptionUrl(deviceId)}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z"/></svg>
           <span>Tạo sub</span>
         </a>
+        ` : ""}
+        ${canManageDevices ? `
         <button type="button" class="table-action-menu-item js-edit-device" data-device-id="${deviceId}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.86 3.59a2 2 0 0 1 2.83 0l.72.72a2 2 0 0 1 0 2.83L8.75 18.8 4 20l1.2-4.75L16.86 3.59Zm1.41 1.41L7 16.27 6.55 17.45 7.73 17 19 5.73 18.27 5Z"/></svg>
           <span data-i18n="edit_action">${text("edit_action")}</span>
@@ -2799,7 +2947,8 @@
           loadTelemetryTimeline(requestId),
           loadNetworkingData(requestId),
           loadDevicePlanData(requestId),
-          loadDataOptInData(requestId)
+          loadDataOptInData(requestId),
+          loadActivityData(1, requestId)
         ]);
       }, 0);
       return;
@@ -3240,6 +3389,12 @@
     input.addEventListener("blur", () => formatMoneyInput(input));
   });
   detailPlanForm.addEventListener("submit", submitDevicePlan);
+  detailActivityReload.addEventListener("click", () => loadActivityData(1));
+  [detailActivityCategory, detailActivityStatusFilter, detailActivityFrom, detailActivityTo].forEach((input) => {
+    input.addEventListener("change", () => loadActivityData(1));
+  });
+  detailActivityPrev.addEventListener("click", () => loadActivityData(currentActivityPage - 1));
+  detailActivityNext.addEventListener("click", () => loadActivityData(currentActivityPage + 1));
   dataOptInAction?.addEventListener("click", submitDataOptInChange);
   q("#openDeviceModal")?.addEventListener("click", openCreateModal);
   q("#closeDeviceModal").addEventListener("click", closeCreateModal);

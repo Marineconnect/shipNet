@@ -10,6 +10,7 @@ namespace StarlinkDeviceManager.Controllers;
 public class MonthlySubscriptionController(
     IMonthlySubscriptionService subscriptionService,
     IInvoicePdfService invoicePdfService,
+    IKvhPaymentResumeService kvhPaymentResumeService,
     ITenantService tenantService,
     ISqlAuthService authService,
     ILogger<MonthlySubscriptionController> logger) : Controller
@@ -93,7 +94,8 @@ public class MonthlySubscriptionController(
             TotalItems = pageResult.TotalItems,
             IsTenantScoped = allowedTenantId.HasValue,
             CanManageSubscriptions = CanManageSubscriptions(currentUser),
-            OpenCreateModal = openCreate && CanManageSubscriptions(currentUser)
+            CanCreateSubscriptions = CanCreateSubscriptions(currentUser),
+            OpenCreateModal = openCreate && CanCreateSubscriptions(currentUser)
         });
     }
 
@@ -102,7 +104,7 @@ public class MonthlySubscriptionController(
     public async Task<IActionResult> Create(MonthlySubscriptionIndexViewModel requestModel)
     {
         var currentUser = await GetCurrentUserAsync();
-        if (!CanManageSubscriptions(currentUser))
+        if (!CanCreateSubscriptions(currentUser))
         {
             return Forbid();
         }
@@ -256,6 +258,35 @@ public class MonthlySubscriptionController(
         return RedirectToAction(nameof(Details), new { id = model.SubscriptionId });
     }
 
+    [HttpGet]
+    public async Task<IActionResult> KvhPaymentResumePrecheck(int invoiceId, int subscriptionId)
+    {
+        var currentUser = await GetCurrentUserAsync();
+        if (!CanManageSubscriptions(currentUser))
+        {
+            return Forbid();
+        }
+
+        var result = await kvhPaymentResumeService.PrecheckAsync(
+            invoiceId,
+            subscriptionId,
+            GetAllowedTenantId(currentUser),
+            GetAllowedDeviceId(currentUser),
+            HttpContext.RequestAborted);
+
+        return Json(new
+        {
+            success = result.Success,
+            message = result.Message,
+            deviceId = result.DeviceId,
+            deviceName = result.DeviceName,
+            vesselName = result.VesselName,
+            kitNumber = result.KitNumber,
+            kvhStatus = result.KvhStatus,
+            canResume = result.CanResume
+        });
+    }
+
     [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> UpdateInvoice(UpdateSubscriptionInvoiceViewModel model)
@@ -269,7 +300,36 @@ public class MonthlySubscriptionController(
         try
         {
             var (userId, username) = GetCurrentAuditContext();
-            await subscriptionService.UpdateInvoiceAsync(model, userId, username, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            var updateResult = await subscriptionService.UpdateInvoiceAsync(model, userId, username, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            if (model.ResumeKvh && updateResult.BecamePaid)
+            {
+                var resumeResult = await kvhPaymentResumeService.HandlePaidSubscriptionAsync(new KvhPaymentResumeRequest
+                {
+                    SubscriptionId = updateResult.SubscriptionId,
+                    Source = DeviceActivitySources.ManualInvoiceUpdate,
+                    UserId = userId,
+                    PerformedBy = username,
+                    ReferenceType = "INVOICE",
+                    ReferenceId = updateResult.InvoiceId.ToString(),
+                    CorrelationId = $"INV-{updateResult.InvoiceId}-{Guid.NewGuid():N}",
+                    AllowedTenantId = GetAllowedTenantId(currentUser),
+                    AllowedDeviceId = GetAllowedDeviceId(currentUser),
+                    DetailJson = DeviceActivityLogEntry.ToSafeJson(new { updateResult.InvoiceId, updateResult.InvoiceNumber, updateResult.OldStatus, updateResult.NewStatus })
+                }, HttpContext.RequestAborted);
+
+                if (!resumeResult.Success)
+                {
+                    TempData["SubscriptionWarning"] = $"Invoice da cap nhat Paid nhung KVH Resume that bai: {resumeResult.Message}";
+                }
+                else if (resumeResult.Skipped)
+                {
+                    TempData["SubscriptionWarning"] = $"Invoice da cap nhat Paid. KVH Resume duoc bo qua: {resumeResult.Message}";
+                }
+                else if (resumeResult.ResumeSubmitted)
+                {
+                    TempData["SubscriptionSuccess"] = "Cap nhat invoice thanh cong va da gui lenh Resume KVH.";
+                }
+            }
             TempData["SubscriptionSuccess"] = "Cập nhật invoice thành công.";
         }
         catch (Exception exception)
@@ -358,7 +418,12 @@ public class MonthlySubscriptionController(
 
     private static bool CanManageSubscriptions(AuthUserRecord? user)
     {
-        return user is not null && !user.IsViewOnly && !user.IsShipAdmin && !user.IsCrew;
+        return user is not null && !user.IsViewOnly && IsAdminAccount(user);
+    }
+
+    private static bool CanCreateSubscriptions(AuthUserRecord? user)
+    {
+        return user is not null && !user.IsViewOnly && !user.IsShipAdmin && !user.IsCrew && (IsAdminAccount(user) || IsTenantAdmin(user));
     }
 
     private static bool CanViewQrSessions(AuthUserRecord? user)
@@ -375,6 +440,11 @@ public class MonthlySubscriptionController(
     {
         return user is not null &&
             (user.IsAdmin || string.Equals(user.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsTenantAdmin(AuthUserRecord? user)
+    {
+        return user?.IsTenantUser == true && user.HasTenantScope;
     }
 
     private (int? UserId, string Username) GetCurrentAuditContext()

@@ -8,7 +8,7 @@ using StarlinkDeviceManager.Models;
 
 namespace StarlinkDeviceManager.Services;
 
-public class DeviceService(IConfiguration configuration, IHttpClientFactory httpClientFactory, IKvhCommandService kvhCommandService, IKvhSubscriptionService kvhSubscriptionService) : IDeviceService
+public class DeviceService(IConfiguration configuration, IHttpClientFactory httpClientFactory, IKvhCommandService kvhCommandService, IKvhSubscriptionService kvhSubscriptionService, IDeviceActivityLogService deviceActivityLogService) : IDeviceService
 {
     private const string CreateDeviceAuditAction = "created_Device";
     private const string UpdateDeviceAuditAction = "updated_Device";
@@ -702,6 +702,24 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         await InsertAuditAsync(connection, transaction, userId, request.DeviceId, $"Saved device pricing for plan '{planOption.PlanCode}' by '{username}'.", SaveDevicePlanAuditAction, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
+        await WriteActivitySafeAsync(new DeviceActivityLogEntry
+        {
+            DeviceId = request.DeviceId,
+            TenantId = device.TenantId,
+            Category = DeviceActivityCategories.Plan,
+            Action = created ? DeviceActivityActions.PlanAssigned : DeviceActivityActions.PlanUpdated,
+            Status = DeviceActivityStatuses.Succeeded,
+            NewValue = planOption.PlanCode,
+            Summary = created ? $"Assigned plan {planOption.PlanCode}." : $"Updated plan {planOption.PlanCode}.",
+            DetailJson = DeviceActivityLogEntry.ToSafeJson(new { request.PricingPlanId, planOption.PlanName, planOption.PlanCode, request.FinalPrice, request.FinalOverChargePrice }),
+            Source = DeviceActivitySources.Dashboard,
+            UserId = userId,
+            PerformedBy = username,
+            ReferenceType = "PLAN",
+            ReferenceId = request.PricingPlanId.ToString(),
+            CorrelationId = $"PLAN-{request.DeviceId}-{request.PricingPlanId}-{DateTime.UtcNow:yyyyMMddHHmmss}"
+        }, cancellationToken);
+
         var savedPrices = await GetDevicePlanPricesAsync(connection, request.DeviceId, cancellationToken);
         var savedPrice = savedPrices.FirstOrDefault(price => price.PricingPlanId == request.PricingPlanId);
         return new SaveDevicePlanResult
@@ -781,6 +799,24 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
 
         await InsertAuditAsync(connection, transaction, userId, request.DeviceId, $"Deleted device pricing plan ID {request.PricingPlanId} by '{username}'.", SaveDevicePlanAuditAction, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+
+        await WriteActivitySafeAsync(new DeviceActivityLogEntry
+        {
+            DeviceId = request.DeviceId,
+            TenantId = device.TenantId,
+            Category = DeviceActivityCategories.Plan,
+            Action = DeviceActivityActions.PlanRemoved,
+            Status = DeviceActivityStatuses.Succeeded,
+            OldValue = request.PricingPlanId.ToString(),
+            Summary = $"Removed device plan {request.PricingPlanId}.",
+            DetailJson = DeviceActivityLogEntry.ToSafeJson(new { request.PricingPlanId }),
+            Source = DeviceActivitySources.Dashboard,
+            UserId = userId,
+            PerformedBy = username,
+            ReferenceType = "PLAN",
+            ReferenceId = request.PricingPlanId.ToString(),
+            CorrelationId = $"PLAN-{request.DeviceId}-{request.PricingPlanId}-{DateTime.UtcNow:yyyyMMddHHmmss}"
+        }, cancellationToken);
 
         return new DeleteDevicePlanResult
         {
@@ -2188,6 +2224,23 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         command.Parameters.Add("@jobStatus", SqlDbType.NVarChar, 30).Value = KvhJobStatuses.Submitted;
         command.Parameters.Add("@verificationStatus", SqlDbType.NVarChar, 30).Value = DBNull.Value;
         var historyId = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
+        await WriteActivitySafeAsync(new DeviceActivityLogEntry
+        {
+            DeviceId = request.Id,
+            Category = DeviceActivityCategories.Data,
+            Action = request.Enabled ? DeviceActivityActions.DataOptInRequested : DeviceActivityActions.DataOptOutRequested,
+            Status = submit.Success ? DeviceActivityStatuses.Requested : DeviceActivityStatuses.Failed,
+            OldValue = submit.OldDataOptInStatus.HasValue ? (submit.OldDataOptInStatus.Value ? "on" : "off") : null,
+            NewValue = request.Enabled ? "on" : "off",
+            Summary = request.Enabled ? "Data opt-in command submitted." : "Data opt-out command submitted.",
+            DetailJson = DeviceActivityLogEntry.ToSafeJson(new { historyId, submit.CommandId, submit.JobId, submit.HttpStatusCode, submit.ErrorCode, submit.Message, submit.RawResponse }),
+            Source = DeviceActivitySources.Dashboard,
+            UserId = userId,
+            PerformedBy = performedBy,
+            ReferenceType = "DATA_OPT_IN_HISTORY",
+            ReferenceId = historyId.ToString(),
+            CorrelationId = submit.JobId ?? submit.CommandId?.ToString() ?? historyId.ToString()
+        }, cancellationToken);
         return new DeviceDataOptInHistoryItem
         {
             Id = historyId,
@@ -2232,6 +2285,23 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         command.Parameters.Add("@apiResponse", SqlDbType.NVarChar, -1).Value = apiResult.RawResponse ?? string.Empty;
         command.Parameters.Add("@jobId", SqlDbType.NVarChar, 200).Value = apiResult.JobId ?? string.Empty;
         var historyId = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
+        await WriteActivitySafeAsync(new DeviceActivityLogEntry
+        {
+            DeviceId = request.Id,
+            Category = DeviceActivityCategories.Data,
+            Action = request.Enabled ? DeviceActivityActions.DataOptInCompleted : DeviceActivityActions.DataOptOutCompleted,
+            Status = apiResult.Success ? DeviceActivityStatuses.Succeeded : DeviceActivityStatuses.Failed,
+            OldValue = oldStatus.HasValue ? (oldStatus.Value ? "on" : "off") : null,
+            NewValue = request.Enabled ? "on" : "off",
+            Summary = request.Enabled ? "Data opt-in completed." : "Data opt-out completed.",
+            DetailJson = DeviceActivityLogEntry.ToSafeJson(new { historyId, apiResult.JobId, apiResult.HttpStatusCode, apiResult.ErrorCode, apiResult.Message, apiResult.RawResponse }),
+            Source = DeviceActivitySources.Dashboard,
+            UserId = userId,
+            PerformedBy = performedBy,
+            ReferenceType = "DATA_OPT_IN_HISTORY",
+            ReferenceId = historyId.ToString(),
+            CorrelationId = apiResult.JobId ?? historyId.ToString()
+        }, cancellationToken);
         var historyItem = new DeviceDataOptInHistoryItem { Id = historyId, DeviceId = request.Id, UserId = userId, PerformedBy = performedBy, PerformedAtUtc = performedAtUtc, OldStatus = oldStatus, NewStatus = request.Enabled, ApiSuccess = apiResult.Success, HttpStatusCode = apiResult.HttpStatusCode, ApiResponse = apiResult.RawResponse, JobId = apiResult.JobId };
         return new DeviceDataOptInChangeResult { Success = apiResult.Success, ErrorCode = apiResult.ErrorCode, Message = apiResult.Message, MessageEn = apiResult.MessageEn, DeviceId = request.Id, TerminalId = terminalId, OldStatus = oldStatus, NewStatus = request.Enabled, HttpStatusCode = apiResult.HttpStatusCode, ApiResponse = apiResult.RawResponse, JobId = apiResult.JobId, HistoryItem = historyItem };
     }
@@ -2603,6 +2673,17 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         command.Parameters.Add("@logDetail", SqlDbType.NVarChar, -1).Value = logDetail;
         command.Parameters.AddWithValue("@deviceId", deviceId);
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private async Task WriteActivitySafeAsync(DeviceActivityLogEntry entry, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await deviceActivityLogService.WriteAsync(entry, cancellationToken);
+        }
+        catch when (!cancellationToken.IsCancellationRequested)
+        {
+        }
     }
 
     private async Task<(bool Success, string ErrorCode, string Message, string MessageEn, string RawResponse, string? AccessToken, DateTime? ExpiredTime)> RequestDeviceTokenAsync(

@@ -1,25 +1,25 @@
 {
   "format": 1,
   "restore": {
-    "D:\\MMC\\shipNet\\shipNet\\StarlinkDeviceManager.csproj": {}
+    "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\shipNet\\StarlinkDeviceManager.csproj": {}
   },
   "projects": {
-    "D:\\MMC\\shipNet\\shipNet\\StarlinkDeviceManager.csproj": {
+    "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\shipNet\\StarlinkDeviceManager.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\MMC\\shipNet\\shipNet\\StarlinkDeviceManager.csproj",
+        "projectUniqueName": "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\shipNet\\StarlinkDeviceManager.csproj",
         "projectName": "StarlinkDeviceManager",
-        "projectPath": "D:\\MMC\\shipNet\\shipNet\\StarlinkDeviceManager.csproj",
-        "packagesPath": "C:\\Users\\PC\\.nuget\\packages\\",
-        "outputPath": "D:\\MMC\\shipNet\\shipNet\\obj\\",
+        "projectPath": "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\shipNet\\StarlinkDeviceManager.csproj",
+        "packagesPath": "C:\\Users\\PH Laptop\\.nuget\\packages\\",
+        "outputPath": "D:\\Working\\MLTech\\Marineconnect\\projects\\StarlinkDeviceManager\\shipNet\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
-          "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
+          "C:\\Program Files (x86)\\Microsoft\\Xamarin\\NuGet\\"
         ],
         "configFilePaths": [
-          "C:\\Users\\PC\\AppData\\Roaming\\NuGet\\NuGet.Config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+          "C:\\Users\\PH Laptop\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Xamarin.Offline.config"
         ],
         "originalTargetFrameworks": [
           "net8.0"
@@ -30,7 +30,6 @@
         },
         "frameworks": {
           "net8.0": {
-            "framework": "net8.0",
             "targetAlias": "net8.0",
             "projectReferences": {}
           }
@@ -44,12 +43,10 @@
           "enableAudit": "true",
           "auditLevel": "low",
           "auditMode": "direct"
-        },
-        "SdkAnalysisLevel": "10.0.300"
+        }
       },
       "frameworks": {
         "net8.0": {
-          "framework": "net8.0",
           "targetAlias": "net8.0",
           "dependencies": {
             "Microsoft.Data.SqlClient": {
@@ -88,7 +85,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.301/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.424/PortableRuntimeIdentifierGraph.json"
         }
       }
     }

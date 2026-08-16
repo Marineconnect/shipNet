@@ -15,12 +15,12 @@ public class SystemSettingViewModel
     public string Category { get; set; } = string.Empty;
     public string SettingCode { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
-    public string SettingValue { get; set; } = string.Empty;
+    public string? SettingValue { get; set; }
     public bool IsSecret { get; set; }
     public string Description { get; set; } = string.Empty;
     public DateTime? UpdatedDate { get; set; }
     public string? UpdatedBy { get; set; }
-    public string DisplayValue => IsSecret && !string.IsNullOrWhiteSpace(SettingValue) ? "••••••••" : SettingValue;
+    public string DisplayValue => IsSecret && !string.IsNullOrWhiteSpace(SettingValue) ? "********" : SettingValue ?? string.Empty;
     public string UpdatedDateDisplay => UpdatedDate.HasValue ? UpdatedDate.Value.ToString("dd/MM/yyyy HH:mm") : "-";
 }
 
@@ -32,6 +32,6 @@ public class SystemSettingFormViewModel
     public string DisplayName { get; set; } = string.Empty;
     public bool IsSecret { get; set; }
 
-    [StringLength(2000, ErrorMessage = "Giá trị cài đặt tối đa 2000 ký tự.")]
-    public string SettingValue { get; set; } = string.Empty;
+    [StringLength(2000, ErrorMessage = "Setting value can contain up to 2000 characters.")]
+    public string? SettingValue { get; set; }
 }

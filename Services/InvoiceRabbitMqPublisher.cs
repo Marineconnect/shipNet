@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
@@ -46,7 +47,7 @@ public class InvoiceRabbitMqPublisher(
         {
             AddLog("STEP 1 - Validate invoice JSON payload.");
             using var jsonDocument = JsonDocument.Parse(request.InvoiceJson);
-            var payload = JsonSerializer.Serialize(jsonDocument.RootElement, EventJsonOptions);
+            var payload = NormalizeInvoicePayloadJson(jsonDocument.RootElement);
             var settings = ResolveSettings();
             var routingKey = ResolveRoutingKey(settings, request.RoutingKeyOverride);
             var correlationId = string.IsNullOrWhiteSpace(request.CorrelationId) ? messageId : request.CorrelationId.Trim();
@@ -496,6 +497,56 @@ public class InvoiceRabbitMqPublisher(
     private static void AddLog(List<string> logs, string message)
     {
         logs.Add($"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} | {message}");
+    }
+
+    private static string NormalizeInvoicePayloadJson(JsonElement root)
+    {
+        var node = JsonNode.Parse(root.GetRawText());
+        if (node is JsonObject payload &&
+            payload["vessels"] is JsonArray vessels)
+        {
+            foreach (var vesselNode in vessels)
+            {
+                if (vesselNode is not JsonObject vessel ||
+                    vessel["subscriptions"] is not JsonArray subscriptions)
+                {
+                    continue;
+                }
+
+                foreach (var subscriptionNode in subscriptions)
+                {
+                    if (subscriptionNode is not JsonObject subscription)
+                    {
+                        continue;
+                    }
+
+                    NormalizeLegacyDateField(subscription, "start_time");
+                    NormalizeLegacyDateField(subscription, "end_time");
+                }
+            }
+        }
+
+        return node?.ToJsonString(EventJsonOptions) ?? JsonSerializer.Serialize(root, EventJsonOptions);
+    }
+
+    private static void NormalizeLegacyDateField(JsonObject target, string fieldName)
+    {
+        var value = target[fieldName]?.GetValue<string>();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        var trimmed = value.Trim();
+        if (DateTime.TryParseExact(
+                trimmed,
+                "dd/MM/yyyy HH:mm:ss",
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AllowWhiteSpaces,
+                out var parsed))
+        {
+            target[fieldName] = parsed.ToString("dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture);
+        }
     }
 
     private static string GetEnv(string key, string fallback)

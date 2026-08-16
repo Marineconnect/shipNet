@@ -32,7 +32,12 @@
       <tr><td><strong>@batch.BatchCode</strong></td><td>@batch.OriginalFileName</td><td>@batch.ImportedByUsername</td><td>@batch.ImportedAtDisplay</td>
       <td>@batch.InvoiceStartNumber - @batch.InvoiceEndNumber<br /><span class="muted">next @batch.NextInvoiceNumber</span></td>
       <td>@batch.TotalRows rows · @batch.ValidRows valid · @batch.PublishedRows published<br /><span class="muted">@batch.FailedRows failed · @batch.DuplicateRows duplicate</span></td>
-      <td><span class="subscription-status @(batch.Status == "Completed" ? "paid" : batch.Status == "CompletedWithErrors" ? "void" : "pending")">@batch.Status</span></td>
+      <td>
+        <div class="transaction-reup-status">
+          <span class="subscription-status @(batch.Status == "Completed" ? "paid" : batch.Status == "CompletedWithErrors" ? "void" : "pending")">@batch.Status</span>
+          <span class="muted">@batch.PublishedRows/@batch.TotalRows successful</span>
+        </div>
+      </td>
       <td><a class="table-action-btn" asp-action="Details" asp-route-id="@batch.Id">Details</a><a class="table-action-btn" asp-action="Download" asp-route-id="@batch.Id">Download</a></td></tr>
     }
     </tbody></table></div>

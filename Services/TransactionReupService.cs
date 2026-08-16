@@ -2,6 +2,7 @@ using System.Data;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Data.SqlClient;
 using NPOI.SS.UserModel;
@@ -14,6 +15,7 @@ public sealed class TransactionReupService(
     IConfiguration configuration,
     ITransactionReupFileStorage fileStorage,
     IInvoiceRabbitMqPublisher publisher,
+    IInvoicePdfService invoicePdfService,
     ILogger<TransactionReupService> logger) : ITransactionReupService
 {
     private const string MissingSchemaMessage = "Transaction Reup database schema is missing. Run ShipNet-Transaction-Reup-Database.sql before using this feature.";
@@ -207,6 +209,7 @@ public sealed class TransactionReupService(
     {
         try
         {
+            payload = EnsureReupFlag(payload);
             return await publisher.PublishInvoiceAsync(new InvoiceRabbitMqPublishRequest
             {
                 InvoiceJson = payload,
@@ -230,7 +233,7 @@ public sealed class TransactionReupService(
             SET [PublishStatus] = @status, [RabbitMessageId] = @messageId, [RabbitCorrelationId] = @correlationId,
                 [RabbitExchange] = @rabbitExchange, [RabbitRoutingKey] = @rabbitRoutingKey, [RabbitQueue] = @rabbitQueue,
                 [PublishMessage] = @message, [PublishLogs] = @logs, [PublishAttemptCount] = @attemptCount,
-                [PublishedAtUtc] = CASE WHEN @success = 1 THEN SYSUTCDATETIME() ELSE [PublishedAtUtc] END,
+                [PublishedAtUtc] = CASE WHEN @success = 0 THEN [PublishedAtUtc] ELSE NULL END,
                 [UpdatedAtUtc] = SYSUTCDATETIME()
             WHERE [ID] = @id;
             """;
@@ -238,7 +241,7 @@ public sealed class TransactionReupService(
         await EnsureSchemaExistsAsync(connection, cancellationToken);
         await using var command = new SqlCommand(sql, connection);
         command.Parameters.Add("@id", SqlDbType.Int).Value = itemId;
-        command.Parameters.Add("@status", SqlDbType.NVarChar, 30).Value = result.Success ? TransactionReupStatuses.Published : TransactionReupStatuses.PublishFailed;
+        command.Parameters.Add("@status", SqlDbType.NVarChar, 30).Value = result.Success ? TransactionReupStatuses.Processing : TransactionReupStatuses.PublishFailed;
         command.Parameters.Add("@messageId", SqlDbType.NVarChar, 100).Value = messageId;
         command.Parameters.Add("@correlationId", SqlDbType.NVarChar, 250).Value = result.CorrelationId;
         command.Parameters.Add("@rabbitExchange", SqlDbType.NVarChar, 250).Value = result.ExchangeName;
@@ -249,6 +252,119 @@ public sealed class TransactionReupService(
         command.Parameters.Add("@attemptCount", SqlDbType.Int).Value = attemptCount;
         command.Parameters.Add("@success", SqlDbType.Bit).Value = result.Success;
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<bool> RecordWorkerResultAsync(TransactionReupWorkerResultRequest request, CancellationToken cancellationToken)
+    {
+        var invoiceCode = request.InvoiceCode.Trim();
+        var transactionCode = request.TransactionCode.Trim();
+        if (string.IsNullOrWhiteSpace(invoiceCode) && string.IsNullOrWhiteSpace(transactionCode))
+        {
+            return false;
+        }
+
+        var workerStatus = request.Status?.Trim() ?? string.Empty;
+        var workerErrorCode = request.ErrorCode?.Trim() ?? string.Empty;
+        var isFailed = string.Equals(workerStatus, "FAILED", StringComparison.OrdinalIgnoreCase) ||
+            (!string.IsNullOrWhiteSpace(workerErrorCode) && !string.Equals(workerErrorCode, "NONE", StringComparison.OrdinalIgnoreCase) && !string.Equals(workerStatus, "SUCCESS", StringComparison.OrdinalIgnoreCase));
+        var status = isFailed ? TransactionReupStatuses.PublishFailed : TransactionReupStatuses.Published;
+        var message = BuildWorkerResultMessage(request, isFailed);
+        var logs = BuildWorkerResultLogs(request);
+
+        const string selectBatchSql = """
+            SELECT DISTINCT [BatchId]
+            FROM [dbo].[TblTransactionReupImportItem]
+            WHERE (@invoiceCode = N'' OR [InvoiceCode] = @invoiceCode)
+              AND (@transactionCode = N'' OR [SourceTransactionCode] = @transactionCode);
+            """;
+
+        const string updateSql = """
+            UPDATE [dbo].[TblTransactionReupImportItem]
+            SET [PublishStatus] = @status,
+                [PublishMessage] = @message,
+                [PublishLogs] = CASE
+                    WHEN NULLIF([PublishLogs], N'') IS NULL THEN @logs
+                    ELSE CONCAT([PublishLogs], CHAR(13), CHAR(10), @logs)
+                END,
+                [PublishedAtUtc] = CASE WHEN @isPublished = 1 THEN SYSUTCDATETIME() ELSE [PublishedAtUtc] END,
+                [UpdatedAtUtc] = SYSUTCDATETIME()
+            WHERE (@invoiceCode = N'' OR [InvoiceCode] = @invoiceCode)
+              AND (@transactionCode = N'' OR [SourceTransactionCode] = @transactionCode);
+            """;
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureSchemaExistsAsync(connection, cancellationToken);
+
+        var batchIds = new List<int>();
+        await using (var selectCommand = new SqlCommand(selectBatchSql, connection))
+        {
+            selectCommand.Parameters.Add("@invoiceCode", SqlDbType.NVarChar, 100).Value = invoiceCode;
+            selectCommand.Parameters.Add("@transactionCode", SqlDbType.NVarChar, 100).Value = transactionCode;
+
+            await using var reader = await selectCommand.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                batchIds.Add(reader.GetInt32(0));
+            }
+        }
+
+        if (batchIds.Count == 0)
+        {
+            return false;
+        }
+
+        await using var command = new SqlCommand(updateSql, connection);
+        command.Parameters.Add("@status", SqlDbType.NVarChar, 30).Value = status;
+        command.Parameters.Add("@message", SqlDbType.NVarChar, -1).Value = message;
+        command.Parameters.Add("@logs", SqlDbType.NVarChar, -1).Value = logs;
+        command.Parameters.Add("@invoiceCode", SqlDbType.NVarChar, 100).Value = invoiceCode;
+        command.Parameters.Add("@transactionCode", SqlDbType.NVarChar, 100).Value = transactionCode;
+        command.Parameters.Add("@isPublished", SqlDbType.Bit).Value = !isFailed;
+        var affected = await command.ExecuteNonQueryAsync(cancellationToken);
+        foreach (var batchId in batchIds)
+        {
+            await RecalculateBatchAsync(batchId, cancellationToken);
+        }
+
+        return affected > 0;
+    }
+
+    private static string BuildWorkerResultMessage(TransactionReupWorkerResultRequest request, bool isFailed)
+    {
+        var status = string.IsNullOrWhiteSpace(request.Status) ? (isFailed ? "FAILED" : "SUCCEEDED") : request.Status.Trim();
+        var error = FirstNotEmpty(request.ErrorCode, request.ErrorMessage);
+        return string.IsNullOrWhiteSpace(error)
+            ? $"Invoice worker result: {status}."
+            : $"Invoice worker result: {status}. {error}";
+    }
+
+    private static string BuildWorkerResultLogs(TransactionReupWorkerResultRequest request)
+    {
+        var lines = new List<string>
+        {
+            $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} | Invoice worker callback received.",
+            $"Status={request.Status}",
+            $"TransactionCode={request.TransactionCode}",
+            $"InvoiceCode={request.InvoiceCode}",
+            $"ErrorCode={request.ErrorCode}",
+            $"ErrorMessage={request.ErrorMessage}",
+            $"LogFile={request.LogFile}",
+            $"OutputFile={request.OutputFile}",
+            $"SourceSystem={request.SourceSystem}"
+        };
+
+        if (!string.IsNullOrWhiteSpace(request.LogContent))
+        {
+            lines.Add("DiagnosticLogContent:");
+            lines.Add(request.LogContent);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.RawMessage))
+        {
+            lines.Add($"RawMessage={request.RawMessage}");
+        }
+
+        return string.Join(Environment.NewLine, lines);
     }
 
     private static async Task<List<TransactionReupSourceRow>> ParseRowsAsync(IFormFile file, CancellationToken cancellationToken)
@@ -338,6 +454,46 @@ public sealed class TransactionReupService(
         return "Valid";
     }
 
+    private string TryBuildInvoiceUrl(string invoiceCode)
+    {
+        if (string.IsNullOrWhiteSpace(configuration["InvoicePdfIntegration:PublicBaseUrl"]))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            return invoicePdfService.BuildUploadUrl(invoiceCode);
+        }
+        catch (InvalidOperationException exception)
+        {
+            logger.LogWarning(exception, "Skipped InvoiceURL for transaction reup invoice {InvoiceCode} because InvoicePdfIntegration:PublicBaseUrl is not usable.", invoiceCode);
+            return string.Empty;
+        }
+    }
+
+    private static string EnsureReupFlag(string payload)
+    {
+        try
+        {
+            var node = JsonSerializer.Deserialize<JsonObject>(payload);
+            if (node is null)
+            {
+                return payload;
+            }
+
+            node["reup"] = 1;
+            node.Remove("InvoiceURL");
+            node.Remove("invoiceURL");
+            node.Remove("invoiceUrl");
+            return node.ToJsonString();
+        }
+        catch
+        {
+            return payload;
+        }
+    }
+
     private static string BuildPayload(TransactionReupSourceRow row, DateTime createdAt, DateTime updatedAt, string invoiceCode, string username)
     {
         var paymentUtc = ToUtc(updatedAt);
@@ -372,8 +528,8 @@ public sealed class TransactionReupService(
                     title = row.TransactionCode,
                     subTitles = new[] { row.TransferContent },
                     price = row.TotalAmountVnd,
-                    start_time = createdAt.ToString("dd/MM/yyyy HH:mm:ss"),
-                    end_time = updatedAt.ToString("dd/MM/yyyy HH:mm:ss"),
+                    start_time = createdAt.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
+                    end_time = updatedAt.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
                     kit_id = row.RequestInvoiceCode
                 }
             }
@@ -382,6 +538,7 @@ public sealed class TransactionReupService(
         {
             ["transactionCode"] = row.TransactionCode,
             ["invoiceCode"] = invoiceCode,
+            ["reup"] = 1,
             ["source"] = "SHIPNET",
             ["paymentTime"] = paymentUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture),
             ["operatorName"] = string.IsNullOrWhiteSpace(row.SourceCreatedBy) ? username : row.SourceCreatedBy,
@@ -614,11 +771,17 @@ public sealed class TransactionReupService(
             UPDATE b SET
                 [PublishedRows] = x.PublishedRows, [FailedRows] = x.FailedRows, [SkippedRows] = x.SkippedRows,
                 [DuplicateRows] = x.DuplicateRows,
-                [Status] = CASE WHEN x.FailedRows > 0 OR x.DuplicateRows > 0 OR x.SkippedRows > 0 THEN N'CompletedWithErrors' ELSE N'Completed' END,
+                [Status] = CASE
+                    WHEN x.PendingRows > 0 OR x.ProcessingRows > 0 THEN N'Processing'
+                    WHEN x.FailedRows > 0 OR x.DuplicateRows > 0 OR x.SkippedRows > 0 THEN N'CompletedWithErrors'
+                    ELSE N'Completed'
+                END,
                 [UpdatedAtUtc] = SYSUTCDATETIME()
             FROM [dbo].[TblTransactionReupImportBatch] b
             CROSS APPLY (
                 SELECT
+                    SUM(CASE WHEN [PublishStatus] = N'Pending' THEN 1 ELSE 0 END) PendingRows,
+                    SUM(CASE WHEN [PublishStatus] = N'Processing' THEN 1 ELSE 0 END) ProcessingRows,
                     SUM(CASE WHEN [PublishStatus] = N'Published' THEN 1 ELSE 0 END) PublishedRows,
                     SUM(CASE WHEN [PublishStatus] = N'PublishFailed' THEN 1 ELSE 0 END) FailedRows,
                     SUM(CASE WHEN [PublishStatus] = N'Skipped' THEN 1 ELSE 0 END) SkippedRows,
@@ -709,6 +872,19 @@ public sealed class TransactionReupService(
     private static decimal ReadDecimal(SqlDataReader reader, string name) => reader[name] is DBNull ? 0 : Convert.ToDecimal(reader[name], CultureInfo.InvariantCulture);
     private static DateTime? ReadDate(SqlDataReader reader, string name) => reader[name] is DBNull ? null : Convert.ToDateTime(reader[name], CultureInfo.InvariantCulture);
     private static string ReadText(SqlDataReader reader, string name) => reader[name] is DBNull ? string.Empty : reader[name]?.ToString() ?? string.Empty;
+    private static string FirstNotEmpty(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+        }
+
+        return string.Empty;
+    }
+
     private static void AddDecimal(SqlCommand command, string name, decimal value)
     {
         var parameter = command.Parameters.Add(name, SqlDbType.Decimal);

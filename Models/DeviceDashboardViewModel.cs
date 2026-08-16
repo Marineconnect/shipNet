@@ -17,6 +17,7 @@ public class DeviceDashboardViewModel
     public int? CurrentTenantId { get; set; }
     public string? CurrentTenantName { get; set; }
     public bool CanManageDevices { get; set; } = true;
+    public bool CanCreateSubscriptions { get; set; } = true;
     public bool CanViewMap { get; set; } = true;
     public bool CanManageDataOptIn { get; set; }
     public int? SelectedDeviceId { get; set; }

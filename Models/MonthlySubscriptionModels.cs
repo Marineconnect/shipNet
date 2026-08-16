@@ -19,6 +19,7 @@ public class MonthlySubscriptionIndexViewModel
     public bool HasNextPage => CurrentPage < TotalPages;
     public bool IsTenantScoped { get; set; }
     public bool CanManageSubscriptions { get; set; } = true;
+    public bool CanCreateSubscriptions { get; set; } = true;
     public bool OpenCreateModal { get; set; }
 }
 
@@ -244,6 +245,21 @@ public class UpdateSubscriptionInvoiceViewModel
     public string Status { get; set; } = "pending";
 
     public DateTime? CompletedAt { get; set; }
+
+    public bool ResumeKvh { get; set; }
+}
+
+public sealed class SubscriptionInvoiceUpdateResult
+{
+    public int InvoiceId { get; set; }
+    public int SubscriptionId { get; set; }
+    public int DeviceId { get; set; }
+    public int TenantId { get; set; }
+    public string InvoiceNumber { get; set; } = string.Empty;
+    public string OldStatus { get; set; } = string.Empty;
+    public string NewStatus { get; set; } = string.Empty;
+    public bool StatusChanged => !string.Equals(OldStatus, NewStatus, StringComparison.OrdinalIgnoreCase);
+    public bool BecamePaid => StatusChanged && NewStatus.Equals("paid", StringComparison.OrdinalIgnoreCase);
 }
 
 public class UpdateMonthlySubscriptionStatusViewModel

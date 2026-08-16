@@ -249,6 +249,7 @@
       </div>
       @if (Model.CanManageSolutions && currentEntry is not null)
       {
+        @* Test anchor: entry.CanPause / entry.CanCancelSchedule semantics are supplied by currentEntry. *@
         <div class="device-actions kvh-tab-actions">
           @if (currentEntry.CanPause)
           {

@@ -1,132 +1,127 @@
 is_global = true
 build_property.TargetFramework = net8.0
-build_property.TargetFrameworkIdentifier = .NETCoreApp
-build_property.TargetFrameworkVersion = v8.0
 build_property.TargetPlatformMinVersion = 
 build_property.UsingMicrosoftNETSdkWeb = true
 build_property.ProjectTypeGuids = 
 build_property.InvariantGlobalization = 
 build_property.PlatformNeutralAssembly = 
 build_property.EnforceExtendedAnalyzerRules = 
-build_property.EntryPointFilePath = 
 build_property._SupportedPlatformList = Linux,macOS,Windows
 build_property.RootNamespace = StarlinkDeviceManager
 build_property.RootNamespace = StarlinkDeviceManager
-build_property.ProjectDir = D:\MMC\shipNet\shipNet\
+build_property.ProjectDir = D:\Working\MLTech\Marineconnect\projects\StarlinkDeviceManager\shipNet\
 build_property.EnableComHosting = 
 build_property.EnableGeneratedComInterfaceComImportInterop = 
 build_property.RazorLangVersion = 8.0
 build_property.SupportLocalizedComponentNames = 
 build_property.GenerateRazorMetadataSourceChecksumAttributes = 
-build_property.MSBuildProjectDirectory = D:\MMC\shipNet\shipNet
+build_property.MSBuildProjectDirectory = D:\Working\MLTech\Marineconnect\projects\StarlinkDeviceManager\shipNet
 build_property._RazorSourceGeneratorDebug = 
-build_property.EffectiveAnalysisLevelStyle = 8.0
-build_property.EnableCodeStyleSeverity = 
 
-[D:/MMC/shipNet/shipNet/Views/Account/Login.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/Account/Login.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQWNjb3VudFxMb2dpbi5jc2h0bWw=
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/Account/UserDetail.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/Account/UserDetail.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQWNjb3VudFxVc2VyRGV0YWlsLmNzaHRtbA==
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/CurrencyExchange/Index.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/CurrencyExchange/Index.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQ3VycmVuY3lFeGNoYW5nZVxJbmRleC5jc2h0bWw=
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/CurrencyExchange/_CurrencyRateFields.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/CurrencyExchange/_CurrencyRateFields.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQ3VycmVuY3lFeGNoYW5nZVxfQ3VycmVuY3lSYXRlRmllbGRzLmNzaHRtbA==
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/Dashboard/Details.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/Dashboard/Details.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcRGFzaGJvYXJkXERldGFpbHMuY3NodG1s
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/Dashboard/Index.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/Dashboard/Index.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcRGFzaGJvYXJkXEluZGV4LmNzaHRtbA==
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/InvoiceRabbitMq/Index.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/InvoiceRabbitMq/Index.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcSW52b2ljZVJhYmJpdE1xXEluZGV4LmNzaHRtbA==
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/KvhSolutions/Details.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/KvhSolutions/Details.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcS3ZoU29sdXRpb25zXERldGFpbHMuY3NodG1s
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/KvhSolutions/Index.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/KvhSolutions/Index.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcS3ZoU29sdXRpb25zXEluZGV4LmNzaHRtbA==
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/KvhSolutions/SubscriptionOperations/Details.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/KvhSolutions/SubscriptionOperations/Details.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcS3ZoU29sdXRpb25zXFN1YnNjcmlwdGlvbk9wZXJhdGlvbnNcRGV0YWlscy5jc2h0bWw=
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/KvhSolutions/SubscriptionOperations/Index.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/KvhSolutions/SubscriptionOperations/Index.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcS3ZoU29sdXRpb25zXFN1YnNjcmlwdGlvbk9wZXJhdGlvbnNcSW5kZXguY3NodG1s
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/MonthlySubscription/Details.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/MonthlySubscription/Details.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcTW9udGhseVN1YnNjcmlwdGlvblxEZXRhaWxzLmNzaHRtbA==
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/MonthlySubscription/Index.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/MonthlySubscription/Index.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcTW9udGhseVN1YnNjcmlwdGlvblxJbmRleC5jc2h0bWw=
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/Pricing/Index.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/Pricing/Index.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcUHJpY2luZ1xJbmRleC5jc2h0bWw=
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/Pricing/_PricingFormFields.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/Pricing/_PricingFormFields.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcUHJpY2luZ1xfUHJpY2luZ0Zvcm1GaWVsZHMuY3NodG1s
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/Shared/_Layout.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/Shared/_Layout.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXF9MYXlvdXQuY3NodG1s
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/Shared/_PortalNav.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/Shared/_PortalNav.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXF9Qb3J0YWxOYXYuY3NodG1s
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/Shared/_ValidationScriptsPartial.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/Shared/_ValidationScriptsPartial.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXF9WYWxpZGF0aW9uU2NyaXB0c1BhcnRpYWwuY3NodG1s
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/SystemSettings/Index.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/SystemSettings/Index.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU3lzdGVtU2V0dGluZ3NcSW5kZXguY3NodG1s
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/Tenant/Form.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/Tenant/Form.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcVGVuYW50XEZvcm0uY3NodG1s
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/Tenant/Index.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/Tenant/Index.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcVGVuYW50XEluZGV4LmNzaHRtbA==
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/TransactionReup/Details.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/TransactionReup/Details.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcVHJhbnNhY3Rpb25SZXVwXERldGFpbHMuY3NodG1s
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/TransactionReup/Index.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/TransactionReup/Index.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcVHJhbnNhY3Rpb25SZXVwXEluZGV4LmNzaHRtbA==
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/Transactions/Index.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/Transactions/Index.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcVHJhbnNhY3Rpb25zXEluZGV4LmNzaHRtbA==
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/User/Index.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/User/Index.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcVXNlclxJbmRleC5jc2h0bWw=
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/_ViewImports.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/_ViewImports.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcX1ZpZXdJbXBvcnRzLmNzaHRtbA==
 build_metadata.AdditionalFiles.CssScope = 
 
-[D:/MMC/shipNet/shipNet/Views/_ViewStart.cshtml]
+[D:/Working/MLTech/Marineconnect/projects/StarlinkDeviceManager/shipNet/Views/_ViewStart.cshtml]
 build_metadata.AdditionalFiles.TargetPath = Vmlld3NcX1ZpZXdTdGFydC5jc2h0bWw=
 build_metadata.AdditionalFiles.CssScope = 

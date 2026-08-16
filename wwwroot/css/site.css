@@ -360,6 +360,58 @@
   overflow-wrap:anywhere;
 }
 
+.transaction-reup-message{
+  min-width:340px;
+  overflow-wrap:anywhere;
+}
+
+.transaction-reup-status{
+  display:grid;
+  justify-items:start;
+  gap:6px;
+  min-width:110px;
+}
+
+.transaction-error-code{
+  display:inline-flex;
+  align-items:center;
+  min-height:24px;
+  margin-top:6px;
+  padding:0 8px;
+  border:1px solid rgba(255,118,118,.36);
+  border-radius:999px;
+  background:rgba(255,86,86,.12);
+  color:#ffd0d0;
+  font-size:12px;
+  font-weight:800;
+}
+
+.transaction-error-summary{
+  margin-top:6px;
+  color:#ffd8d8;
+  font-size:13px;
+}
+
+.transaction-reup-error-grid{
+  grid-template-columns:repeat(4, minmax(0, 1fr));
+}
+
+.transaction-reup-error-grid strong{
+  overflow-wrap:anywhere;
+}
+
+.transaction-reup-error-block{
+  display:grid;
+  gap:8px;
+}
+
+.transaction-reup-log-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+
 .transaction-json{
   max-height:260px;
   overflow:auto;
@@ -5878,4 +5930,48 @@ body.is-map-fullscreen{
     grid-template-columns:1fr;
     min-width:240px;
   }
+}
+.detail-activity-filters {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(120px, 1fr));
+    gap: 8px;
+    margin: 12px 0;
+}
+
+.detail-activity-table-wrap {
+    overflow: auto;
+}
+
+.detail-activity-table td {
+    vertical-align: top;
+}
+
+.detail-activity-row {
+    cursor: pointer;
+}
+
+.detail-activity-row.legacy td:first-child::after {
+    content: " legacy";
+    color: #64748b;
+    font-size: 11px;
+}
+
+.detail-activity-detail pre {
+    max-height: 220px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0;
+}
+
+.detail-muted {
+    color: #64748b;
+    font-size: 12px;
+    margin-top: 3px;
+}
+
+@media (max-width: 900px) {
+    .detail-activity-filters {
+        grid-template-columns: 1fr 1fr;
+    }
 }

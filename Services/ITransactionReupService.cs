@@ -10,5 +10,6 @@ public interface ITransactionReupService
     Task<TransactionReupImportResult> ImportAsync(TransactionReupImportViewModel model, AuthUserRecord user, CancellationToken cancellationToken);
     Task RetryFailedAsync(int batchId, AuthUserRecord user, CancellationToken cancellationToken);
     Task RetryItemAsync(int itemId, AuthUserRecord user, CancellationToken cancellationToken);
+    Task<bool> RecordWorkerResultAsync(TransactionReupWorkerResultRequest request, CancellationToken cancellationToken);
     Task<string?> GetOriginalFilePathAsync(int batchId, CancellationToken cancellationToken);
 }

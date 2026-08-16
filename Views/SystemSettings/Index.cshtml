@@ -123,7 +123,7 @@
       <input asp-for="EditForm.IsSecret" type="hidden" />
       <div class="form-group">
         <label asp-for="EditForm.SettingValue">Giá trị / Value</label>
-        <input asp-for="EditForm.SettingValue" class="input" type="@(Model.EditForm.IsSecret ? "password" : "text")" autocomplete="off" />
+        <input asp-for="EditForm.SettingValue" class="input" type="@(Model.EditForm.IsSecret ? "password" : "text")" autocomplete="off" placeholder="@(Model.EditForm.SettingCode == "invoice_po_number" ? "Leave blank to omit PO number" : string.Empty)" />
         <span asp-validation-for="EditForm.SettingValue" class="field-error"></span>
       </div>
       <div class="device-modal-actions">

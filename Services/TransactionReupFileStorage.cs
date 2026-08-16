@@ -23,8 +23,8 @@ public sealed class TransactionReupFileStorage(IConfiguration configuration, IWe
 
         var originalFileName = Path.GetFileName(file.FileName);
         var storedFileName = $"{batchCode}{extension}";
-        var relativeDirectory = Path.Combine("transaction-reup-imports", DateTime.UtcNow.ToString("yyyyMMdd"));
-        var absoluteDirectory = Path.Combine(environment.ContentRootPath, rootPath, DateTime.UtcNow.ToString("yyyyMMdd"));
+        var relativeDirectory = DateTime.UtcNow.ToString("yyyyMMdd");
+        var absoluteDirectory = Path.Combine(environment.ContentRootPath, rootPath, relativeDirectory);
         Directory.CreateDirectory(absoluteDirectory);
         var absolutePath = Path.Combine(absoluteDirectory, storedFileName);
 
@@ -41,7 +41,8 @@ public sealed class TransactionReupFileStorage(IConfiguration configuration, IWe
     public Task<Stream?> OpenReadAsync(string relativePath, CancellationToken cancellationToken)
     {
         var root = Path.GetFullPath(Path.Combine(environment.ContentRootPath, rootPath));
-        var candidate = Path.GetFullPath(Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar)));
+        var normalizedRelativePath = NormalizeStoredPath(relativePath);
+        var candidate = Path.GetFullPath(Path.Combine(root, normalizedRelativePath.Replace('/', Path.DirectorySeparatorChar)));
         if (!candidate.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
             || !File.Exists(candidate))
         {
@@ -49,5 +50,18 @@ public sealed class TransactionReupFileStorage(IConfiguration configuration, IWe
         }
 
         return Task.FromResult<Stream?>(new FileStream(candidate, FileMode.Open, FileAccess.Read, FileShare.Read));
+    }
+
+    private static string NormalizeStoredPath(string relativePath)
+    {
+        var normalized = relativePath.TrimStart('/', '\\');
+        const string legacyPrefix = "transaction-reup-imports";
+        if (normalized.StartsWith(legacyPrefix + "/", StringComparison.OrdinalIgnoreCase) ||
+            normalized.StartsWith(legacyPrefix + "\\", StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = normalized[(legacyPrefix.Length + 1)..];
+        }
+
+        return normalized;
     }
 }

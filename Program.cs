@@ -68,6 +68,8 @@ builder.Services.Configure<KvhSubscriptionOperationOptions>(builder.Configuratio
 builder.Services.AddScoped<IKvhCommandService, KvhCommandService>();
 builder.Services.AddScoped<IKvhSubscriptionActionPolicy, KvhSubscriptionActionPolicy>();
 builder.Services.AddScoped<IKvhSubscriptionService, KvhSubscriptionService>();
+builder.Services.AddScoped<IDeviceActivityLogService, DeviceActivityLogService>();
+builder.Services.AddScoped<IKvhPaymentResumeService, KvhPaymentResumeService>();
 builder.Services.AddScoped<IKvhBulkSyncService, KvhBulkSyncService>();
 builder.Services.AddScoped<IKvhSubscriptionOperationService, KvhSubscriptionOperationService>();
 builder.Services.AddScoped<IKvhJobService, KvhJobService>();

@@ -14,6 +14,7 @@ public sealed class KvhJobService(
     IHttpClientFactory httpClientFactory,
     IOptions<KvhJobMonitorOptions> monitorOptions,
     IKvhSubscriptionService kvhSubscriptionService,
+    IDeviceActivityLogService deviceActivityLogService,
     ILogger<KvhJobService> logger) : IKvhJobService
 {
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")
@@ -569,6 +570,75 @@ public sealed class KvhJobService(
         command.Parameters.Add("@errorCode", SqlDbType.NVarChar, 100).Value = errorCode ?? string.Empty;
         command.Parameters.Add("@errorMessage", SqlDbType.NVarChar, -1).Value = errorMessage ?? string.Empty;
         await command.ExecuteNonQueryAsync(cancellationToken);
+        await WriteCommandCompletionActivitySafeAsync(commandId, commandStatus, verificationStatus, errorCode, errorMessage, cancellationToken);
+    }
+
+    private async Task WriteCommandCompletionActivitySafeAsync(long commandId, string commandStatus, string? verificationStatus, string? errorCode, string? errorMessage, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync(cancellationToken);
+            const string query = """
+                SELECT TOP 1 c.[DeviceId], c.[CommandType], c.[RequestedValue], c.[RequestedByUserId], c.[RequestedBy], c.[JobId], d.[TenantID]
+                FROM [dbo].[TblKvhCommand] c
+                LEFT JOIN [dbo].[TblDevices] d ON d.[ID] = c.[DeviceId]
+                WHERE c.[ID] = @id
+                """;
+            await using var lookup = new SqlCommand(query, connection);
+            lookup.Parameters.Add("@id", SqlDbType.BigInt).Value = commandId;
+            await using var reader = await lookup.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return;
+            }
+
+            var commandType = reader["CommandType"]?.ToString() ?? string.Empty;
+            var success = commandStatus.Equals(KvhCommandStatuses.Completed, StringComparison.OrdinalIgnoreCase)
+                || commandStatus.Equals(KvhCommandStatuses.Verified, StringComparison.OrdinalIgnoreCase)
+                || commandStatus.Equals(KvhCommandStatuses.Success, StringComparison.OrdinalIgnoreCase);
+            var (category, action) = ResolveCompletionActivity(commandType, success, verificationStatus);
+            if (string.IsNullOrWhiteSpace(action))
+            {
+                return;
+            }
+
+            await deviceActivityLogService.WriteAsync(new DeviceActivityLogEntry
+            {
+                DeviceId = Convert.ToInt32(reader["DeviceId"]),
+                TenantId = reader["TenantID"] == DBNull.Value ? null : Convert.ToInt32(reader["TenantID"]),
+                Category = category,
+                Action = action,
+                Status = success ? DeviceActivityStatuses.Succeeded : DeviceActivityStatuses.Failed,
+                NewValue = success ? commandStatus : errorCode,
+                Summary = success ? $"KVH command {commandType} completed." : $"KVH command {commandType} failed.",
+                DetailJson = DeviceActivityLogEntry.ToSafeJson(new { commandId, commandType, commandStatus, verificationStatus, errorCode, errorMessage }),
+                Source = DeviceActivitySources.KvhWorker,
+                UserId = reader["RequestedByUserId"] == DBNull.Value ? null : Convert.ToInt32(reader["RequestedByUserId"]),
+                PerformedBy = reader["RequestedBy"]?.ToString(),
+                ReferenceType = "KVH_COMMAND",
+                ReferenceId = commandId.ToString(),
+                CorrelationId = reader["JobId"]?.ToString() ?? commandId.ToString()
+            }, cancellationToken);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(exception, "Failed to write KVH command completion activity. CommandId={CommandId}", commandId);
+        }
+    }
+
+    private static (string Category, string Action) ResolveCompletionActivity(string commandType, bool success, string? verificationStatus)
+    {
+        return commandType switch
+        {
+            KvhCommandTypes.WifiUpdate => (DeviceActivityCategories.Networking, success ? DeviceActivityActions.WifiUpdateCompleted : DeviceActivityActions.WifiUpdateFailed),
+            KvhCommandTypes.Reboot => (DeviceActivityCategories.Networking, success ? DeviceActivityActions.RouterRebootCompleted : DeviceActivityActions.RouterRebootFailed),
+            KvhCommandTypes.DataOptIn => (DeviceActivityCategories.Data, success ? DeviceActivityActions.DataOptInCompleted : DeviceActivityActions.DataOptOutCompleted),
+            KvhCommandTypes.SubscriptionResume => (DeviceActivityCategories.Subscription, success ? DeviceActivityActions.SubscriptionResumed : DeviceActivityActions.SubscriptionResumeFailed),
+            KvhCommandTypes.SubscriptionPause => (DeviceActivityCategories.Subscription, success ? DeviceActivityActions.SubscriptionPaused : DeviceActivityActions.SubscriptionPauseRequested),
+            KvhCommandTypes.SubscriptionCancelSchedule => (DeviceActivityCategories.Subscription, DeviceActivityActions.SubscriptionCancelScheduleRequested),
+            _ => (string.Empty, string.Empty)
+        };
     }
 
     private TimeSpan ResolveBackoff(int pollCount)

@@ -24,6 +24,11 @@ public sealed class InvoicePdfService(
 
     public string BuildUploadUrl(string invoiceCode)
     {
+        if (!integration.Enabled)
+        {
+            return string.Empty;
+        }
+
         if (string.IsNullOrWhiteSpace(invoiceCode))
         {
             throw new InvalidOperationException("Invoice code is required to build InvoiceURL.");

@@ -27,7 +27,7 @@
         <h1>Chu kỳ tính cước / Billing Cycle</h1>
         <p>Quản lý chu kỳ tính cước, invoice billing cycle và invoice phát sinh / Manage billing cycles, billing cycle invoices, and additional invoices.</p>
       </div>
-      @if (Model.CanManageSubscriptions)
+      @if (Model.CanCreateSubscriptions)
       {
         <div class="device-actions">
           <button type="button" class="btn-primary add-device-btn" id="openSubscriptionModal">
@@ -284,7 +284,7 @@
   </div>
 </div>
 
-@if (Model.CanManageSubscriptions)
+@if (Model.CanCreateSubscriptions)
 {
   <div class="modal-backdrop" id="subscriptionModal" @(Model.OpenCreateModal ? null : "hidden")>
     <div class="device-modal subscription-modal" role="dialog" aria-modal="true" aria-labelledby="subscriptionModalTitle">
@@ -420,7 +420,7 @@
   const plans = @Html.Raw(plansJson);
   const initialTenantId = @Model.CreateForm.TenantId;
   const initialDeviceId = @Model.CreateForm.DeviceId;
-  const shouldOpenCreateModal = @Html.Raw(JsonSerializer.Serialize(Model.OpenCreateModal && Model.CanManageSubscriptions));
+  const shouldOpenCreateModal = @Html.Raw(JsonSerializer.Serialize(Model.OpenCreateModal && Model.CanCreateSubscriptions));
   const modal = document.querySelector("#subscriptionModal");
   const createTenant = document.querySelector("#createTenant");
   const createDevice = document.querySelector("#createDevice");

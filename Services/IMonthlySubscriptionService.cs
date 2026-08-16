@@ -10,7 +10,7 @@ public interface IMonthlySubscriptionService
     Task<List<SubscriptionPlanOptionViewModel>> GetPlanOptionsAsync(int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<int>> CreateSubscriptionAsync(CreateMonthlySubscriptionViewModel model, int? userId, string username, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default);
     Task<int> CreateInvoiceAsync(CreateSubscriptionInvoiceViewModel model, int? userId, string username, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default);
-    Task UpdateInvoiceAsync(UpdateSubscriptionInvoiceViewModel model, int? userId, string username, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default);
+    Task<SubscriptionInvoiceUpdateResult> UpdateInvoiceAsync(UpdateSubscriptionInvoiceViewModel model, int? userId, string username, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default);
     Task UpdateSubscriptionBillingAsync(UpdateMonthlySubscriptionBillingViewModel model, int? userId, string username, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default);
     Task UpdateSubscriptionStatusAsync(UpdateMonthlySubscriptionStatusViewModel model, int? userId, string username, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default);
 }

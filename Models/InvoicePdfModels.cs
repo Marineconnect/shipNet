@@ -6,6 +6,7 @@ public sealed class InvoicePdfIntegrationOptions
 {
     public const string SectionName = "InvoicePdfIntegration";
 
+    public bool Enabled { get; set; }
     public string PublicBaseUrl { get; set; } = string.Empty;
     public string ApiKey { get; set; } = string.Empty;
     public string HeaderName { get; set; } = "X-ShipNet-Api-Key";

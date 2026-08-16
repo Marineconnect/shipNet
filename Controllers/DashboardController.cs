@@ -10,6 +10,7 @@ namespace StarlinkDeviceManager.Controllers;
 public class DashboardController(
     IDeviceService deviceService,
     IKvhCommandService kvhCommandService,
+    IDeviceActivityLogService deviceActivityLogService,
     ITenantService tenantService,
     ISqlAuthService authService) : Controller
 {
@@ -157,6 +158,56 @@ public class DashboardController(
         }
     }
 
+    [HttpGet]
+    public async Task<IActionResult> DeviceActivityData(
+        int id,
+        int page = 1,
+        int pageSize = 50,
+        string? category = null,
+        string? status = null,
+        DateTime? dateFrom = null,
+        DateTime? dateTo = null)
+    {
+        var currentUser = await GetCurrentUserAsync();
+        var result = await deviceActivityLogService.GetDeviceActivityAsync(
+            id,
+            new DeviceActivityFilter
+            {
+                Category = category,
+                Status = status,
+                DateFrom = dateFrom,
+                DateTo = dateTo
+            },
+            page,
+            pageSize,
+            GetAllowedTenantId(currentUser),
+            GetAllowedDeviceId(currentUser),
+            HttpContext.RequestAborted);
+
+        if (result.TotalItems == 0 && result.Items.Count == 0)
+        {
+            var device = await deviceService.GetDeviceByIdAsync(id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            if (device is null)
+            {
+                return AjaxError(
+                    StatusCodes.Status404NotFound,
+                    "device_not_found",
+                    "Khong tim thay thiet bi hoac ban khong co quyen truy cap.",
+                    "The device was not found or you do not have access.");
+            }
+        }
+
+        return Json(new
+        {
+            success = true,
+            deviceId = id,
+            page = result.Page,
+            pageSize = result.PageSize,
+            totalItems = result.TotalItems,
+            items = result.Items
+        });
+    }
+
     [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> UpdateDeviceWifi([FromForm] UpdateDeviceWifiRequest request)
@@ -167,6 +218,23 @@ public class DashboardController(
             var userId = GetCurrentUserId();
             var requestedBy = User.FindFirstValue("DisplayName") ?? User.Identity?.Name ?? "system";
             var submit = await kvhCommandService.SubmitWifiUpdateAsync(request, userId, requestedBy, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            await deviceActivityLogService.WriteAsync(new DeviceActivityLogEntry
+            {
+                DeviceId = request.Id,
+                TenantId = GetAllowedTenantId(currentUser),
+                Category = DeviceActivityCategories.Networking,
+                Action = submit.Success ? DeviceActivityActions.WifiUpdateRequested : DeviceActivityActions.WifiUpdateFailed,
+                Status = submit.Success ? DeviceActivityStatuses.Requested : DeviceActivityStatuses.Failed,
+                NewValue = request.Ssid,
+                Summary = submit.Success ? "WiFi update command submitted." : "WiFi update command failed.",
+                DetailJson = DeviceActivityLogEntry.ToSafeJson(new { request.Ssid, request.Enabled, submit.CommandId, submit.JobId, submit.ErrorCode, submit.Message, submit.HttpStatusCode, submit.RawResponse }),
+                Source = DeviceActivitySources.Dashboard,
+                UserId = userId,
+                PerformedBy = requestedBy,
+                ReferenceType = submit.CommandId.HasValue ? "KVH_COMMAND" : "DEVICE",
+                ReferenceId = submit.CommandId?.ToString() ?? request.Id.ToString(),
+                CorrelationId = submit.JobId ?? submit.CommandId?.ToString() ?? Guid.NewGuid().ToString("N")
+            }, HttpContext.RequestAborted);
             var result = MapCommandSubmitResult(submit, "Da gui lenh cap nhat WiFi. He thong dang theo doi KVH Job.", "WiFi update command was submitted. The KVH job is being monitored.");
             if (!result.Success)
             {
@@ -373,6 +441,22 @@ public class DashboardController(
             var userId = GetCurrentUserId();
             var requestedBy = User.FindFirstValue("DisplayName") ?? User.Identity?.Name ?? "system";
             var submit = await kvhCommandService.SubmitRebootAsync(id, userId, requestedBy, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            await deviceActivityLogService.WriteAsync(new DeviceActivityLogEntry
+            {
+                DeviceId = id,
+                TenantId = GetAllowedTenantId(currentUser),
+                Category = DeviceActivityCategories.Networking,
+                Action = submit.Success ? DeviceActivityActions.RouterRebootRequested : DeviceActivityActions.RouterRebootFailed,
+                Status = submit.Success ? DeviceActivityStatuses.Requested : DeviceActivityStatuses.Failed,
+                Summary = submit.Success ? "Router reboot command submitted." : "Router reboot command failed.",
+                DetailJson = DeviceActivityLogEntry.ToSafeJson(new { submit.CommandId, submit.JobId, submit.ErrorCode, submit.Message, submit.HttpStatusCode, submit.RawResponse }),
+                Source = DeviceActivitySources.Dashboard,
+                UserId = userId,
+                PerformedBy = requestedBy,
+                ReferenceType = submit.CommandId.HasValue ? "KVH_COMMAND" : "DEVICE",
+                ReferenceId = submit.CommandId?.ToString() ?? id.ToString(),
+                CorrelationId = submit.JobId ?? submit.CommandId?.ToString() ?? Guid.NewGuid().ToString("N")
+            }, HttpContext.RequestAborted);
             var result = MapCommandSubmitResult(submit, "Da gui lenh reboot router. He thong dang theo doi KVH Job.", "Router reboot command was submitted. The KVH job is being monitored.");
             if (!result.Success)
             {
@@ -701,6 +785,7 @@ public class DashboardController(
             CurrentTenantId = currentUser?.TenantId,
             CurrentTenantName = tenants.FirstOrDefault(tenant => tenant.Id == currentUser?.TenantId)?.TenantName,
             CanManageDevices = CanManageDevices(currentUser),
+            CanCreateSubscriptions = CanCreateSubscriptions(currentUser),
             CanViewMap = CanViewMap(currentUser),
             CanManageDataOptIn = CanManageDataOptIn(currentUser)
         };
@@ -739,7 +824,12 @@ public class DashboardController(
 
     private static bool CanManageDevices(AuthUserRecord? user)
     {
-        return user?.IsViewOnly != true && (IsAdminAccount(user) || IsTenantAdmin(user));
+        return user is not null && !user.IsViewOnly && IsAdminAccount(user);
+    }
+
+    private static bool CanCreateSubscriptions(AuthUserRecord? user)
+    {
+        return user is not null && !user.IsViewOnly && !user.IsShipAdmin && !user.IsCrew && (IsAdminAccount(user) || IsTenantAdmin(user));
     }
 
     private static bool CanViewMap(AuthUserRecord? user)
@@ -749,7 +839,7 @@ public class DashboardController(
 
     private static bool CanManageDataOptIn(AuthUserRecord? user)
     {
-        return user?.IsViewOnly != true && (IsAdminAccount(user) || IsTenantAdmin(user));
+        return user is not null && !user.IsViewOnly && IsAdminAccount(user);
     }
 
     private static bool IsAdminAccount(AuthUserRecord? user)

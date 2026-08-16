@@ -15,6 +15,7 @@ public sealed class KvhSubscriptionService(
     IOptions<KvhJobMonitorOptions> monitorOptions,
     IKvhCommandService kvhCommandService,
     IKvhSubscriptionActionPolicy actionPolicy,
+    IDeviceActivityLogService deviceActivityLogService,
     ILogger<KvhSubscriptionService> logger) : IKvhSubscriptionService
 {
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")
@@ -550,6 +551,7 @@ public sealed class KvhSubscriptionService(
         {
             var submitError = ResolveSubscriptionSubmitError(response, action);
             await MarkSubmitFailedAsync(connection, commandId, response.HttpStatusCode, response.RawResponse, submitError.ErrorCode, submitError.Message, cancellationToken);
+            await WriteSubscriptionCommandActivitySafeAsync(context, commandType, commandId, string.Empty, userId, requestedBy, false, submitError.ErrorCode, submitError.Message, cancellationToken);
             return new KvhCommandSubmitResult
             {
                 Success = false,
@@ -568,6 +570,7 @@ public sealed class KvhSubscriptionService(
         {
             const string missingJobMessage = "KVH accepted the request but did not return a job id.";
             await MarkSubmitFailedAsync(connection, commandId, response.HttpStatusCode, response.RawResponse, KvhErrorCodes.MissingJobId, missingJobMessage, cancellationToken);
+            await WriteSubscriptionCommandActivitySafeAsync(context, commandType, commandId, string.Empty, userId, requestedBy, false, KvhErrorCodes.MissingJobId, missingJobMessage, cancellationToken);
             return new KvhCommandSubmitResult
             {
                 Success = false,
@@ -583,6 +586,7 @@ public sealed class KvhSubscriptionService(
         }
 
         await MarkSubmittedAsync(connection, commandId, jobId, response.HttpStatusCode, response.RawResponse, cancellationToken);
+        await WriteSubscriptionCommandActivitySafeAsync(context, commandType, commandId, jobId, userId, requestedBy, true, string.Empty, string.Empty, cancellationToken);
         return new KvhCommandSubmitResult
         {
             Success = true,
@@ -595,6 +599,56 @@ public sealed class KvhSubscriptionService(
             RawResponse = response.RawResponse,
             HttpStatusCode = response.HttpStatusCode
         };
+    }
+
+    private async Task WriteSubscriptionCommandActivitySafeAsync(
+        CommandContext context,
+        string commandType,
+        long commandId,
+        string jobId,
+        int? userId,
+        string requestedBy,
+        bool submitted,
+        string errorCode,
+        string errorMessage,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var action = commandType switch
+            {
+                KvhCommandTypes.SubscriptionPause => DeviceActivityActions.SubscriptionPauseRequested,
+                KvhCommandTypes.SubscriptionResume => submitted ? DeviceActivityActions.SubscriptionResumeRequested : DeviceActivityActions.SubscriptionResumeFailed,
+                KvhCommandTypes.SubscriptionCancelSchedule => DeviceActivityActions.SubscriptionCancelScheduleRequested,
+                _ => string.Empty
+            };
+            if (string.IsNullOrWhiteSpace(action))
+            {
+                return;
+            }
+
+            await deviceActivityLogService.WriteAsync(new DeviceActivityLogEntry
+            {
+                DeviceId = context.DeviceId,
+                Category = DeviceActivityCategories.Subscription,
+                Action = action,
+                Status = submitted ? DeviceActivityStatuses.Requested : DeviceActivityStatuses.Failed,
+                OldValue = context.SubscriptionStatus,
+                NewValue = submitted ? "requested" : context.SubscriptionStatus,
+                Summary = submitted ? $"KVH {commandType} command submitted." : $"KVH {commandType} command failed.",
+                DetailJson = DeviceActivityLogEntry.ToSafeJson(new { commandId, jobId, context.KvhSubscriptionId, context.TrafficId, context.Region, errorCode, errorMessage }),
+                Source = DeviceActivitySources.Dashboard,
+                UserId = userId,
+                PerformedBy = requestedBy,
+                ReferenceType = "KVH_COMMAND",
+                ReferenceId = commandId.ToString(),
+                CorrelationId = string.IsNullOrWhiteSpace(jobId) ? commandId.ToString() : jobId
+            }, cancellationToken);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(exception, "Failed to write KVH subscription command activity. CommandId={CommandId}", commandId);
+        }
     }
 
     private async Task<CommandContext> GetSubscriptionCommandContextAsync(SqlConnection connection, KvhSolutionCommandRequest request, int? allowedTenantId, int? allowedDeviceId, CancellationToken cancellationToken)

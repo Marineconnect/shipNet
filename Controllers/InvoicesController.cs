@@ -14,6 +14,7 @@ namespace StarlinkDeviceManager.Controllers;
 public sealed class InvoicesController(
     IInvoicePdfService invoicePdfService,
     IInvoiceIntegrationLogService invoiceIntegrationLogService,
+    ITransactionReupService transactionReupService,
     ISqlAuthService authService,
     IOptions<InvoicePdfIntegrationOptions> integrationOptions,
     IOptions<InvoiceIntegrationLogOptions> logOptions,
@@ -62,6 +63,41 @@ public sealed class InvoicesController(
             logger.LogError(exception, "External invoice PDF upload failed. InvoiceCode={InvoiceCode}.", invoiceCode);
             return StatusCode(StatusCodes.Status500InternalServerError, ErrorBody("storage_error", "Không thể lưu file PDF.", "Cannot save the PDF file."));
         }
+    }
+
+    [HttpPost("worker-result")]
+    public async Task<IActionResult> WorkerResult([FromBody] TransactionReupWorkerResultRequest request)
+    {
+        var keyResult = ValidateApiKey();
+        if (keyResult is not null)
+        {
+            return keyResult;
+        }
+
+        if (string.IsNullOrWhiteSpace(request.InvoiceCode) && string.IsNullOrWhiteSpace(request.TransactionCode))
+        {
+            return BadRequest(ErrorBody(
+                "missing_identity",
+                "Thiếu invoiceCode hoặc transactionCode.",
+                "invoiceCode or transactionCode is required."));
+        }
+
+        var recorded = await transactionReupService.RecordWorkerResultAsync(request, HttpContext.RequestAborted);
+        if (!recorded)
+        {
+            return NotFound(ErrorBody(
+                "transaction_reup_item_not_found",
+                "Không tìm thấy transaction reup item tương ứng.",
+                "No matching transaction reup item was found."));
+        }
+
+        return Ok(new
+        {
+            success = true,
+            message = "Invoice worker result was recorded.",
+            request.InvoiceCode,
+            request.TransactionCode
+        });
     }
 
     [Authorize]

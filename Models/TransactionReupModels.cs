@@ -6,6 +6,7 @@ namespace StarlinkDeviceManager.Models;
 public static class TransactionReupStatuses
 {
     public const string Pending = "Pending";
+    public const string Processing = "Processing";
     public const string Published = "Published";
     public const string PublishFailed = "PublishFailed";
     public const string Invalid = "Invalid";
@@ -20,6 +21,20 @@ public sealed class TransactionReupImportViewModel
 
     [Range(1, int.MaxValue)]
     public int StartInvoiceNumber { get; set; }
+}
+
+public sealed class TransactionReupWorkerResultRequest
+{
+    public string TransactionCode { get; set; } = string.Empty;
+    public string InvoiceCode { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public string ErrorCode { get; set; } = string.Empty;
+    public string ErrorMessage { get; set; } = string.Empty;
+    public string LogFile { get; set; } = string.Empty;
+    public string LogContent { get; set; } = string.Empty;
+    public string OutputFile { get; set; } = string.Empty;
+    public string SourceSystem { get; set; } = "InvoiceWorker";
+    public string RawMessage { get; set; } = string.Empty;
 }
 
 public sealed class TransactionReupIndexViewModel

@@ -18,6 +18,8 @@ public class PaymentTransactionService(
     IInvoiceRabbitMqPublisher invoiceRabbitMqPublisher,
     IInvoicePdfService invoicePdfService,
     IInvoiceIntegrationLogService invoiceIntegrationLogService,
+    IDeviceActivityLogService deviceActivityLogService,
+    IKvhPaymentResumeService kvhPaymentResumeService,
     ILogger<PaymentTransactionService> logger) : IPaymentTransactionService
 {
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")
@@ -811,7 +813,7 @@ public class PaymentTransactionService(
         var generatedInvoiceCode = BuildShipNetInvoiceCode(context);
         var resolvedEmail = FirstNotEmpty(context.OwnerEmail, context.TenantEmail, configuration["InvoicePdf:CustomerEmail"], configuration["InvoicePdf:DefaultEmail"]);
         var invoiceSettings = await systemSettingsService.GetSettingsByCodesAsync(["invoice_po_number"], cancellationToken);
-        var poNumber = FirstNotEmpty(invoiceSettings.GetValueOrDefault("invoice_po_number"), configuration["InvoicePdf:PONumber"], configuration["InvoicePdf:PO_Number"]);
+        var poNumber = ResolveInvoicePoNumber(invoiceSettings);
 
         AddLog($"STEP 2 - Build invoice PDF JSON. Invoice={context.InvoiceNumber}; InvoiceCode={generatedInvoiceCode}; Email={FirstNotEmpty(resolvedEmail, "-")}; Company={InvoicePdfSetting("CompanyName", "MLTECH MARINE CONNECT PTE LTD")}; TransactionCode={resolvedTransactionCode}; KitNumber={kitNumber}; AmountVnd={amountVnd:#,##0.##}.");
         var invoiceUrl = invoicePdfService.BuildUploadUrl(generatedInvoiceCode);
@@ -1285,6 +1287,13 @@ public class PaymentTransactionService(
         return string.Empty;
     }
 
+    private string ResolveInvoicePoNumber(IReadOnlyDictionary<string, string> invoiceSettings)
+    {
+        return invoiceSettings.TryGetValue("invoice_po_number", out var configuredValue)
+            ? configuredValue?.Trim() ?? string.Empty
+            : FirstNotEmpty(configuration["InvoicePdf:PONumber"], configuration["InvoicePdf:PO_Number"]);
+    }
+
     private static string NormalizeErrorCode(Exception exception)
     {
         var name = exception.GetBaseException().GetType().Name;
@@ -1513,6 +1522,16 @@ public class PaymentTransactionService(
                         paymentNo,
                         publishResult.Message);
                 }
+
+                await WriteNinePayPaidActivityAndResumeSafeAsync(
+                    invoice.InvoiceId,
+                    invoice.SubscriptionId,
+                    invoice.InvoiceNumber,
+                    providerInvoiceNumber,
+                    paymentNo,
+                    providerStatus,
+                    rawJson,
+                    cancellationToken);
             }
         }
 
@@ -1523,6 +1542,83 @@ public class PaymentTransactionService(
             PaymentNo = paymentNo,
             Message = processMessage
         };
+    }
+
+    private async Task WriteNinePayPaidActivityAndResumeSafeAsync(
+        int invoiceId,
+        int subscriptionId,
+        string invoiceNumber,
+        string providerInvoiceNumber,
+        string paymentNo,
+        string providerStatus,
+        string rawJson,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var context = await GetPaymentActivityContextAsync(subscriptionId, cancellationToken);
+            if (context is not null)
+            {
+                await deviceActivityLogService.WriteAsync(new DeviceActivityLogEntry
+                {
+                    DeviceId = context.Value.DeviceId,
+                    TenantId = context.Value.TenantId,
+                    Category = DeviceActivityCategories.Payment,
+                    Action = DeviceActivityActions.InvoicePaid,
+                    Status = DeviceActivityStatuses.Succeeded,
+                    OldValue = "pending",
+                    NewValue = "paid",
+                    Summary = $"Invoice {invoiceNumber} was paid by 9Pay bank transfer.",
+                    DetailJson = DeviceActivityLogEntry.ToSafeJson(new { invoiceId, invoiceNumber, providerInvoiceNumber, paymentNo, providerStatus }),
+                    Source = DeviceActivitySources.BankTransfer,
+                    PerformedBy = "Thanh toán chuyển khoản",
+                    ReferenceType = "PAYMENT",
+                    ReferenceId = paymentNo,
+                    CorrelationId = paymentNo
+                }, cancellationToken);
+            }
+
+            var resumeResult = await kvhPaymentResumeService.HandlePaidSubscriptionAsync(new KvhPaymentResumeRequest
+            {
+                SubscriptionId = subscriptionId,
+                Source = DeviceActivitySources.BankTransfer,
+                UserId = null,
+                PerformedBy = "Thanh toán chuyển khoản",
+                ReferenceType = "PAYMENT",
+                ReferenceId = paymentNo,
+                CorrelationId = paymentNo,
+                DetailJson = DeviceActivityLogEntry.ToSafeJson(new { invoiceId, invoiceNumber, providerInvoiceNumber, paymentNo, providerStatus, rawJson })
+            }, cancellationToken);
+            if (!resumeResult.Success)
+            {
+                logger.LogWarning(
+                    "9Pay IPN paid invoice {InvoiceId}, but KVH resume handling did not succeed. SubscriptionId={SubscriptionId}; ErrorCode={ErrorCode}; Message={Message}",
+                    invoiceId,
+                    subscriptionId,
+                    resumeResult.ErrorCode,
+                    resumeResult.Message);
+            }
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogError(exception, "9Pay IPN paid invoice {InvoiceId}, but post-payment activity/KVH resume hook failed.", invoiceId);
+        }
+    }
+
+    private async Task<(int DeviceId, int TenantId)?> GetPaymentActivityContextAsync(int subscriptionId, CancellationToken cancellationToken)
+    {
+        const string query = "SELECT TOP 1 [DeviceId], [TenantId] FROM [dbo].[TblMonthlySubscription] WHERE [ID] = @subscriptionId";
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new SqlCommand(query, connection);
+        command.Parameters.Add("@subscriptionId", SqlDbType.Int).Value = subscriptionId;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return (Convert.ToInt32(reader["DeviceId"]), Convert.ToInt32(reader["TenantId"]));
     }
 
     private async Task SendNinePayIpnTelegramNotificationAsync(

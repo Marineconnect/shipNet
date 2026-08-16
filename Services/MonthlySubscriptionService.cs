@@ -10,6 +10,7 @@ public class MonthlySubscriptionService(
     ICurrencyExchangeService currencyExchangeService,
     ISystemSettingsService systemSettingsService,
     IInvoiceRabbitMqPublisher invoiceRabbitMqPublisher,
+    IDeviceActivityLogService deviceActivityLogService,
     ILogger<MonthlySubscriptionService> logger) : IMonthlySubscriptionService
 {
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")
@@ -385,6 +386,26 @@ public class MonthlySubscriptionService(
         }
 
         await transaction.CommitAsync(cancellationToken);
+        foreach (var subscriptionId in subscriptionIds)
+        {
+            await WriteActivitySafeAsync(new DeviceActivityLogEntry
+            {
+                DeviceId = model.DeviceId,
+                TenantId = model.TenantId,
+                Category = DeviceActivityCategories.Billing,
+                Action = DeviceActivityActions.BillingCycleCreated,
+                Status = DeviceActivityStatuses.Succeeded,
+                Summary = $"Created billing cycle {model.StartDate:dd/MM/yyyy} - {model.EndDate:dd/MM/yyyy}.",
+                DetailJson = DeviceActivityLogEntry.ToSafeJson(new { subscriptionId, model.PricingPlanId, model.SubscriptionType }),
+                Source = DeviceActivitySources.Dashboard,
+                UserId = userId,
+                PerformedBy = username,
+                ReferenceType = "BILLING_CYCLE",
+                ReferenceId = subscriptionId.ToString(),
+                CorrelationId = $"BILLING-{subscriptionId}"
+            }, cancellationToken);
+        }
+
         return subscriptionIds;
     }
 
@@ -412,6 +433,24 @@ public class MonthlySubscriptionService(
         await InsertAuditAsync(connection, transaction, userId, model.SubscriptionId, $"Created invoice #{invoiceId} for subscription #{model.SubscriptionId} by '{username}'.", cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
+        await WriteActivitySafeAsync(new DeviceActivityLogEntry
+        {
+            DeviceId = subscription.DeviceId,
+            TenantId = subscription.TenantId,
+            Category = DeviceActivityCategories.Billing,
+            Action = DeviceActivityActions.InvoiceCreated,
+            Status = DeviceActivityStatuses.Succeeded,
+            NewValue = amount.ToString(CultureInfo.InvariantCulture),
+            Summary = $"Created invoice {invoiceNumber}.",
+            DetailJson = DeviceActivityLogEntry.ToSafeJson(new { invoiceId, invoiceNumber, invoiceType, dataGb, amount }),
+            Source = DeviceActivitySources.Dashboard,
+            UserId = userId,
+            PerformedBy = username,
+            ReferenceType = "INVOICE",
+            ReferenceId = invoiceId.ToString(),
+            CorrelationId = $"INV-{invoiceId}"
+        }, cancellationToken);
+
         await PublishInvoiceGenerateEventAfterCommitAsync(
             invoiceId,
             invoiceNumber,
@@ -425,7 +464,7 @@ public class MonthlySubscriptionService(
         return invoiceId;
     }
 
-    public async Task UpdateInvoiceAsync(UpdateSubscriptionInvoiceViewModel model, int? userId, string username, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
+    public async Task<SubscriptionInvoiceUpdateResult> UpdateInvoiceAsync(UpdateSubscriptionInvoiceViewModel model, int? userId, string username, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
     {
         var invoiceNumber = model.InvoiceNumber?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(invoiceNumber))
@@ -442,13 +481,16 @@ public class MonthlySubscriptionService(
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
         await EnsureSchemaAsync(connection, transaction, cancellationToken);
 
-        _ = await GetSubscriptionContextAsync(connection, transaction, model.SubscriptionId, tenantId, deviceId, cancellationToken)
+        var subscription = await GetSubscriptionContextAsync(connection, transaction, model.SubscriptionId, tenantId, deviceId, cancellationToken)
             ?? throw new InvalidOperationException("Subscription was not found.");
 
         if (await IsInvoicePaidByBankTransferAsync(connection, transaction, model.InvoiceId, cancellationToken))
         {
             throw new InvalidOperationException("Invoice was paid by bank transfer and cannot be updated.");
         }
+
+        var oldStatus = await GetInvoiceStatusAsync(connection, transaction, model.InvoiceId, model.SubscriptionId, cancellationToken)
+            ?? throw new InvalidOperationException("Invoice was not found.");
 
         const string query = """
             IF EXISTS (
@@ -493,6 +535,58 @@ public class MonthlySubscriptionService(
         await RecalculateSubscriptionTotalsAsync(connection, transaction, model.SubscriptionId, cancellationToken);
         await InsertAuditAsync(connection, transaction, userId, model.SubscriptionId, $"Updated invoice #{model.InvoiceId} by '{username}'.", cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+
+        var updateResult = new SubscriptionInvoiceUpdateResult
+        {
+            InvoiceId = model.InvoiceId,
+            SubscriptionId = model.SubscriptionId,
+            DeviceId = subscription.DeviceId,
+            TenantId = subscription.TenantId,
+            InvoiceNumber = invoiceNumber,
+            OldStatus = oldStatus,
+            NewStatus = status
+        };
+
+        await WriteActivitySafeAsync(new DeviceActivityLogEntry
+        {
+            DeviceId = subscription.DeviceId,
+            TenantId = subscription.TenantId,
+            Category = DeviceActivityCategories.Billing,
+            Action = DeviceActivityActions.InvoiceUpdated,
+            Status = DeviceActivityStatuses.Succeeded,
+            Summary = $"Updated invoice {invoiceNumber}.",
+            DetailJson = DeviceActivityLogEntry.ToSafeJson(new { model.InvoiceId, model.SubscriptionId, amount, refundAmount, status }),
+            Source = DeviceActivitySources.ManualInvoiceUpdate,
+            UserId = userId,
+            PerformedBy = username,
+            ReferenceType = "INVOICE",
+            ReferenceId = model.InvoiceId.ToString(),
+            CorrelationId = $"INV-{model.InvoiceId}-{DateTime.UtcNow:yyyyMMddHHmmss}"
+        }, cancellationToken);
+
+        if (updateResult.StatusChanged)
+        {
+            await WriteActivitySafeAsync(new DeviceActivityLogEntry
+            {
+                DeviceId = subscription.DeviceId,
+                TenantId = subscription.TenantId,
+                Category = DeviceActivityCategories.Payment,
+                Action = updateResult.BecamePaid ? DeviceActivityActions.InvoicePaid : DeviceActivityActions.InvoiceStatusChanged,
+                Status = DeviceActivityStatuses.Succeeded,
+                OldValue = oldStatus,
+                NewValue = status,
+                Summary = $"Invoice {invoiceNumber} status changed from {oldStatus} to {status}.",
+                DetailJson = DeviceActivityLogEntry.ToSafeJson(new { model.InvoiceId, model.SubscriptionId }),
+                Source = DeviceActivitySources.ManualInvoiceUpdate,
+                UserId = userId,
+                PerformedBy = username,
+                ReferenceType = "INVOICE",
+                ReferenceId = model.InvoiceId.ToString(),
+                CorrelationId = $"INV-{model.InvoiceId}-{DateTime.UtcNow:yyyyMMddHHmmss}"
+            }, cancellationToken);
+        }
+
+        return updateResult;
     }
 
     public async Task UpdateSubscriptionBillingAsync(UpdateMonthlySubscriptionBillingViewModel model, int? userId, string username, int? tenantId = null, int? deviceId = null, CancellationToken cancellationToken = default)
@@ -595,6 +689,65 @@ public class MonthlySubscriptionService(
         await RecalculateSubscriptionTotalsAsync(connection, transaction, model.SubscriptionId, cancellationToken);
         await InsertAuditAsync(connection, transaction, userId, model.SubscriptionId, $"Updated subscription #{model.SubscriptionId} billing by '{username}'.", cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+
+        var subscription = await GetSubscriptionContextForActivityAsync(model.SubscriptionId, cancellationToken);
+        if (subscription.HasValue)
+        {
+            await WriteActivitySafeAsync(new DeviceActivityLogEntry
+            {
+                DeviceId = subscription.Value.DeviceId,
+                TenantId = subscription.Value.TenantId,
+                Category = DeviceActivityCategories.Billing,
+                Action = DeviceActivityActions.BillingCycleUpdated,
+                Status = DeviceActivityStatuses.Succeeded,
+                Summary = $"Updated billing cycle {startDate:dd/MM/yyyy} - {endDate:dd/MM/yyyy}.",
+                DetailJson = DeviceActivityLogEntry.ToSafeJson(new { model.SubscriptionId, usageMonth, startDate, endDate, nextBillingDate, basePlanPrice, overChargePrice }),
+                Source = DeviceActivitySources.Dashboard,
+                UserId = userId,
+                PerformedBy = username,
+                ReferenceType = "BILLING_CYCLE",
+                ReferenceId = model.SubscriptionId.ToString(),
+                CorrelationId = $"BILLING-{model.SubscriptionId}-{DateTime.UtcNow:yyyyMMddHHmmss}"
+            }, cancellationToken);
+        }
+    }
+
+    private async Task<string?> GetInvoiceStatusAsync(SqlConnection connection, SqlTransaction transaction, int invoiceId, int subscriptionId, CancellationToken cancellationToken)
+    {
+        const string query = "SELECT TOP 1 [Status] FROM [dbo].[TblSubscriptionInvoice] WHERE [ID] = @invoiceId AND [SubscriptionId] = @subscriptionId";
+        await using var command = new SqlCommand(query, connection, transaction);
+        command.Parameters.Add("@invoiceId", SqlDbType.Int).Value = invoiceId;
+        command.Parameters.Add("@subscriptionId", SqlDbType.Int).Value = subscriptionId;
+        var value = await command.ExecuteScalarAsync(cancellationToken);
+        return value == DBNull.Value || value is null ? null : value.ToString();
+    }
+
+    private async Task<(int DeviceId, int TenantId)?> GetSubscriptionContextForActivityAsync(int subscriptionId, CancellationToken cancellationToken)
+    {
+        const string query = "SELECT TOP 1 [DeviceId], [TenantId] FROM [dbo].[TblMonthlySubscription] WHERE [ID] = @subscriptionId";
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new SqlCommand(query, connection);
+        command.Parameters.Add("@subscriptionId", SqlDbType.Int).Value = subscriptionId;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return (ReadInt(reader, "DeviceId"), ReadInt(reader, "TenantId"));
+    }
+
+    private async Task WriteActivitySafeAsync(DeviceActivityLogEntry entry, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await deviceActivityLogService.WriteAsync(entry, cancellationToken);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(exception, "Failed to write device activity log for {Action}. DeviceId={DeviceId}", entry.Action, entry.DeviceId);
+        }
     }
 
     private static async Task<bool> IsInvoicePaidByBankTransferAsync(SqlConnection connection, SqlTransaction transaction, int invoiceId, CancellationToken cancellationToken)
@@ -991,6 +1144,8 @@ public class MonthlySubscriptionService(
         const string query = """
             SELECT TOP 1
                 s.[ID],
+                s.[DeviceId],
+                s.[TenantId],
                 s.[TenantName],
                 s.[VesselName],
                 COALESCE(NULLIF(d.[KITNumber], N''), NULLIF(s.[KitId], N''), d.[KITID], N'') AS [KitId],
@@ -1023,6 +1178,8 @@ public class MonthlySubscriptionService(
         }
 
         return new SubscriptionPriceContext(
+            ReadInt(reader, "DeviceId"),
+            ReadInt(reader, "TenantId"),
             ReadText(reader, "TenantName"),
             ReadText(reader, "VesselName"),
             ReadText(reader, "KitId"),
@@ -1681,6 +1838,8 @@ public class MonthlySubscriptionService(
         decimal FinalOverChargePrice);
 
     private sealed record SubscriptionPriceContext(
+        int DeviceId,
+        int TenantId,
         string TenantName,
         string VesselName,
         string KitId,

@@ -3,14 +3,234 @@
     ViewData["ActiveNav"] = "transactions";
     ViewData["Title"] = $"Import {Model.Batch.BatchCode}";
 }
-<div class="device-page"><div class="device-shell"><partial name="_PortalNav" /><div class="device-dashboard transaction-page">
-  <nav class="portal-breadcrumb" aria-label="Breadcrumb"><a asp-action="Index">Reup Transaction</a><span>@Model.Batch.BatchCode</span></nav>
-  <section class="device-hero"><div><div class="device-brand">IMPORT BATCH</div><h1>@Model.Batch.BatchCode</h1><p>@Model.Batch.OriginalFileName · @Model.Batch.ImportedAtDisplay · @Model.Batch.Status</p></div></section>
-  <section class="device-card transaction-card"><header class="device-card-head"><div><h2>Item details</h2><p>@Model.Items.Count row(s)</p></div><div class="device-modal-actions"><a class="btn-secondary" asp-action="Download" asp-route-id="@Model.Batch.Id">Download source file</a><form asp-action="RetryFailed" asp-route-id="@Model.Batch.Id" method="post">@Html.AntiForgeryToken()<button class="btn-primary" type="submit">Retry failed</button></form></div></header>
-    <div class="device-table-wrap transaction-table-wrap"><table class="device-table transaction-table"><thead><tr><th>Row</th><th>Transaction</th><th>Request code</th><th>Invoice code</th><th>Gross amount</th><th>Validation</th><th>Publish</th><th>Message</th><th>Actions</th></tr></thead><tbody>
-    @foreach (var item in Model.Items) {
-      <tr><td>@item.RowNumber</td><td><strong>@item.SourceTransactionCode</strong></td><td>@item.SourceRequestCode</td><td>@item.InvoiceCode</td><td>@item.GrossAmountVnd.ToString("#,##0.##")</td><td>@item.ValidationStatus</td><td>@item.PublishStatus<br /><span class="muted">@item.PublishAttemptCount attempt(s)</span></td><td>@item.PublishMessage<br /><span class="muted">@item.RabbitMessageId</span></td><td><a class="table-action-btn" asp-action="Payload" asp-route-itemId="@item.Id" target="_blank">Payload</a>@if (item.CanRetry) { <form asp-action="RetryItem" asp-route-itemId="@item.Id" asp-route-batchId="@Model.Batch.Id" method="post" style="display:inline">@Html.AntiForgeryToken()<button class="table-action-btn" type="submit">Retry</button></form> }</td></tr>
+
+@functions {
+    private static string FirstLogValue(string logs, string key)
+    {
+        if (string.IsNullOrWhiteSpace(logs))
+        {
+            return string.Empty;
+        }
+
+        var prefix = key + "=";
+        foreach (var line in logs.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None))
+        {
+            if (line.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return line[prefix.Length..].Trim();
+            }
+        }
+
+        return string.Empty;
     }
-    </tbody></table></div>
-  </section>
-</div></div></div>
+}
+
+<div class="device-page">
+  <div class="device-shell">
+    <partial name="_PortalNav" />
+    <div class="device-dashboard transaction-page">
+      <nav class="portal-breadcrumb" aria-label="Breadcrumb">
+        <a asp-action="Index">Reup Transaction</a>
+        <span>@Model.Batch.BatchCode</span>
+      </nav>
+
+      <section class="device-hero">
+        <div>
+          <div class="device-brand">IMPORT BATCH</div>
+          <h1>@Model.Batch.BatchCode</h1>
+          <p>@Model.Batch.OriginalFileName - @Model.Batch.ImportedAtDisplay - @Model.Batch.Status</p>
+        </div>
+      </section>
+
+      <section class="device-card transaction-card">
+        <header class="device-card-head">
+          <div>
+            <h2>Item details</h2>
+            <p>@Model.Items.Count row(s)</p>
+          </div>
+          <div class="device-modal-actions">
+            <a class="btn-secondary" asp-action="Download" asp-route-id="@Model.Batch.Id">Download source file</a>
+            <form asp-action="RetryFailed" asp-route-id="@Model.Batch.Id" method="post">
+              @Html.AntiForgeryToken()
+              <button class="btn-primary" type="submit">Retry failed</button>
+            </form>
+          </div>
+        </header>
+
+        <div class="device-table-wrap transaction-table-wrap">
+          <table class="device-table transaction-table">
+            <thead>
+              <tr>
+                <th>Row</th>
+                <th>Transaction</th>
+                <th>Request code</th>
+                <th>Invoice code</th>
+                <th>Gross amount</th>
+                <th>Validation</th>
+                <th>Publish</th>
+                <th>Message</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+            @foreach (var item in Model.Items)
+            {
+                var workerErrorCode = FirstLogValue(item.PublishLogs, "ErrorCode");
+                var workerErrorMessage = FirstLogValue(item.PublishLogs, "ErrorMessage");
+                var workerLogFile = FirstLogValue(item.PublishLogs, "LogFile");
+                var workerOutputFile = FirstLogValue(item.PublishLogs, "OutputFile");
+                var hasWorkerDetails = !string.IsNullOrWhiteSpace(item.PublishLogs);
+              <tr>
+                <td>@item.RowNumber</td>
+                <td><strong>@item.SourceTransactionCode</strong></td>
+                <td>@item.SourceRequestCode</td>
+                <td>@item.InvoiceCode</td>
+                <td>@item.GrossAmountVnd.ToString("#,##0.##")</td>
+                <td>@item.ValidationStatus</td>
+                <td>
+                  @item.PublishStatus<br />
+                  <span class="muted">@item.PublishAttemptCount attempt(s)</span>
+                </td>
+                <td class="transaction-reup-message">
+                  <div>@item.PublishMessage</div>
+                  @if (!string.IsNullOrWhiteSpace(workerErrorCode))
+                  {
+                    <div class="transaction-error-code">@workerErrorCode</div>
+                  }
+                  @if (!string.IsNullOrWhiteSpace(workerErrorMessage))
+                  {
+                    <div class="transaction-error-summary">@workerErrorMessage</div>
+                  }
+                  @if (!string.IsNullOrWhiteSpace(workerLogFile))
+                  {
+                    <div class="muted">Log: @workerLogFile</div>
+                  }
+                  @if (!string.IsNullOrWhiteSpace(item.RabbitMessageId))
+                  {
+                    <div class="muted">Rabbit: @item.RabbitMessageId</div>
+                  }
+                </td>
+                <td>
+                  <a class="table-action-btn" asp-action="Payload" asp-route-itemId="@item.Id" target="_blank">Payload</a>
+                  @if (hasWorkerDetails)
+                  {
+                    <button
+                      class="table-action-btn"
+                      type="button"
+                      data-worker-error
+                      data-row="@item.RowNumber"
+                      data-transaction="@item.SourceTransactionCode"
+                      data-invoice="@item.InvoiceCode"
+                      data-status="@item.PublishStatus"
+                      data-message="@item.PublishMessage"
+                      data-error-code="@workerErrorCode"
+                      data-error-message="@workerErrorMessage"
+                      data-log-file="@workerLogFile"
+                      data-output-file="@workerOutputFile"
+                      data-rabbit-message="@item.RabbitMessageId"
+                      data-publish-logs="@item.PublishLogs">Error detail</button>
+                  }
+                  @if (item.CanRetry)
+                  {
+                    <form asp-action="RetryItem" asp-route-itemId="@item.Id" asp-route-batchId="@Model.Batch.Id" method="post" style="display:inline">
+                      @Html.AntiForgeryToken()
+                      <button class="table-action-btn" type="submit">Retry</button>
+                    </form>
+                  }
+                </td>
+              </tr>
+            }
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop transaction-modal-backdrop" data-reup-error-modal hidden>
+  <div class="device-modal transaction-modal" role="dialog" aria-modal="true" aria-labelledby="reupErrorModalTitle">
+    <div class="device-modal-head">
+      <div>
+        <h2 id="reupErrorModalTitle">Worker error detail</h2>
+        <p data-reup-error-subtitle>-</p>
+      </div>
+      <button type="button" class="modal-close" data-close-reup-error-modal aria-label="Close">x</button>
+    </div>
+    <div class="transaction-modal-body">
+      <div class="transaction-detail-grid transaction-reup-error-grid">
+        <div><span>Status</span><strong data-reup-error-status>-</strong></div>
+        <div><span>Error code</span><strong data-reup-error-code>-</strong></div>
+        <div><span>Transaction</span><strong data-reup-error-transaction>-</strong></div>
+        <div><span>Invoice</span><strong data-reup-error-invoice>-</strong></div>
+      </div>
+      <div class="transaction-reup-error-block">
+        <h3>Error message</h3>
+        <pre class="transaction-json" data-reup-error-message>-</pre>
+      </div>
+      <div class="transaction-reup-error-block">
+        <h3>Worker paths</h3>
+        <pre class="transaction-json" data-reup-error-paths>-</pre>
+      </div>
+      <div class="transaction-reup-error-block">
+        <div class="transaction-reup-log-head">
+          <h3>Full callback log</h3>
+          <button type="button" class="table-action-btn" data-copy-reup-error>Copy error</button>
+        </div>
+        <pre class="transaction-json" data-reup-error-log>-</pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+@section Scripts {
+<script>
+(() => {
+  const modal = document.querySelector("[data-reup-error-modal]");
+  if (!modal) return;
+
+  const text = (selector, value) => {
+    const node = modal.querySelector(selector);
+    if (node) node.textContent = value || "-";
+  };
+
+  const close = () => {
+    modal.hidden = true;
+  };
+
+  document.querySelector("[data-close-reup-error-modal]")?.addEventListener("click", close);
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) close();
+  });
+
+  document.querySelectorAll("[data-worker-error]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const paths = [
+        `LogFile=${button.dataset.logFile || "-"}`,
+        `OutputFile=${button.dataset.outputFile || "-"}`,
+        `RabbitMessageId=${button.dataset.rabbitMessage || "-"}`
+      ].join("\n");
+
+      text("[data-reup-error-subtitle]", `Row ${button.dataset.row || "-"} - ${button.dataset.invoice || "-"}`);
+      text("[data-reup-error-status]", button.dataset.status);
+      text("[data-reup-error-code]", button.dataset.errorCode);
+      text("[data-reup-error-transaction]", button.dataset.transaction);
+      text("[data-reup-error-invoice]", button.dataset.invoice);
+      text("[data-reup-error-message]", button.dataset.errorMessage || button.dataset.message);
+      text("[data-reup-error-paths]", paths);
+      text("[data-reup-error-log]", button.dataset.publishLogs);
+      modal.hidden = false;
+    });
+  });
+
+  document.querySelector("[data-copy-reup-error]")?.addEventListener("click", async () => {
+    const value = modal.querySelector("[data-reup-error-log]")?.textContent || "";
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      window.prompt("Copy error detail", value);
+    }
+  });
+})();
+</script>
+}
