@@ -74,6 +74,64 @@ public class TransactionsController(
         return detail is null ? NotFound() : Json(detail);
     }
 
+    [HttpGet]
+    public async Task<IActionResult> ReupPdfCandidates(
+        string? search = null,
+        string? invoiceNumber = null,
+        string? paymentStatus = null,
+        string? paymentMethod = null,
+        string? qrState = null,
+        int? tenantId = null,
+        DateTime? dateFrom = null,
+        DateTime? dateTo = null)
+    {
+        var currentUser = await GetCurrentUserAsync();
+        if (!IsTransactionReupAdmin(currentUser) || currentUser?.IsViewOnly == true)
+        {
+            return Forbid();
+        }
+
+        var filter = new PaymentTransactionFilterViewModel
+        {
+            Search = search,
+            InvoiceNumber = invoiceNumber,
+            PaymentStatus = paymentStatus,
+            PaymentMethod = paymentMethod,
+            QrState = qrState,
+            TenantId = tenantId,
+            DateFrom = dateFrom,
+            DateTo = dateTo
+        };
+
+        var invoiceIds = await paymentTransactionService.GetFilteredTransactionInvoiceIdsAsync(
+            filter,
+            GetAllowedTenantId(currentUser),
+            GetAllowedDeviceId(currentUser),
+            HttpContext.RequestAborted);
+        var candidates = await paymentTransactionService.GetTransactionReupCandidatesAsync(
+            invoiceIds,
+            GetAllowedTenantId(currentUser),
+            GetAllowedDeviceId(currentUser),
+            HttpContext.RequestAborted);
+
+        return Json(new
+        {
+            success = true,
+            count = candidates.Count,
+            items = candidates.Select(item => new
+            {
+                item.InvoiceId,
+                item.InvoiceNumber,
+                PaymentNo = item.SourceTransactionCode,
+                item.SourceTransactionCode,
+                item.SourceRequestCode,
+                item.TenantName,
+                item.VesselName,
+                item.KitNumber
+            })
+        });
+    }
+
     [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> ReupPdf(TransactionReupSelectionRequest request)

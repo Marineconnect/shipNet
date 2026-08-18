@@ -72,6 +72,8 @@
                 <th>Gross amount</th>
                 <th>Validation</th>
                 <th>Publish</th>
+                <th>PDF</th>
+                <th>Completed</th>
                 <th>Message</th>
                 <th>Actions</th>
               </tr>
@@ -96,8 +98,29 @@
                   @item.PublishStatus<br />
                   <span class="muted">@item.PublishAttemptCount attempt(s)</span>
                 </td>
+                <td>
+                  @if (item.HasPdf)
+                  {
+                    <a class="table-action-btn" asp-action="ItemPdf" asp-route-itemId="@item.Id" target="_blank">View PDF</a>
+                    <a class="table-action-btn" asp-action="ItemPdf" asp-route-itemId="@item.Id" asp-route-download="true">Download PDF</a>
+                    <div class="muted">@item.PdfFileName</div>
+                  }
+                  else
+                  {
+                    <span class="muted">-</span>
+                  }
+                </td>
+                <td>@item.CompletedAtDisplay</td>
                 <td class="transaction-reup-message">
                   <div>@item.PublishMessage</div>
+                  @if (!string.IsNullOrWhiteSpace(item.ErrorCode))
+                  {
+                    <div class="transaction-error-code">@item.ErrorCode</div>
+                  }
+                  @if (!string.IsNullOrWhiteSpace(item.ErrorMessage))
+                  {
+                    <div class="transaction-error-summary">@item.ErrorMessage</div>
+                  }
                   @if (!string.IsNullOrWhiteSpace(workerErrorCode))
                   {
                     <div class="transaction-error-code">@workerErrorCode</div>
@@ -191,6 +214,7 @@
 @section Scripts {
 <script>
 (() => {
+  try { sessionStorage.removeItem("shipnet.transactionHistory.reupPdf.selection.v1"); } catch {}
   const modal = document.querySelector("[data-reup-error-modal]");
   if (!modal) return;
 

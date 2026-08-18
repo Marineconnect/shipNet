@@ -42,7 +42,10 @@ public sealed record PaymentTransactionReupCandidate(
     string PaymentMethod,
     string BankName,
     decimal NetAmountVnd,
-    string SourceStatus);
+    string SourceStatus,
+    string TenantName,
+    string VesselName,
+    string KitNumber);
 
 public sealed record InvoicePdfPayloadBuildResult(
     int InvoiceId,

@@ -17,5 +17,14 @@ public interface ITransactionReupService
     Task RetryFailedAsync(int batchId, AuthUserRecord user, CancellationToken cancellationToken);
     Task RetryItemAsync(int itemId, AuthUserRecord user, CancellationToken cancellationToken);
     Task<bool> RecordWorkerResultAsync(TransactionReupWorkerResultRequest request, CancellationToken cancellationToken);
+    Task<TransactionReupPdfCallbackResult> SaveItemPdfAsync(
+        int itemId,
+        IFormFile? file,
+        string transactionCode,
+        string sourceSystem,
+        DateTime? generatedAt,
+        string externalReference,
+        CancellationToken cancellationToken);
+    Task<TransactionReupItemPdfOpenResult?> OpenItemPdfAsync(int itemId, CancellationToken cancellationToken);
     Task<string?> GetOriginalFilePathAsync(int batchId, CancellationToken cancellationToken);
 }

@@ -33,6 +33,28 @@ BEGIN
     BEGIN
         ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [SourceInvoiceId] int NULL;
     END;
+    IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'PdfFileName') IS NULL
+        ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [PdfFileName] nvarchar(260) NULL;
+    IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'PdfStorageKey') IS NULL
+        ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [PdfStorageKey] nvarchar(500) NULL;
+    IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'PdfSize') IS NULL
+        ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [PdfSize] bigint NULL;
+    IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'PdfSha256') IS NULL
+        ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [PdfSha256] varchar(64) NULL;
+    IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'PdfContentType') IS NULL
+        ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [PdfContentType] nvarchar(100) NULL;
+    IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'PdfReceivedAtUtc') IS NULL
+        ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [PdfReceivedAtUtc] datetime2(7) NULL;
+    IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'ErrorCode') IS NULL
+        ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [ErrorCode] nvarchar(100) NULL;
+    IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'ErrorMessage') IS NULL
+        ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [ErrorMessage] nvarchar(max) NULL;
+    IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'ProcessingStartedAtUtc') IS NULL
+        ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [ProcessingStartedAtUtc] datetime2(7) NULL;
+    IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'WaitingPdfAtUtc') IS NULL
+        ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [WaitingPdfAtUtc] datetime2(7) NULL;
+    IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'CompletedAtUtc') IS NULL
+        ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [CompletedAtUtc] datetime2(7) NULL;
 END;
 GO
 

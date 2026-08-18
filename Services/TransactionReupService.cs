@@ -57,6 +57,8 @@ public sealed class TransactionReupService(
             SELECT [ID], [SourceInvoiceId], [RowNumber], [SourceTransactionCode], [SourceRequestCode], [InvoiceCode],
                    [GrossAmountVnd], [ValidationStatus], [PublishStatus], [PublishAttemptCount],
                    [RabbitMessageId], [RabbitCorrelationId], [PublishMessage], [PublishLogs], [PayloadJson],
+                   [PdfFileName], [PdfStorageKey], [PdfSize], [PdfSha256], [PdfContentType], [PdfReceivedAtUtc],
+                   [ErrorCode], [ErrorMessage], [ProcessingStartedAtUtc], [WaitingPdfAtUtc], [CompletedAtUtc],
                    [TransactionType], [PaymentMethod], [BankName], [ProcessingFeeVnd], [NetAmountVnd],
                    [SourceStatus], [PublishedAtUtc]
             FROM [dbo].[TblTransactionReupImportItem]
@@ -82,6 +84,8 @@ public sealed class TransactionReupService(
             SELECT [ID], [SourceInvoiceId], [RowNumber], [SourceTransactionCode], [SourceRequestCode], [InvoiceCode],
                    [GrossAmountVnd], [ValidationStatus], [PublishStatus], [PublishAttemptCount],
                    [RabbitMessageId], [RabbitCorrelationId], [PublishMessage], [PublishLogs], [PayloadJson],
+                   [PdfFileName], [PdfStorageKey], [PdfSize], [PdfSha256], [PdfContentType], [PdfReceivedAtUtc],
+                   [ErrorCode], [ErrorMessage], [ProcessingStartedAtUtc], [WaitingPdfAtUtc], [CompletedAtUtc],
                    [TransactionType], [PaymentMethod], [BankName], [ProcessingFeeVnd], [NetAmountVnd],
                    [SourceStatus], [PublishedAtUtc]
             FROM [dbo].[TblTransactionReupImportItem]
@@ -143,12 +147,7 @@ public sealed class TransactionReupService(
         int? allowedDeviceId,
         CancellationToken cancellationToken)
     {
-        var selectionMode = request.SelectionMode?.Trim() ?? string.Empty;
-        var requestedInvoiceIds = string.Equals(selectionMode, "all_filtered", StringComparison.OrdinalIgnoreCase)
-            ? (await paymentTransactionService.GetFilteredTransactionInvoiceIdsAsync(request.Filter, allowedTenantId, allowedDeviceId, cancellationToken)).ToList()
-            : request.InvoiceIds.Where(id => id > 0).Distinct().ToList();
-
-        requestedInvoiceIds = requestedInvoiceIds.Distinct().ToList();
+        var requestedInvoiceIds = request.InvoiceIds.Where(id => id > 0).Distinct().ToList();
         if (requestedInvoiceIds.Count == 0)
         {
             throw new InvalidOperationException("Select at least one invoice to Reup PDF.");
@@ -177,7 +176,7 @@ public sealed class TransactionReupService(
                 user.Username,
                 cancellationToken);
 
-            await InsertTransactionSelectionItemAsync(
+            var itemId = await InsertTransactionSelectionItemAsync(
                 connection,
                 transaction,
                 batchId,
@@ -185,6 +184,8 @@ public sealed class TransactionReupService(
                 candidate,
                 payload,
                 cancellationToken);
+            var itemPayload = PrepareReupItemPayload(payload.PayloadJson, BuildReupItemUploadUrl(itemId), itemId);
+            await UpdateItemPayloadAsync(connection, transaction, itemId, itemPayload, cancellationToken);
         }
 
         await UpdateBatchCountsAsync(connection, transaction, batchId, null, null, candidates.Count, 0, 0, 0, 0, "Processing", cancellationToken);
@@ -204,12 +205,13 @@ public sealed class TransactionReupService(
     {
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await EnsureSchemaExistsAsync(connection, cancellationToken);
-        const string sql = "SELECT [ID] FROM [dbo].[TblTransactionReupImportItem] WHERE [BatchId] = @batchId AND [PublishStatus] = @status ORDER BY [RowNumber], [ID];";
+        const string sql = "SELECT [ID] FROM [dbo].[TblTransactionReupImportItem] WHERE [BatchId] = @batchId AND [PublishStatus] IN (@status, @errorStatus) ORDER BY [RowNumber], [ID];";
         var ids = new List<int>();
         await using (var command = new SqlCommand(sql, connection))
         {
             command.Parameters.Add("@batchId", SqlDbType.Int).Value = batchId;
             command.Parameters.Add("@status", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.PublishFailed;
+            command.Parameters.Add("@errorStatus", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Error;
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken)) ids.Add(reader.GetInt32(0));
         }
@@ -220,7 +222,9 @@ public sealed class TransactionReupService(
     public async Task RetryItemAsync(int itemId, AuthUserRecord user, CancellationToken cancellationToken)
     {
         var item = await LoadRetryItemAsync(itemId, cancellationToken);
-        if (item is null || !string.Equals(item.PublishStatus, TransactionReupStatuses.PublishFailed, StringComparison.OrdinalIgnoreCase))
+        if (item is null ||
+            (!string.Equals(item.PublishStatus, TransactionReupStatuses.PublishFailed, StringComparison.OrdinalIgnoreCase)
+             && !string.Equals(item.PublishStatus, TransactionReupStatuses.Error, StringComparison.OrdinalIgnoreCase)))
         {
             return;
         }
@@ -239,6 +243,108 @@ public sealed class TransactionReupService(
         await using var command = new SqlCommand(sql, connection);
         command.Parameters.Add("@id", SqlDbType.Int).Value = batchId;
         return (await command.ExecuteScalarAsync(cancellationToken))?.ToString();
+    }
+
+    public async Task<TransactionReupPdfCallbackResult> SaveItemPdfAsync(
+        int itemId,
+        IFormFile? file,
+        string transactionCode,
+        string sourceSystem,
+        DateTime? generatedAt,
+        string externalReference,
+        CancellationToken cancellationToken)
+    {
+        if (itemId <= 0)
+        {
+            throw new InvalidOperationException("REUP-PDF-CALLBACK-INVALID: Reup item id is invalid.");
+        }
+
+        if (file is null)
+        {
+            await MarkItemErrorAsync(itemId, "REUP-PDF-MISSING", "PDF file is required.", cancellationToken);
+            throw new InvalidOperationException("REUP-PDF-MISSING: PDF file is required.");
+        }
+
+        var item = await GetItemAsync(itemId, cancellationToken)
+            ?? throw new InvalidOperationException("REUP-INVOICE-NOT-FOUND: Reup item was not found.");
+
+        if (!string.IsNullOrWhiteSpace(transactionCode) &&
+            !string.Equals(item.SourceTransactionCode, transactionCode.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            await MarkItemErrorAsync(itemId, "REUP-PDF-CALLBACK-MISMATCH", "Callback transactionCode does not match the Reup item.", cancellationToken);
+            throw new InvalidOperationException("REUP-PDF-CALLBACK-MISMATCH: Callback transactionCode does not match the Reup item.");
+        }
+
+        var batch = await GetItemBatchAsync(itemId, cancellationToken)
+            ?? throw new InvalidOperationException("REUP-INVOICE-NOT-FOUND: Reup batch was not found.");
+
+        TransactionReupStoredFile storedFile;
+        try
+        {
+            storedFile = await fileStorage.SavePdfAsync(file, batch.BatchCode, itemId, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            await MarkItemErrorAsync(itemId, "REUP-PDF-INVALID", exception.GetBaseException().Message, cancellationToken);
+            throw new InvalidOperationException($"REUP-PDF-INVALID: {exception.GetBaseException().Message}", exception);
+        }
+
+        const string sql = """
+            UPDATE [dbo].[TblTransactionReupImportItem]
+            SET [PublishStatus] = @status,
+                [PdfFileName] = @fileName,
+                [PdfStorageKey] = @storageKey,
+                [PdfSize] = @size,
+                [PdfSha256] = @sha256,
+                [PdfContentType] = @contentType,
+                [PdfReceivedAtUtc] = SYSUTCDATETIME(),
+                [CompletedAtUtc] = SYSUTCDATETIME(),
+                [PublishedAtUtc] = COALESCE([PublishedAtUtc], SYSUTCDATETIME()),
+                [ErrorCode] = N'',
+                [ErrorMessage] = N'',
+                [PublishMessage] = @message,
+                [PublishLogs] = CASE
+                    WHEN NULLIF([PublishLogs], N'') IS NULL THEN @logs
+                    ELSE CONCAT([PublishLogs], CHAR(13), CHAR(10), @logs)
+                END,
+                [UpdatedAtUtc] = SYSUTCDATETIME()
+            WHERE [ID] = @id;
+            """;
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureSchemaExistsAsync(connection, cancellationToken);
+        await using var command = new SqlCommand(sql, connection);
+        command.Parameters.Add("@id", SqlDbType.Int).Value = itemId;
+        command.Parameters.Add("@status", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Done;
+        command.Parameters.Add("@fileName", SqlDbType.NVarChar, 260).Value = storedFile.StoredFileName;
+        command.Parameters.Add("@storageKey", SqlDbType.NVarChar, 500).Value = storedFile.RelativePath;
+        command.Parameters.Add("@size", SqlDbType.BigInt).Value = storedFile.Size;
+        command.Parameters.Add("@sha256", SqlDbType.VarChar, 64).Value = storedFile.Sha256;
+        command.Parameters.Add("@contentType", SqlDbType.NVarChar, 100).Value = storedFile.ContentType;
+        command.Parameters.Add("@message", SqlDbType.NVarChar, -1).Value = "PDF callback received and stored.";
+        command.Parameters.Add("@logs", SqlDbType.NVarChar, -1).Value = string.Join(Environment.NewLine, [
+            $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} | Reup PDF callback received.",
+            $"SourceSystem={sourceSystem}",
+            $"GeneratedAt={generatedAt:O}",
+            $"ExternalReference={externalReference}",
+            $"FileName={storedFile.StoredFileName}",
+            $"Sha256={storedFile.Sha256}"
+        ]);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        await RecalculateBatchAsync(batch.Id, cancellationToken);
+
+        return new TransactionReupPdfCallbackResult(itemId, item.InvoiceCode, item.SourceTransactionCode, storedFile.StoredFileName, storedFile.Size, storedFile.Sha256, DateTime.UtcNow);
+    }
+
+    public async Task<TransactionReupItemPdfOpenResult?> OpenItemPdfAsync(int itemId, CancellationToken cancellationToken)
+    {
+        var item = await GetItemAsync(itemId, cancellationToken);
+        if (item is null || string.IsNullOrWhiteSpace(item.PdfStorageKey))
+        {
+            return null;
+        }
+
+        var stream = await fileStorage.OpenReadAsync(item.PdfStorageKey, cancellationToken);
+        return stream is null ? null : new TransactionReupItemPdfOpenResult { Item = item, Stream = stream };
     }
 
     private async Task PublishPendingItemsAsync(int batchId, AuthUserRecord user, CancellationToken cancellationToken)
@@ -298,7 +404,11 @@ public sealed class TransactionReupService(
             SET [PublishStatus] = @status, [RabbitMessageId] = @messageId, [RabbitCorrelationId] = @correlationId,
                 [RabbitExchange] = @rabbitExchange, [RabbitRoutingKey] = @rabbitRoutingKey, [RabbitQueue] = @rabbitQueue,
                 [PublishMessage] = @message, [PublishLogs] = @logs, [PublishAttemptCount] = @attemptCount,
-                [PublishedAtUtc] = CASE WHEN @success = 0 THEN [PublishedAtUtc] ELSE NULL END,
+                [PublishedAtUtc] = CASE WHEN @success = 0 THEN [PublishedAtUtc] ELSE SYSUTCDATETIME() END,
+                [ProcessingStartedAtUtc] = CASE WHEN @success = 0 THEN [ProcessingStartedAtUtc] ELSE COALESCE([ProcessingStartedAtUtc], SYSUTCDATETIME()) END,
+                [WaitingPdfAtUtc] = CASE WHEN @success = 0 THEN [WaitingPdfAtUtc] ELSE SYSUTCDATETIME() END,
+                [ErrorCode] = CASE WHEN @success = 0 THEN N'REUP-RABBIT-PUBLISH-FAILED' ELSE N'' END,
+                [ErrorMessage] = CASE WHEN @success = 0 THEN @message ELSE N'' END,
                 [UpdatedAtUtc] = SYSUTCDATETIME()
             WHERE [ID] = @id;
             """;
@@ -306,7 +416,7 @@ public sealed class TransactionReupService(
         await EnsureSchemaExistsAsync(connection, cancellationToken);
         await using var command = new SqlCommand(sql, connection);
         command.Parameters.Add("@id", SqlDbType.Int).Value = itemId;
-        command.Parameters.Add("@status", SqlDbType.NVarChar, 30).Value = result.Success ? TransactionReupStatuses.Processing : TransactionReupStatuses.PublishFailed;
+        command.Parameters.Add("@status", SqlDbType.NVarChar, 30).Value = result.Success ? TransactionReupStatuses.WaitingPdf : TransactionReupStatuses.PublishFailed;
         command.Parameters.Add("@messageId", SqlDbType.NVarChar, 100).Value = messageId;
         command.Parameters.Add("@correlationId", SqlDbType.NVarChar, 250).Value = result.CorrelationId;
         command.Parameters.Add("@rabbitExchange", SqlDbType.NVarChar, 250).Value = result.ExchangeName;
@@ -337,24 +447,29 @@ public sealed class TransactionReupService(
         var logs = BuildWorkerResultLogs(request);
 
         const string selectBatchSql = """
-            SELECT DISTINCT [BatchId]
-            FROM [dbo].[TblTransactionReupImportItem]
-            WHERE (@invoiceCode = N'' OR [InvoiceCode] = @invoiceCode)
-              AND (@transactionCode = N'' OR [SourceTransactionCode] = @transactionCode);
+            SELECT DISTINCT i.[BatchId]
+            FROM [dbo].[TblTransactionReupImportItem] i
+            INNER JOIN [dbo].[TblTransactionReupImportBatch] b ON b.[ID] = i.[BatchId]
+            WHERE ISNULL(b.[SourceType], N'EXCEL_IMPORT') <> N'TRANSACTION_SELECTION'
+              AND (@invoiceCode = N'' OR i.[InvoiceCode] = @invoiceCode)
+              AND (@transactionCode = N'' OR i.[SourceTransactionCode] = @transactionCode);
             """;
 
         const string updateSql = """
-            UPDATE [dbo].[TblTransactionReupImportItem]
-            SET [PublishStatus] = @status,
-                [PublishMessage] = @message,
-                [PublishLogs] = CASE
-                    WHEN NULLIF([PublishLogs], N'') IS NULL THEN @logs
-                    ELSE CONCAT([PublishLogs], CHAR(13), CHAR(10), @logs)
+            UPDATE i
+            SET i.[PublishStatus] = @status,
+                i.[PublishMessage] = @message,
+                i.[PublishLogs] = CASE
+                    WHEN NULLIF(i.[PublishLogs], N'') IS NULL THEN @logs
+                    ELSE CONCAT(i.[PublishLogs], CHAR(13), CHAR(10), @logs)
                 END,
-                [PublishedAtUtc] = CASE WHEN @isPublished = 1 THEN SYSUTCDATETIME() ELSE [PublishedAtUtc] END,
-                [UpdatedAtUtc] = SYSUTCDATETIME()
-            WHERE (@invoiceCode = N'' OR [InvoiceCode] = @invoiceCode)
-              AND (@transactionCode = N'' OR [SourceTransactionCode] = @transactionCode);
+                i.[PublishedAtUtc] = CASE WHEN @isPublished = 1 THEN SYSUTCDATETIME() ELSE i.[PublishedAtUtc] END,
+                i.[UpdatedAtUtc] = SYSUTCDATETIME()
+            FROM [dbo].[TblTransactionReupImportItem] i
+            INNER JOIN [dbo].[TblTransactionReupImportBatch] b ON b.[ID] = i.[BatchId]
+            WHERE ISNULL(b.[SourceType], N'EXCEL_IMPORT') <> N'TRANSACTION_SELECTION'
+              AND (@invoiceCode = N'' OR i.[InvoiceCode] = @invoiceCode)
+              AND (@transactionCode = N'' OR i.[SourceTransactionCode] = @transactionCode);
             """;
 
         await using var connection = await OpenConnectionAsync(cancellationToken);
@@ -548,15 +663,44 @@ public sealed class TransactionReupService(
             }
 
             node["reup"] = 1;
-            node.Remove("InvoiceURL");
-            node.Remove("invoiceURL");
-            node.Remove("invoiceUrl");
             return node.ToJsonString();
         }
         catch
         {
             return payload;
         }
+    }
+
+    private static string PrepareReupItemPayload(string payload, string invoiceUrl, int itemId)
+    {
+        try
+        {
+            var node = JsonSerializer.Deserialize<JsonObject>(payload) ?? [];
+            node["reup"] = 1;
+            node["InvoiceURL"] = invoiceUrl;
+            node["reupItemId"] = itemId;
+            return node.ToJsonString();
+        }
+        catch
+        {
+            return payload;
+        }
+    }
+
+    private string BuildReupItemUploadUrl(int itemId)
+    {
+        var baseUrl = configuration["InvoicePdfIntegration:PublicBaseUrl"]?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(baseUrl))
+        {
+            throw new InvalidOperationException("InvoicePdfIntegration:PublicBaseUrl is required to build Transaction Reup InvoiceURL.");
+        }
+
+        if (!Uri.TryCreate(baseUrl.TrimEnd('/') + "/", UriKind.Absolute, out var baseUri))
+        {
+            throw new InvalidOperationException("InvoicePdfIntegration:PublicBaseUrl must be an absolute URL.");
+        }
+
+        return new Uri(baseUri, $"api/transaction-reup/items/{itemId.ToString(CultureInfo.InvariantCulture)}/pdf").AbsoluteUri;
     }
 
     private static string BuildPayload(TransactionReupSourceRow row, DateTime createdAt, DateTime updatedAt, string invoiceCode, string username)
@@ -828,7 +972,7 @@ public sealed class TransactionReupService(
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private static async Task InsertTransactionSelectionItemAsync(
+    private static async Task<int> InsertTransactionSelectionItemAsync(
         SqlConnection connection,
         SqlTransaction transaction,
         int batchId,
@@ -844,6 +988,7 @@ public sealed class TransactionReupService(
                  [NetAmountVnd], [SourceStatus], [SourceCreatedAt], [SourceUpdatedAt], [ValidationStatus],
                  [PublishStatus], [InvoiceYear], [InvoiceSequence], [InvoiceCode], [ExpectedPdfFileName], [PayloadJson],
                  [PublishAttemptCount], [CreatedAtUtc], [UpdatedAtUtc])
+            OUTPUT INSERTED.[ID]
             VALUES
                 (@batchId, @sourceInvoiceId, @rowNumber, @sourceTransactionCode, @sourceRequestCode, N'', @sourceCreatedBy,
                  @transactionType, @paymentMethod, @bankName, @grossAmountVnd, 0, N'', N'',
@@ -868,6 +1013,15 @@ public sealed class TransactionReupService(
         command.Parameters.Add("@invoiceCode", SqlDbType.NVarChar, 100).Value = payload.InvoiceCode;
         command.Parameters.Add("@expectedFileName", SqlDbType.NVarChar, 150).Value = $"{payload.InvoiceCode}.pdf";
         command.Parameters.Add("@payload", SqlDbType.NVarChar, -1).Value = payload.PayloadJson;
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture);
+    }
+
+    private static async Task UpdateItemPayloadAsync(SqlConnection connection, SqlTransaction transaction, int itemId, string payload, CancellationToken cancellationToken)
+    {
+        const string sql = "UPDATE [dbo].[TblTransactionReupImportItem] SET [PayloadJson] = @payload, [UpdatedAtUtc] = SYSUTCDATETIME() WHERE [ID] = @id;";
+        await using var command = new SqlCommand(sql, connection, transaction);
+        command.Parameters.Add("@id", SqlDbType.Int).Value = itemId;
+        command.Parameters.Add("@payload", SqlDbType.NVarChar, -1).Value = payload;
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -902,7 +1056,7 @@ public sealed class TransactionReupService(
                 [PublishedRows] = x.PublishedRows, [FailedRows] = x.FailedRows, [SkippedRows] = x.SkippedRows,
                 [DuplicateRows] = x.DuplicateRows,
                 [Status] = CASE
-                    WHEN x.PendingRows > 0 OR x.ProcessingRows > 0 THEN N'Processing'
+                    WHEN x.PendingRows > 0 OR x.ProcessingRows > 0 OR x.WaitingPdfRows > 0 THEN N'Processing'
                     WHEN x.FailedRows > 0 OR x.DuplicateRows > 0 OR x.SkippedRows > 0 THEN N'CompletedWithErrors'
                     ELSE N'Completed'
                 END,
@@ -912,8 +1066,9 @@ public sealed class TransactionReupService(
                 SELECT
                     SUM(CASE WHEN [PublishStatus] = N'Pending' THEN 1 ELSE 0 END) PendingRows,
                     SUM(CASE WHEN [PublishStatus] = N'Processing' THEN 1 ELSE 0 END) ProcessingRows,
-                    SUM(CASE WHEN [PublishStatus] = N'Published' THEN 1 ELSE 0 END) PublishedRows,
-                    SUM(CASE WHEN [PublishStatus] = N'PublishFailed' THEN 1 ELSE 0 END) FailedRows,
+                    SUM(CASE WHEN [PublishStatus] IN (N'Published', N'Done') THEN 1 ELSE 0 END) PublishedRows,
+                    SUM(CASE WHEN [PublishStatus] IN (N'PublishFailed', N'Error') THEN 1 ELSE 0 END) FailedRows,
+                    SUM(CASE WHEN [PublishStatus] = N'WaitingPdf' THEN 1 ELSE 0 END) WaitingPdfRows,
                     SUM(CASE WHEN [PublishStatus] = N'Skipped' THEN 1 ELSE 0 END) SkippedRows,
                     SUM(CASE WHEN [PublishStatus] = N'Duplicate' THEN 1 ELSE 0 END) DuplicateRows
                 FROM [dbo].[TblTransactionReupImportItem] WHERE [BatchId] = b.[ID]
@@ -933,6 +1088,51 @@ public sealed class TransactionReupService(
         command.Parameters.Add("@id", SqlDbType.Int).Value = itemId;
         var batchId = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture);
         await RecalculateBatchAsync(batchId, cancellationToken);
+    }
+
+    private async Task MarkItemErrorAsync(int itemId, string errorCode, string errorMessage, CancellationToken cancellationToken)
+    {
+        const string sql = """
+            UPDATE [dbo].[TblTransactionReupImportItem]
+            SET [PublishStatus] = @status,
+                [ErrorCode] = @errorCode,
+                [ErrorMessage] = @errorMessage,
+                [PublishMessage] = @errorMessage,
+                [PublishLogs] = CASE
+                    WHEN NULLIF([PublishLogs], N'') IS NULL THEN @log
+                    ELSE CONCAT([PublishLogs], CHAR(13), CHAR(10), @log)
+                END,
+                [CompletedAtUtc] = SYSUTCDATETIME(),
+                [UpdatedAtUtc] = SYSUTCDATETIME()
+            WHERE [ID] = @id;
+            SELECT [BatchId] FROM [dbo].[TblTransactionReupImportItem] WHERE [ID] = @id;
+            """;
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureSchemaExistsAsync(connection, cancellationToken);
+        await using var command = new SqlCommand(sql, connection);
+        command.Parameters.Add("@id", SqlDbType.Int).Value = itemId;
+        command.Parameters.Add("@status", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Error;
+        command.Parameters.Add("@errorCode", SqlDbType.NVarChar, 100).Value = errorCode;
+        command.Parameters.Add("@errorMessage", SqlDbType.NVarChar, -1).Value = errorMessage;
+        command.Parameters.Add("@log", SqlDbType.NVarChar, -1).Value = $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} | {errorCode}: {errorMessage}";
+        var batchId = await command.ExecuteScalarAsync(cancellationToken);
+        if (batchId is not null && batchId is not DBNull)
+        {
+            await RecalculateBatchAsync(Convert.ToInt32(batchId, CultureInfo.InvariantCulture), cancellationToken);
+        }
+    }
+
+    private async Task<TransactionReupBatchViewModel?> GetItemBatchAsync(int itemId, CancellationToken cancellationToken)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureSchemaExistsAsync(connection, cancellationToken);
+        const string sql = "SELECT [BatchId] FROM [dbo].[TblTransactionReupImportItem] WHERE [ID] = @id;";
+        await using var command = new SqlCommand(sql, connection);
+        command.Parameters.Add("@id", SqlDbType.Int).Value = itemId;
+        var batchId = await command.ExecuteScalarAsync(cancellationToken);
+        return batchId is null || batchId is DBNull
+            ? null
+            : await GetBatchAsync(connection, Convert.ToInt32(batchId, CultureInfo.InvariantCulture), cancellationToken);
     }
 
     private async Task<TransactionReupItemViewModel?> LoadRetryItemAsync(int itemId, CancellationToken cancellationToken)
@@ -991,6 +1191,17 @@ public sealed class TransactionReupService(
         PublishMessage = ReadText(reader, "PublishMessage"),
         PublishLogs = ReadText(reader, "PublishLogs"),
         PayloadJson = ReadText(reader, "PayloadJson"),
+        PdfFileName = ReadText(reader, "PdfFileName"),
+        PdfStorageKey = ReadText(reader, "PdfStorageKey"),
+        PdfSize = ReadLong(reader, "PdfSize"),
+        PdfSha256 = ReadText(reader, "PdfSha256"),
+        PdfContentType = ReadText(reader, "PdfContentType"),
+        PdfReceivedAtUtc = ReadDate(reader, "PdfReceivedAtUtc"),
+        ErrorCode = ReadText(reader, "ErrorCode"),
+        ErrorMessage = ReadText(reader, "ErrorMessage"),
+        ProcessingStartedAtUtc = ReadDate(reader, "ProcessingStartedAtUtc"),
+        WaitingPdfAtUtc = ReadDate(reader, "WaitingPdfAtUtc"),
+        CompletedAtUtc = ReadDate(reader, "CompletedAtUtc"),
         TransactionType = ReadText(reader, "TransactionType"),
         PaymentMethod = ReadText(reader, "PaymentMethod"),
         BankName = ReadText(reader, "BankName"),
@@ -1001,6 +1212,7 @@ public sealed class TransactionReupService(
     };
 
     private static int ReadInt(SqlDataReader reader, string name) => reader[name] is DBNull ? 0 : Convert.ToInt32(reader[name], CultureInfo.InvariantCulture);
+    private static long ReadLong(SqlDataReader reader, string name) => reader[name] is DBNull ? 0 : Convert.ToInt64(reader[name], CultureInfo.InvariantCulture);
     private static decimal ReadDecimal(SqlDataReader reader, string name) => reader[name] is DBNull ? 0 : Convert.ToDecimal(reader[name], CultureInfo.InvariantCulture);
     private static DateTime? ReadDate(SqlDataReader reader, string name) => reader[name] is DBNull ? null : Convert.ToDateTime(reader[name], CultureInfo.InvariantCulture);
     private static string ReadText(SqlDataReader reader, string name) => reader[name] is DBNull ? string.Empty : reader[name]?.ToString() ?? string.Empty;

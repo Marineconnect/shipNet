@@ -135,6 +135,21 @@ public sealed class TransactionReupController(
         return item is null ? NotFound() : Content(item.PayloadJson, "application/json");
     }
 
+    [HttpGet]
+    public async Task<IActionResult> ItemPdf(int itemId, bool download = false)
+    {
+        if (!IsAdmin(await GetCurrentUserAsync())) return Forbid();
+        var result = await service.OpenItemPdfAsync(itemId, HttpContext.RequestAborted);
+        if (result is null) return NotFound();
+        var fileName = Path.GetFileName(result.Item.PdfFileName);
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            fileName = $"{result.Item.InvoiceCode}.pdf";
+        }
+
+        return File(result.Stream, "application/pdf", download ? fileName : null, enableRangeProcessing: true);
+    }
+
     private async Task<AuthUserRecord?> GetCurrentUserAsync()
     {
         return int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id)

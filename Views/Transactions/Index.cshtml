@@ -131,7 +131,7 @@
       @if (Model.IsTransactionReupAdmin)
       {
           @Html.AntiForgeryToken()
-          <input type="hidden" name="SelectionMode" value="selected" data-reup-selection-mode />
+          <input type="hidden" name="SelectionMode" value="selected" />
           <input type="hidden" name="Filter.Search" value="@Model.Filter.Search" />
           <input type="hidden" name="Filter.InvoiceNumber" value="@Model.Filter.InvoiceNumber" />
           <input type="hidden" name="Filter.PaymentStatus" value="@Model.Filter.PaymentStatus" />
@@ -140,10 +140,11 @@
           <input type="hidden" name="Filter.TenantId" value="@Model.Filter.TenantId" />
           <input type="hidden" name="Filter.DateFrom" value="@Model.Filter.DateFrom?.ToString("yyyy-MM-dd")" />
           <input type="hidden" name="Filter.DateTo" value="@Model.Filter.DateTo?.ToString("yyyy-MM-dd")" />
+          <div data-reup-hidden-inputs></div>
           <div class="transaction-bulk-actions">
             <button type="button" class="table-action-btn" data-select-all-filtered data-total="@Model.TotalItems">Select all @Model.TotalItems filtered results</button>
             <span>Selected: <strong data-reup-selected-count>0</strong></span>
-            <button type="submit" class="btn-primary" data-reup-submit disabled>Reup PDF</button>
+            <button type="button" class="btn-primary" data-reup-open-review disabled>Reup PDF</button>
           </div>
       }
 
@@ -176,7 +177,7 @@
             <tr>
               @if (Model.IsTransactionReupAdmin)
               {
-                <td><input type="checkbox" name="InvoiceIds" value="@item.InvoiceId" data-reup-invoice aria-label="Select @item.InvoiceNumber" /></td>
+                <td><input type="checkbox" value="@item.InvoiceId" data-reup-invoice data-invoice-id="@item.InvoiceId" data-invoice-number="@item.InvoiceNumber" data-payment-no="@item.ProviderPaymentNo" data-vessel-name="@item.VesselName" data-kit-number="@item.KitNumber" aria-label="Select @item.InvoiceNumber" /></td>
               }
               <td>
                 <a class="table-primary-link" asp-controller="MonthlySubscription" asp-action="Details" asp-route-id="@item.SubscriptionId" target="_blank" rel="noopener"><strong>@item.InvoiceNumber</strong></a>
@@ -293,6 +294,30 @@
   </div>
 </div>
 
+<div class="modal-backdrop transaction-modal-backdrop" data-reup-review-modal hidden>
+  <div class="device-modal transaction-modal" role="dialog" aria-modal="true" aria-labelledby="reupReviewTitle">
+    <div class="device-modal-head">
+      <div>
+        <h2 id="reupReviewTitle">Reup PDF</h2>
+        <p>Selected invoices: <strong data-reup-review-count>0</strong></p>
+      </div>
+      <button type="button" class="modal-close" data-close-reup-review aria-label="Close">x</button>
+    </div>
+    <div class="transaction-modal-body">
+      <div class="device-table-wrap transaction-table-wrap">
+        <table class="device-table transaction-table transaction-reup-review-table">
+          <thead><tr><th>Invoice</th><th>Payment</th><th>Vessel</th><th>KIT</th><th>Action</th></tr></thead>
+          <tbody data-reup-review-body></tbody>
+        </table>
+      </div>
+      <div class="device-modal-actions">
+        <button type="button" class="btn-secondary" data-close-reup-review>Cancel</button>
+        <button type="button" class="btn-primary" data-reup-begin>Begin</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 @section Scripts {
 <script>
 (() => {
@@ -301,59 +326,130 @@
   const transactionSubtitle = document.querySelector("[data-transaction-subtitle]");
   const qrModal = document.querySelector("[data-qr-modal]");
   const reupForm = document.querySelector("[data-reup-pdf-form]");
-  const reupMode = document.querySelector("[data-reup-selection-mode]");
-  const reupSubmit = document.querySelector("[data-reup-submit]");
+  const reupOpenReview = document.querySelector("[data-reup-open-review]");
+  const reupHiddenInputs = document.querySelector("[data-reup-hidden-inputs]");
   const selectedCount = document.querySelector("[data-reup-selected-count]");
   const currentPageToggle = document.querySelector("[data-select-current-page]");
   const selectAllFiltered = document.querySelector("[data-select-all-filtered]");
   const invoiceChecks = Array.from(document.querySelectorAll("[data-reup-invoice]"));
-  let allFilteredSelected = false;
+  const reupReviewModal = document.querySelector("[data-reup-review-modal]");
+  const reupReviewBody = document.querySelector("[data-reup-review-body]");
+  const reupReviewCount = document.querySelector("[data-reup-review-count]");
+  const reupBegin = document.querySelector("[data-reup-begin]");
+  const selectionKey = "shipnet.transactionHistory.reupPdf.selection.v1";
 
   const esc = (value) => `${value ?? ""}`.replace(/[&<>"']/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[char]));
   const close = (modal) => { if (modal) modal.hidden = true; };
+  const loadSelection = () => {
+    try { return JSON.parse(sessionStorage.getItem(selectionKey) || "{}") || {}; }
+    catch { return {}; }
+  };
+  const saveSelection = (selection) => sessionStorage.setItem(selectionKey, JSON.stringify(selection));
+  const selectedItems = () => Object.values(loadSelection()).sort((a, b) => `${a.invoiceNumber}`.localeCompare(`${b.invoiceNumber}`));
+  const checkboxItem = (checkbox) => ({
+    invoiceId: Number(checkbox.dataset.invoiceId || checkbox.value || "0"),
+    invoiceNumber: checkbox.dataset.invoiceNumber || "",
+    paymentNo: checkbox.dataset.paymentNo || "",
+    vesselName: checkbox.dataset.vesselName || "",
+    kitNumber: checkbox.dataset.kitNumber || ""
+  });
 
   const refreshReupSelection = () => {
-    const checkedCount = invoiceChecks.filter((item) => item.checked).length;
-    const totalFiltered = Number(selectAllFiltered?.dataset.total || "0");
-    const count = allFilteredSelected ? totalFiltered : checkedCount;
+    const selection = loadSelection();
+    invoiceChecks.forEach((checkbox) => {
+      const id = checkbox.dataset.invoiceId || checkbox.value;
+      checkbox.checked = Boolean(selection[id]);
+    });
+    const count = Object.keys(selection).length;
     if (selectedCount) selectedCount.textContent = `${count}`;
-    if (reupSubmit) reupSubmit.disabled = count <= 0;
-    if (reupMode) reupMode.value = allFilteredSelected ? "all_filtered" : "selected";
+    if (reupOpenReview) reupOpenReview.disabled = count <= 0;
     if (currentPageToggle) currentPageToggle.checked = invoiceChecks.length > 0 && invoiceChecks.every((item) => item.checked);
   };
 
   currentPageToggle?.addEventListener("change", () => {
-    allFilteredSelected = false;
+    const selection = loadSelection();
     invoiceChecks.forEach((item) => item.checked = currentPageToggle.checked);
+    invoiceChecks.forEach((checkbox) => {
+      const item = checkboxItem(checkbox);
+      if (currentPageToggle.checked) selection[item.invoiceId] = item;
+      else delete selection[item.invoiceId];
+    });
+    saveSelection(selection);
     refreshReupSelection();
   });
 
   invoiceChecks.forEach((checkbox) => {
     checkbox.addEventListener("change", () => {
-      allFilteredSelected = false;
+      const selection = loadSelection();
+      const item = checkboxItem(checkbox);
+      if (checkbox.checked) selection[item.invoiceId] = item;
+      else delete selection[item.invoiceId];
+      saveSelection(selection);
       refreshReupSelection();
     });
   });
 
-  selectAllFiltered?.addEventListener("click", () => {
-    allFilteredSelected = true;
-    invoiceChecks.forEach((item) => item.checked = true);
-    refreshReupSelection();
+  selectAllFiltered?.addEventListener("click", async () => {
+    selectAllFiltered.disabled = true;
+    try {
+      const query = new URLSearchParams(window.location.search);
+      const response = await fetch(`/Transactions/ReupPdfCandidates?${query.toString()}`, { headers: { "Accept": "application/json" } });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.success === false) throw new Error(payload.message || "Cannot load filtered invoices.");
+      const selection = loadSelection();
+      (payload.items || []).forEach((item) => {
+        selection[item.invoiceId] = {
+          invoiceId: item.invoiceId,
+          invoiceNumber: item.invoiceNumber || "",
+          paymentNo: item.paymentNo || item.sourceTransactionCode || "",
+          vesselName: item.vesselName || "",
+          kitNumber: item.kitNumber || ""
+        };
+      });
+      saveSelection(selection);
+      refreshReupSelection();
+    } catch (error) {
+      alert(error.message || "Cannot load filtered invoices.");
+    } finally {
+      selectAllFiltered.disabled = false;
+    }
   });
 
-  reupForm?.addEventListener("submit", (event) => {
-    const count = Number(selectedCount?.textContent || "0");
-    if (count <= 0) {
-      event.preventDefault();
-      return;
-    }
+  const renderReview = () => {
+    const items = selectedItems();
+    if (reupReviewCount) reupReviewCount.textContent = `${items.length}`;
+    if (!reupReviewBody) return;
+    reupReviewBody.innerHTML = items.map((item) => `
+      <tr>
+        <td><strong>${esc(item.invoiceNumber || item.invoiceId)}</strong><div class="muted">Invoice #${esc(item.invoiceId)}</div></td>
+        <td>${esc(item.paymentNo || "-")}</td>
+        <td>${esc(item.vesselName || "-")}</td>
+        <td>${esc(item.kitNumber || "-")}</td>
+        <td><button type="button" class="table-action-btn" data-remove-reup-selected="${esc(item.invoiceId)}">Remove</button></td>
+      </tr>`).join("") || "<tr><td colspan='5' class='tenant-empty'>No selected invoices.</td></tr>";
+    reupReviewBody.querySelectorAll("[data-remove-reup-selected]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const selection = loadSelection();
+        delete selection[button.dataset.removeReupSelected || ""];
+        saveSelection(selection);
+        refreshReupSelection();
+        renderReview();
+      });
+    });
+  };
 
-    const message = allFilteredSelected
-      ? `Ban sap Reup PDF cho ${count} invoice theo bo loc hien tai. Tiep tuc?`
-      : `Ban sap Reup PDF cho ${count} invoice da chon. Tiep tuc?`;
-    if (!window.confirm(message)) {
-      event.preventDefault();
-    }
+  reupOpenReview?.addEventListener("click", () => {
+    renderReview();
+    if (reupReviewModal) reupReviewModal.hidden = false;
+  });
+
+  document.querySelectorAll("[data-close-reup-review]").forEach((button) => button.addEventListener("click", () => close(reupReviewModal)));
+
+  reupBegin?.addEventListener("click", () => {
+    const items = selectedItems();
+    if (items.length === 0 || !reupForm || !reupHiddenInputs) return;
+    reupHiddenInputs.innerHTML = items.map((item) => `<input type="hidden" name="InvoiceIds" value="${esc(item.invoiceId)}" />`).join("");
+    reupForm.submit();
   });
   refreshReupSelection();
 

@@ -9,6 +9,9 @@ public static class TransactionReupStatuses
     public const string Processing = "Processing";
     public const string Published = "Published";
     public const string PublishFailed = "PublishFailed";
+    public const string WaitingPdf = "WaitingPdf";
+    public const string Done = "Done";
+    public const string Error = "Error";
     public const string Invalid = "Invalid";
     public const string Duplicate = "Duplicate";
     public const string Skipped = "Skipped";
@@ -97,6 +100,17 @@ public sealed class TransactionReupItemViewModel
     public string PublishMessage { get; set; } = string.Empty;
     public string PublishLogs { get; set; } = string.Empty;
     public string PayloadJson { get; set; } = string.Empty;
+    public string PdfFileName { get; set; } = string.Empty;
+    public string PdfStorageKey { get; set; } = string.Empty;
+    public long PdfSize { get; set; }
+    public string PdfSha256 { get; set; } = string.Empty;
+    public string PdfContentType { get; set; } = string.Empty;
+    public DateTime? PdfReceivedAtUtc { get; set; }
+    public string ErrorCode { get; set; } = string.Empty;
+    public string ErrorMessage { get; set; } = string.Empty;
+    public DateTime? ProcessingStartedAtUtc { get; set; }
+    public DateTime? WaitingPdfAtUtc { get; set; }
+    public DateTime? CompletedAtUtc { get; set; }
     public string TransactionType { get; set; } = string.Empty;
     public string PaymentMethod { get; set; } = string.Empty;
     public string BankName { get; set; } = string.Empty;
@@ -105,7 +119,11 @@ public sealed class TransactionReupItemViewModel
     public string SourceStatus { get; set; } = string.Empty;
     public DateTime? PublishedAtUtc { get; set; }
     public string PublishedAtDisplay => PublishedAtUtc?.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss") ?? "-";
-    public bool CanRetry => string.Equals(PublishStatus, TransactionReupStatuses.PublishFailed, StringComparison.OrdinalIgnoreCase);
+    public string CompletedAtDisplay => CompletedAtUtc?.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss") ?? "-";
+    public bool HasPdf => !string.IsNullOrWhiteSpace(PdfStorageKey);
+    public bool CanRetry =>
+        string.Equals(PublishStatus, TransactionReupStatuses.PublishFailed, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(PublishStatus, TransactionReupStatuses.Error, StringComparison.OrdinalIgnoreCase);
 }
 
 public sealed record TransactionReupSourceRow(
@@ -148,3 +166,18 @@ public sealed record TransactionReupSelectionResult(
     int AuthorizedCount,
     int CreatedCount,
     string Message);
+
+public sealed record TransactionReupPdfCallbackResult(
+    int ItemId,
+    string InvoiceCode,
+    string TransactionCode,
+    string FileName,
+    long FileSize,
+    string Sha256,
+    DateTime ReceivedAtUtc);
+
+public sealed class TransactionReupItemPdfOpenResult
+{
+    public TransactionReupItemViewModel Item { get; set; } = new();
+    public Stream Stream { get; set; } = Stream.Null;
+}
