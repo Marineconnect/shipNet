@@ -25,12 +25,15 @@
   <section class="device-card transaction-card">
     <header class="device-card-head"><div><h2>Import history</h2><p>@Model.Batches.Count batch(es)</p></div></header>
     <div class="device-table-wrap transaction-table-wrap"><table class="device-table transaction-table"><thead><tr>
-      <th>Batch</th><th>File</th><th>Imported by</th><th>Imported at</th><th>Invoice IDs</th><th>Statistics</th><th>Status</th><th>Actions</th>
+      <th>Batch</th><th>Source</th><th>File</th><th>Imported by</th><th>Imported at</th><th>Invoice IDs</th><th>Statistics</th><th>Status</th><th>Actions</th>
     </tr></thead><tbody>
-    @if (Model.Batches.Count == 0) { <tr><td colspan="8" class="tenant-empty">No import batch yet.</td></tr> }
+    @if (Model.Batches.Count == 0) { <tr><td colspan="9" class="tenant-empty">No import batch yet.</td></tr> }
     @foreach (var batch in Model.Batches) {
-      <tr><td><strong>@batch.BatchCode</strong></td><td>@batch.OriginalFileName</td><td>@batch.ImportedByUsername</td><td>@batch.ImportedAtDisplay</td>
-      <td>@batch.InvoiceStartNumber - @batch.InvoiceEndNumber<br /><span class="muted">next @batch.NextInvoiceNumber</span></td>
+      <tr><td><strong>@batch.BatchCode</strong></td><td>@batch.SourceDisplay</td><td>@(batch.IsTransactionSelection ? "-" : batch.OriginalFileName)</td><td>@batch.ImportedByUsername</td><td>@batch.ImportedAtDisplay</td>
+      <td>
+        @if (batch.IsTransactionSelection) { <span>@batch.TotalRows selected invoices</span> }
+        else { <span>@batch.InvoiceStartNumber - @batch.InvoiceEndNumber</span><br /><span class="muted">next @batch.NextInvoiceNumber</span> }
+      </td>
       <td>@batch.TotalRows rows · @batch.ValidRows valid · @batch.PublishedRows published<br /><span class="muted">@batch.FailedRows failed · @batch.DuplicateRows duplicate</span></td>
       <td>
         <div class="transaction-reup-status">
@@ -38,7 +41,7 @@
           <span class="muted">@batch.PublishedRows/@batch.TotalRows successful</span>
         </div>
       </td>
-      <td><a class="table-action-btn" asp-action="Details" asp-route-id="@batch.Id">Details</a><a class="table-action-btn" asp-action="Download" asp-route-id="@batch.Id">Download</a></td></tr>
+      <td><a class="table-action-btn" asp-action="Details" asp-route-id="@batch.Id">Details</a>@if (!batch.IsTransactionSelection) { <a class="table-action-btn" asp-action="Download" asp-route-id="@batch.Id">Download</a> }</td></tr>
     }
     </tbody></table></div>
   </section>

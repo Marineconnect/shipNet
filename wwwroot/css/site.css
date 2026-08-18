@@ -273,6 +273,22 @@
   text-decoration:none;
 }
 
+.transaction-bulk-actions{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:flex-end;
+  gap:10px;
+  margin:16px 0 10px;
+  color:#c9d8ef;
+  font-size:13px;
+}
+
+.transaction-bulk-actions .btn-primary{
+  width:auto;
+  min-width:104px;
+}
+
 .transaction-table-wrap{
   overflow-x:auto;
 }

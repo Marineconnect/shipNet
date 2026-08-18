@@ -8,19 +8,20 @@ BEGIN
     (
         [ID] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_TblTransactionReupImportBatch] PRIMARY KEY,
         [BatchCode] nvarchar(100) NOT NULL,
-        [OriginalFileName] nvarchar(260) NOT NULL CONSTRAINT [DF_TblTransactionReupImportBatch_OriginalFileName] DEFAULT(N''),
-        [StoredFileName] nvarchar(260) NOT NULL CONSTRAINT [DF_TblTransactionReupImportBatch_StoredFileName] DEFAULT(N''),
-        [StoredFilePath] nvarchar(500) NOT NULL CONSTRAINT [DF_TblTransactionReupImportBatch_StoredFilePath] DEFAULT(N''),
+        [SourceType] nvarchar(40) NOT NULL CONSTRAINT [DF_TblTransactionReupImportBatch_SourceType] DEFAULT(N'EXCEL_IMPORT'),
+        [OriginalFileName] nvarchar(260) NULL CONSTRAINT [DF_TblTransactionReupImportBatch_OriginalFileName] DEFAULT(N''),
+        [StoredFileName] nvarchar(260) NULL CONSTRAINT [DF_TblTransactionReupImportBatch_StoredFileName] DEFAULT(N''),
+        [StoredFilePath] nvarchar(500) NULL CONSTRAINT [DF_TblTransactionReupImportBatch_StoredFilePath] DEFAULT(N''),
         [FileSize] bigint NOT NULL CONSTRAINT [DF_TblTransactionReupImportBatch_FileSize] DEFAULT(0),
-        [ContentType] nvarchar(200) NOT NULL CONSTRAINT [DF_TblTransactionReupImportBatch_ContentType] DEFAULT(N''),
-        [FileExtension] nvarchar(20) NOT NULL CONSTRAINT [DF_TblTransactionReupImportBatch_FileExtension] DEFAULT(N''),
-        [FileSha256] varchar(64) NOT NULL CONSTRAINT [DF_TblTransactionReupImportBatch_FileSha256] DEFAULT(''),
+        [ContentType] nvarchar(200) NULL CONSTRAINT [DF_TblTransactionReupImportBatch_ContentType] DEFAULT(N''),
+        [FileExtension] nvarchar(20) NULL CONSTRAINT [DF_TblTransactionReupImportBatch_FileExtension] DEFAULT(N''),
+        [FileSha256] varchar(64) NULL CONSTRAINT [DF_TblTransactionReupImportBatch_FileSha256] DEFAULT(''),
         [ImportedByUserId] int NULL,
         [ImportedByUsername] nvarchar(100) NOT NULL CONSTRAINT [DF_TblTransactionReupImportBatch_ImportedByUsername] DEFAULT(N''),
         [ImportedAtUtc] datetime2(7) NOT NULL CONSTRAINT [DF_TblTransactionReupImportBatch_ImportedAtUtc] DEFAULT(SYSUTCDATETIME()),
-        [InvoiceStartNumber] int NOT NULL CONSTRAINT [DF_TblTransactionReupImportBatch_InvoiceStartNumber] DEFAULT(0),
-        [InvoiceEndNumber] int NOT NULL CONSTRAINT [DF_TblTransactionReupImportBatch_InvoiceEndNumber] DEFAULT(0),
-        [NextInvoiceNumber] int NOT NULL CONSTRAINT [DF_TblTransactionReupImportBatch_NextInvoiceNumber] DEFAULT(0),
+        [InvoiceStartNumber] int NULL CONSTRAINT [DF_TblTransactionReupImportBatch_InvoiceStartNumber] DEFAULT(0),
+        [InvoiceEndNumber] int NULL CONSTRAINT [DF_TblTransactionReupImportBatch_InvoiceEndNumber] DEFAULT(0),
+        [NextInvoiceNumber] int NULL CONSTRAINT [DF_TblTransactionReupImportBatch_NextInvoiceNumber] DEFAULT(0),
         [TotalRows] int NOT NULL CONSTRAINT [DF_TblTransactionReupImportBatch_TotalRows] DEFAULT(0),
         [ValidRows] int NOT NULL CONSTRAINT [DF_TblTransactionReupImportBatch_ValidRows] DEFAULT(0),
         [PublishedRows] int NOT NULL CONSTRAINT [DF_TblTransactionReupImportBatch_PublishedRows] DEFAULT(0),
@@ -40,6 +41,7 @@ BEGIN
     (
         [ID] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_TblTransactionReupImportItem] PRIMARY KEY,
         [BatchId] int NOT NULL,
+        [SourceInvoiceId] int NULL,
         [RowNumber] int NOT NULL CONSTRAINT [DF_TblTransactionReupImportItem_RowNumber] DEFAULT(0),
         [SourceTransactionCode] nvarchar(250) NOT NULL CONSTRAINT [DF_TblTransactionReupImportItem_SourceTransactionCode] DEFAULT(N''),
         [SourceRequestCode] nvarchar(250) NOT NULL CONSTRAINT [DF_TblTransactionReupImportItem_SourceRequestCode] DEFAULT(N''),
@@ -82,6 +84,8 @@ IF COL_LENGTH(N'dbo.TblTransactionReupImportBatch', N'FileSize') IS NULL
     ALTER TABLE [dbo].[TblTransactionReupImportBatch] ADD [FileSize] bigint NOT NULL CONSTRAINT [DF_TblTransactionReupImportBatch_FileSize_Add] DEFAULT(0);
 IF COL_LENGTH(N'dbo.TblTransactionReupImportBatch', N'FileSha256') IS NULL
     ALTER TABLE [dbo].[TblTransactionReupImportBatch] ADD [FileSha256] varchar(64) NOT NULL CONSTRAINT [DF_TblTransactionReupImportBatch_FileSha256_Add] DEFAULT('');
+IF COL_LENGTH(N'dbo.TblTransactionReupImportBatch', N'SourceType') IS NULL
+    ALTER TABLE [dbo].[TblTransactionReupImportBatch] ADD [SourceType] nvarchar(40) NOT NULL CONSTRAINT [DF_TblTransactionReupImportBatch_SourceType_Add] DEFAULT(N'EXCEL_IMPORT');
 GO
 
 IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'SourceOriginalRequestCode') IS NULL
@@ -98,6 +102,8 @@ IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'RabbitRoutingKey') IS NULL
     ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [RabbitRoutingKey] nvarchar(250) NOT NULL CONSTRAINT [DF_TblTransactionReupImportItem_RabbitRoutingKey_Add] DEFAULT(N'');
 IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'RabbitQueue') IS NULL
     ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [RabbitQueue] nvarchar(250) NOT NULL CONSTRAINT [DF_TblTransactionReupImportItem_RabbitQueue_Add] DEFAULT(N'');
+IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'SourceInvoiceId') IS NULL
+    ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [SourceInvoiceId] int NULL;
 GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE [name] = N'FK_TblTransactionReupImportItem_Batch')
@@ -114,6 +120,14 @@ GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'IX_TblTransactionReupImportItem_BatchId_RowNumber' AND [object_id] = OBJECT_ID(N'[dbo].[TblTransactionReupImportItem]'))
     CREATE INDEX [IX_TblTransactionReupImportItem_BatchId_RowNumber] ON [dbo].[TblTransactionReupImportItem]([BatchId], [RowNumber], [ID]);
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'IX_TblTransactionReupImportItem_BatchId_PublishStatus' AND [object_id] = OBJECT_ID(N'[dbo].[TblTransactionReupImportItem]'))
+    CREATE INDEX [IX_TblTransactionReupImportItem_BatchId_PublishStatus] ON [dbo].[TblTransactionReupImportItem]([BatchId], [PublishStatus], [ID]);
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'IX_TblTransactionReupImportItem_SourceInvoiceId' AND [object_id] = OBJECT_ID(N'[dbo].[TblTransactionReupImportItem]'))
+    CREATE INDEX [IX_TblTransactionReupImportItem_SourceInvoiceId] ON [dbo].[TblTransactionReupImportItem]([SourceInvoiceId]) WHERE [SourceInvoiceId] IS NOT NULL;
 GO
 
 IF EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'UX_TblTransactionReupImportItem_PublishedTransaction' AND [object_id] = OBJECT_ID(N'[dbo].[TblTransactionReupImportItem]'))

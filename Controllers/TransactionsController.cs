@@ -9,6 +9,7 @@ namespace StarlinkDeviceManager.Controllers;
 [Authorize]
 public class TransactionsController(
     IPaymentTransactionService paymentTransactionService,
+    ITransactionReupService transactionReupService,
     ISqlAuthService authService) : Controller
 {
     [HttpGet]
@@ -22,7 +23,8 @@ public class TransactionsController(
         string? qrState = null,
         int? tenantId = null,
         DateTime? dateFrom = null,
-        DateTime? dateTo = null)
+        DateTime? dateTo = null,
+        string? message = null)
     {
         var currentUser = await GetCurrentUserAsync();
         if (!CanAccessTransactions(currentUser))
@@ -49,6 +51,7 @@ public class TransactionsController(
             CanManageTransactions(currentUser),
             HttpContext.RequestAborted);
         model.IsTransactionReupAdmin = IsTransactionReupAdmin(currentUser);
+        model.Message = message ?? string.Empty;
 
         return View(model);
     }
@@ -69,6 +72,46 @@ public class TransactionsController(
             HttpContext.RequestAborted);
 
         return detail is null ? NotFound() : Json(detail);
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ReupPdf(TransactionReupSelectionRequest request)
+    {
+        var currentUser = await GetCurrentUserAsync();
+        if (!IsTransactionReupAdmin(currentUser) || currentUser?.IsViewOnly == true)
+        {
+            return Forbid();
+        }
+
+        try
+        {
+            var result = await transactionReupService.CreateFromTransactionSelectionAsync(
+                request,
+                currentUser!,
+                GetAllowedTenantId(currentUser),
+                GetAllowedDeviceId(currentUser),
+                HttpContext.RequestAborted);
+
+            return RedirectToAction(nameof(TransactionReupController.Details), "TransactionReup", new { id = result.BatchId });
+        }
+        catch (InvalidOperationException exception)
+        {
+            return RedirectToAction(nameof(Index), new
+            {
+                message = exception.Message,
+                page = 1,
+                pageSize = 20,
+                search = request.Filter.Search,
+                invoiceNumber = request.Filter.InvoiceNumber,
+                paymentStatus = request.Filter.PaymentStatus,
+                paymentMethod = request.Filter.PaymentMethod,
+                qrState = request.Filter.QrState,
+                tenantId = request.Filter.TenantId,
+                dateFrom = request.Filter.DateFrom?.ToString("yyyy-MM-dd"),
+                dateTo = request.Filter.DateTo?.ToString("yyyy-MM-dd")
+            });
+        }
     }
 
     private async Task<AuthUserRecord?> GetCurrentUserAsync()

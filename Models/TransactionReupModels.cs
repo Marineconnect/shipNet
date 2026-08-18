@@ -14,6 +14,12 @@ public static class TransactionReupStatuses
     public const string Skipped = "Skipped";
 }
 
+public static class TransactionReupSourceTypes
+{
+    public const string ExcelImport = "EXCEL_IMPORT";
+    public const string TransactionSelection = "TRANSACTION_SELECTION";
+}
+
 public sealed class TransactionReupImportViewModel
 {
     [Required]
@@ -49,6 +55,7 @@ public sealed class TransactionReupBatchViewModel
 {
     public int Id { get; set; }
     public string BatchCode { get; set; } = string.Empty;
+    public string SourceType { get; set; } = TransactionReupSourceTypes.ExcelImport;
     public string OriginalFileName { get; set; } = string.Empty;
     public string ImportedByUsername { get; set; } = string.Empty;
     public DateTime ImportedAtUtc { get; set; }
@@ -63,6 +70,8 @@ public sealed class TransactionReupBatchViewModel
     public int DuplicateRows { get; set; }
     public string Status { get; set; } = string.Empty;
     public string ImportedAtDisplay => ImportedAtUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss");
+    public bool IsTransactionSelection => string.Equals(SourceType, TransactionReupSourceTypes.TransactionSelection, StringComparison.OrdinalIgnoreCase);
+    public string SourceDisplay => IsTransactionSelection ? "Transaction History" : "Excel Import";
 }
 
 public sealed class TransactionReupDetailsViewModel
@@ -74,6 +83,7 @@ public sealed class TransactionReupDetailsViewModel
 public sealed class TransactionReupItemViewModel
 {
     public int Id { get; set; }
+    public int SourceInvoiceId { get; set; }
     public int RowNumber { get; set; }
     public string SourceTransactionCode { get; set; } = string.Empty;
     public string SourceRequestCode { get; set; } = string.Empty;
@@ -123,3 +133,18 @@ public sealed record TransactionReupImportResult(
     int FirstInvoiceNumber,
     int LastInvoiceNumber,
     int NextInvoiceNumber);
+
+public sealed class TransactionReupSelectionRequest
+{
+    public string SelectionMode { get; set; } = "selected";
+    public List<int> InvoiceIds { get; set; } = [];
+    public PaymentTransactionFilterViewModel Filter { get; set; } = new();
+}
+
+public sealed record TransactionReupSelectionResult(
+    int BatchId,
+    string BatchCode,
+    int RequestedCount,
+    int AuthorizedCount,
+    int CreatedCount,
+    string Message);

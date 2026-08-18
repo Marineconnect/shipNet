@@ -20,6 +20,25 @@ public interface IPaymentTransactionService
         int? allowedDeviceId = null,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<int>> GetFilteredTransactionInvoiceIdsAsync(
+        PaymentTransactionFilterViewModel filter,
+        int? allowedTenantId = null,
+        int? allowedDeviceId = null,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<PaymentTransactionReupCandidate>> GetTransactionReupCandidatesAsync(
+        IReadOnlyCollection<int> invoiceIds,
+        int? allowedTenantId = null,
+        int? allowedDeviceId = null,
+        CancellationToken cancellationToken = default);
+
+    Task<InvoicePdfPayloadBuildResult> BuildInvoicePdfPayloadAsync(
+        int invoiceId,
+        string transactionCode = "",
+        DateTime? paymentTime = null,
+        string operatorName = "",
+        CancellationToken cancellationToken = default);
+
     Task<NinePayQrInfoViewModel> CreateNinePayQrInfoAsync(int invoiceId, string clientIp = "", string createdBy = "", CancellationToken cancellationToken = default);
 
     Task<NinePayBankTransferInfoViewModel> CreateNinePayBankTransferInfoAsync(int invoiceId, string clientIp = "", string createdBy = "", CancellationToken cancellationToken = default);

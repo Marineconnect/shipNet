@@ -38,7 +38,7 @@
         <div>
           <div class="device-brand">IMPORT BATCH</div>
           <h1>@Model.Batch.BatchCode</h1>
-          <p>@Model.Batch.OriginalFileName - @Model.Batch.ImportedAtDisplay - @Model.Batch.Status</p>
+          <p>@Model.Batch.SourceDisplay - @(Model.Batch.IsTransactionSelection ? $"{Model.Batch.TotalRows} selected invoices" : Model.Batch.OriginalFileName) - @Model.Batch.ImportedAtDisplay - @Model.Batch.Status</p>
         </div>
       </section>
 
@@ -49,7 +49,10 @@
             <p>@Model.Items.Count row(s)</p>
           </div>
           <div class="device-modal-actions">
-            <a class="btn-secondary" asp-action="Download" asp-route-id="@Model.Batch.Id">Download source file</a>
+            @if (!Model.Batch.IsTransactionSelection)
+            {
+              <a class="btn-secondary" asp-action="Download" asp-route-id="@Model.Batch.Id">Download source file</a>
+            }
             <form asp-action="RetryFailed" asp-route-id="@Model.Batch.Id" method="post">
               @Html.AntiForgeryToken()
               <button class="btn-primary" type="submit">Retry failed</button>
@@ -62,6 +65,7 @@
             <thead>
               <tr>
                 <th>Row</th>
+                <th>Invoice ID</th>
                 <th>Transaction</th>
                 <th>Request code</th>
                 <th>Invoice code</th>
@@ -82,6 +86,7 @@
                 var hasWorkerDetails = !string.IsNullOrWhiteSpace(item.PublishLogs);
               <tr>
                 <td>@item.RowNumber</td>
+                <td>@(item.SourceInvoiceId > 0 ? item.SourceInvoiceId.ToString() : "-")</td>
                 <td><strong>@item.SourceTransactionCode</strong></td>
                 <td>@item.SourceRequestCode</td>
                 <td>@item.InvoiceCode</td>

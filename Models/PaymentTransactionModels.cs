@@ -23,12 +23,36 @@ public sealed class PaymentTransactionIndexViewModel
     public bool IsTenantScoped { get; set; }
     public bool CanManageTransactions { get; set; }
     public bool IsTransactionReupAdmin { get; set; }
+    public string Message { get; set; } = string.Empty;
     public int TotalPages => PageSize <= 0 ? 1 : Math.Max(1, (int)Math.Ceiling(TotalItems / (double)PageSize));
     public bool HasPreviousPage => CurrentPage > 1;
     public bool HasNextPage => CurrentPage < TotalPages;
     public int StartItem => TotalItems == 0 ? 0 : ((CurrentPage - 1) * PageSize) + 1;
     public int EndItem => TotalItems == 0 ? 0 : Math.Min(CurrentPage * PageSize, TotalItems);
 }
+
+public sealed record PaymentTransactionReupCandidate(
+    int InvoiceId,
+    int SubscriptionId,
+    string InvoiceNumber,
+    string SourceTransactionCode,
+    string SourceRequestCode,
+    decimal GrossAmountVnd,
+    string TransactionType,
+    string PaymentMethod,
+    string BankName,
+    decimal NetAmountVnd,
+    string SourceStatus);
+
+public sealed record InvoicePdfPayloadBuildResult(
+    int InvoiceId,
+    string InvoiceNumber,
+    string InvoiceCode,
+    string TransactionCode,
+    string PayloadJson,
+    decimal AmountVnd,
+    DateTime PaymentTime,
+    string OperatorName);
 
 public class PaymentTransactionListItemViewModel
 {

@@ -185,6 +185,187 @@ public class PaymentTransactionService(
         return detail;
     }
 
+    public async Task<IReadOnlyList<int>> GetFilteredTransactionInvoiceIdsAsync(
+        PaymentTransactionFilterViewModel filter,
+        int? allowedTenantId = null,
+        int? allowedDeviceId = null,
+        CancellationToken cancellationToken = default)
+    {
+        NormalizeTransactionFilter(filter, allowedTenantId);
+        await invoiceIntegrationLogService.EnsureSchemaAsync(cancellationToken);
+
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, transaction, cancellationToken);
+
+        var where = BuildTransactionWhere(filter);
+        var sql = $"""
+            SELECT i.[ID]
+            FROM [dbo].[TblSubscriptionInvoice] i
+            INNER JOIN [dbo].[TblMonthlySubscription] s ON s.[ID] = i.[SubscriptionId]
+            LEFT JOIN [dbo].[TblDevices] d ON d.[ID] = s.[DeviceId]
+            OUTER APPLY ({LatestTransactionApplySql()}) tx
+            OUTER APPLY ({LatestQrApplySql()}) qr
+            WHERE {where}
+            ORDER BY COALESCE(tx.[Updated_Date], i.[CompletedAt], qr.[Created_Date], i.[CreatedAt]) DESC, i.[ID] DESC;
+            """;
+
+        var ids = new List<int>();
+        await using var command = new SqlCommand(sql, connection, transaction);
+        AddTransactionParameters(command, filter, allowedTenantId, allowedDeviceId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            ids.Add(reader.GetInt32(0));
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return ids;
+    }
+
+    public async Task<IReadOnlyList<PaymentTransactionReupCandidate>> GetTransactionReupCandidatesAsync(
+        IReadOnlyCollection<int> invoiceIds,
+        int? allowedTenantId = null,
+        int? allowedDeviceId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var distinctIds = invoiceIds.Where(id => id > 0).Distinct().ToList();
+        if (distinctIds.Count == 0)
+        {
+            return [];
+        }
+
+        await invoiceIntegrationLogService.EnsureSchemaAsync(cancellationToken);
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, transaction, cancellationToken);
+
+        await using (var createCommand = new SqlCommand("CREATE TABLE #SelectedInvoiceIds ([InvoiceId] int NOT NULL PRIMARY KEY);", connection, transaction))
+        {
+            await createCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        var table = new DataTable();
+        table.Columns.Add("InvoiceId", typeof(int));
+        foreach (var id in distinctIds)
+        {
+            table.Rows.Add(id);
+        }
+
+        using (var bulkCopy = new SqlBulkCopy(connection, SqlBulkCopyOptions.Default, transaction))
+        {
+            bulkCopy.DestinationTableName = "#SelectedInvoiceIds";
+            bulkCopy.ColumnMappings.Add("InvoiceId", "InvoiceId");
+            await bulkCopy.WriteToServerAsync(table, cancellationToken);
+        }
+
+        const string sql = """
+            SELECT i.[ID] AS [InvoiceId],
+                   i.[SubscriptionId],
+                   i.[InvoiceNumber],
+                   COALESCE(NULLIF(tx.[ProviderPaymentNo], N''), NULLIF(qr.[ProviderPaymentNo], N''), NULLIF(i.[ReceiptNumber], N''), CONCAT(N'INVOICE-', i.[ID])) AS [SourceTransactionCode],
+                   COALESCE(NULLIF(qr.[ProviderInvoiceNo], N''), i.[InvoiceNumber]) AS [SourceRequestCode],
+                   COALESCE(qr.[InvoiceAmountVnd], qr.[AmountVnd], tx.[AmountVnd], i.[PaidAmount], i.[Amount], 0) AS [GrossAmountVnd],
+                   COALESCE(NULLIF(i.[InvoiceType], N''), N'SUBSCRIPTION') AS [TransactionType],
+                   COALESCE(NULLIF(tx.[Method], N''), NULLIF(qr.[Method], N''), N'') AS [PaymentMethod],
+                   N'' AS [BankName],
+                   COALESCE(qr.[InvoiceAmountVnd], qr.[AmountVnd], tx.[AmountVnd], i.[PaidAmount], i.[Amount], 0) AS [NetAmountVnd],
+                   COALESCE(NULLIF(tx.[Status], N''), NULLIF(qr.[Status], N''), NULLIF(i.[Status], N''), N'') AS [SourceStatus]
+            FROM #SelectedInvoiceIds selected
+            INNER JOIN [dbo].[TblSubscriptionInvoice] i ON i.[ID] = selected.[InvoiceId]
+            INNER JOIN [dbo].[TblMonthlySubscription] s ON s.[ID] = i.[SubscriptionId]
+            LEFT JOIN [dbo].[TblDevices] d ON d.[ID] = s.[DeviceId]
+            OUTER APPLY (
+                SELECT TOP 1 *
+                FROM [dbo].[TblPaymentTransaction] pt
+                WHERE pt.[InvoiceId] = i.[ID] OR pt.[InvoiceNumber] = i.[InvoiceNumber] OR pt.[ProviderPaymentNo] = i.[ReceiptNumber]
+                ORDER BY pt.[Updated_Date] DESC, pt.[ID] DESC
+            ) tx
+            OUTER APPLY (
+                SELECT TOP 1 qs.*, qi.[AmountVnd] AS [InvoiceAmountVnd]
+                FROM [dbo].[TblNinePayQrSession] qs
+                LEFT JOIN [dbo].[TblNinePayQrSessionInvoice] qi ON qi.[QrSessionId] = qs.[ID] AND qi.[InvoiceId] = i.[ID]
+                WHERE qs.[InvoiceId] = i.[ID]
+                   OR qi.[InvoiceId] = i.[ID]
+                ORDER BY qs.[Created_Date] DESC, qs.[ID] DESC
+            ) qr
+            WHERE (@allowedTenantId IS NULL OR s.[TenantId] = @allowedTenantId)
+              AND (@allowedDeviceId IS NULL OR s.[DeviceId] = @allowedDeviceId)
+            ORDER BY i.[ID];
+            """;
+
+        var candidates = new List<PaymentTransactionReupCandidate>();
+        await using (var command = new SqlCommand(sql, connection, transaction))
+        {
+            command.Parameters.Add("@allowedTenantId", SqlDbType.Int).Value = (object?)allowedTenantId ?? DBNull.Value;
+            command.Parameters.Add("@allowedDeviceId", SqlDbType.Int).Value = (object?)allowedDeviceId ?? DBNull.Value;
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                candidates.Add(new PaymentTransactionReupCandidate(
+                    ReadInt(reader, "InvoiceId"),
+                    ReadInt(reader, "SubscriptionId"),
+                    ReadText(reader, "InvoiceNumber"),
+                    ReadText(reader, "SourceTransactionCode"),
+                    ReadText(reader, "SourceRequestCode"),
+                    ReadDecimal(reader, "GrossAmountVnd"),
+                    ReadText(reader, "TransactionType"),
+                    ReadText(reader, "PaymentMethod"),
+                    ReadText(reader, "BankName"),
+                    ReadDecimal(reader, "NetAmountVnd"),
+                    ReadText(reader, "SourceStatus")));
+            }
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return candidates;
+    }
+
+    public async Task<InvoicePdfPayloadBuildResult> BuildInvoicePdfPayloadAsync(
+        int invoiceId,
+        string transactionCode = "",
+        DateTime? paymentTime = null,
+        string operatorName = "",
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using (var schemaTransaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken))
+        {
+            await EnsureSchemaAsync(connection, schemaTransaction, cancellationToken);
+            await schemaTransaction.CommitAsync(cancellationToken);
+        }
+
+        var context = await GetInvoicePdfPayloadContextAsync(connection, invoiceId, cancellationToken)
+            ?? throw new InvalidOperationException($"Invoice {invoiceId} was not found.");
+
+        var bank = ExtractNinePayBankInfo(context.ProviderResponseJson, context.BankAccountNo, context.TransferContent);
+        var resolvedTransactionCode = FirstNotEmpty(transactionCode, context.IpnPaymentNo, context.ProviderPaymentNo, context.ReceiptNumber, $"INVOICE-{invoiceId}");
+        var resolvedPaymentTime = paymentTime ?? context.CompletedAt ?? context.IpnReceivedAt ?? context.LatestTransactionAt ?? DateTime.UtcNow;
+        var resolvedOperatorName = FirstNotEmpty(context.OwnerName, operatorName, context.UpdatedBy, context.CreatedBy, "system");
+        var kitNumber = FirstNotEmpty(context.KitNumber, context.KitId);
+        var amountVnd = context.InvoiceAmountVnd > 0
+            ? context.InvoiceAmountVnd
+            : context.TransactionAmountVnd;
+        var invoiceCode = BuildShipNetInvoiceCode(context);
+        var invoiceSettings = await systemSettingsService.GetSettingsByCodesAsync(["invoice_po_number"], cancellationToken);
+        var poNumber = ResolveInvoicePoNumber(invoiceSettings);
+        var invoiceUrl = invoicePdfService.BuildUploadUrl(invoiceCode);
+        var payload = BuildInvoicePdfPayloadJson(context, bank, resolvedTransactionCode, resolvedPaymentTime, resolvedOperatorName, kitNumber, amountVnd, poNumber, invoiceUrl);
+
+        return new InvoicePdfPayloadBuildResult(
+            context.InvoiceId,
+            context.InvoiceNumber,
+            invoiceCode,
+            resolvedTransactionCode,
+            payload,
+            amountVnd,
+            resolvedPaymentTime,
+            resolvedOperatorName);
+    }
+
     public async Task<NinePayQrInfoViewModel> CreateNinePayQrInfoAsync(int invoiceId, string clientIp = "", string createdBy = "", CancellationToken cancellationToken = default)
     {
         var bankTransferInfo = await CreateNinePayBankTransferInfoAsync(invoiceId, clientIp, createdBy, cancellationToken);

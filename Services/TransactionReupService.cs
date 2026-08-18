@@ -16,6 +16,7 @@ public sealed class TransactionReupService(
     ITransactionReupFileStorage fileStorage,
     IInvoiceRabbitMqPublisher publisher,
     IInvoicePdfService invoicePdfService,
+    IPaymentTransactionService paymentTransactionService,
     ILogger<TransactionReupService> logger) : ITransactionReupService
 {
     private const string MissingSchemaMessage = "Transaction Reup database schema is missing. Run ShipNet-Transaction-Reup-Database.sql before using this feature.";
@@ -28,7 +29,7 @@ public sealed class TransactionReupService(
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await EnsureSchemaExistsAsync(connection, cancellationToken);
         const string sql = """
-            SELECT [ID], [BatchCode], [OriginalFileName], [ImportedByUsername], [ImportedAtUtc],
+            SELECT [ID], [BatchCode], [SourceType], [OriginalFileName], [ImportedByUsername], [ImportedAtUtc],
                    [InvoiceStartNumber], [InvoiceEndNumber], [NextInvoiceNumber], [TotalRows],
                    [ValidRows], [PublishedRows], [FailedRows], [SkippedRows], [DuplicateRows], [Status]
             FROM [dbo].[TblTransactionReupImportBatch]
@@ -53,7 +54,7 @@ public sealed class TransactionReupService(
         if (batch is null) return null;
         var items = new List<TransactionReupItemViewModel>();
         const string sql = """
-            SELECT [ID], [RowNumber], [SourceTransactionCode], [SourceRequestCode], [InvoiceCode],
+            SELECT [ID], [SourceInvoiceId], [RowNumber], [SourceTransactionCode], [SourceRequestCode], [InvoiceCode],
                    [GrossAmountVnd], [ValidationStatus], [PublishStatus], [PublishAttemptCount],
                    [RabbitMessageId], [RabbitCorrelationId], [PublishMessage], [PublishLogs], [PayloadJson],
                    [TransactionType], [PaymentMethod], [BankName], [ProcessingFeeVnd], [NetAmountVnd],
@@ -78,7 +79,7 @@ public sealed class TransactionReupService(
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await EnsureSchemaExistsAsync(connection, cancellationToken);
         const string sql = """
-            SELECT [ID], [RowNumber], [SourceTransactionCode], [SourceRequestCode], [InvoiceCode],
+            SELECT [ID], [SourceInvoiceId], [RowNumber], [SourceTransactionCode], [SourceRequestCode], [InvoiceCode],
                    [GrossAmountVnd], [ValidationStatus], [PublishStatus], [PublishAttemptCount],
                    [RabbitMessageId], [RabbitCorrelationId], [PublishMessage], [PublishLogs], [PayloadJson],
                    [TransactionType], [PaymentMethod], [BankName], [ProcessingFeeVnd], [NetAmountVnd],
@@ -108,7 +109,7 @@ public sealed class TransactionReupService(
         var nextSequence = model.StartInvoiceNumber;
         var validCount = 0;
 
-        var batchId = await InsertBatchAsync(connection, transaction, batchCode, storedFile, user, rows.Count, model.StartInvoiceNumber, cancellationToken);
+        var batchId = await InsertExcelBatchAsync(connection, transaction, batchCode, storedFile, user, rows.Count, model.StartInvoiceNumber, cancellationToken);
         foreach (var row in rows)
         {
             var validation = ValidateRow(row, out var createdAt, out var updatedAt);
@@ -133,6 +134,70 @@ public sealed class TransactionReupService(
 
         await PublishPendingItemsAsync(batchId, user, cancellationToken);
         return new TransactionReupImportResult(batchId, $"Imported {rows.Count} rows.", model.StartInvoiceNumber, endNumber, nextSequence);
+    }
+
+    public async Task<TransactionReupSelectionResult> CreateFromTransactionSelectionAsync(
+        TransactionReupSelectionRequest request,
+        AuthUserRecord user,
+        int? allowedTenantId,
+        int? allowedDeviceId,
+        CancellationToken cancellationToken)
+    {
+        var selectionMode = request.SelectionMode?.Trim() ?? string.Empty;
+        var requestedInvoiceIds = string.Equals(selectionMode, "all_filtered", StringComparison.OrdinalIgnoreCase)
+            ? (await paymentTransactionService.GetFilteredTransactionInvoiceIdsAsync(request.Filter, allowedTenantId, allowedDeviceId, cancellationToken)).ToList()
+            : request.InvoiceIds.Where(id => id > 0).Distinct().ToList();
+
+        requestedInvoiceIds = requestedInvoiceIds.Distinct().ToList();
+        if (requestedInvoiceIds.Count == 0)
+        {
+            throw new InvalidOperationException("Select at least one invoice to Reup PDF.");
+        }
+
+        var candidates = (await paymentTransactionService.GetTransactionReupCandidatesAsync(requestedInvoiceIds, allowedTenantId, allowedDeviceId, cancellationToken)).ToList();
+        if (candidates.Count == 0)
+        {
+            throw new InvalidOperationException("No authorized invoices were found for Reup PDF.");
+        }
+
+        var batchCode = $"TRX-REUP-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}"[..33];
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureSchemaExistsAsync(connection, cancellationToken);
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        var batchId = await InsertTransactionSelectionBatchAsync(connection, transaction, batchCode, user, candidates.Count, cancellationToken);
+
+        var rowNumber = 1;
+        foreach (var candidate in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var payload = await paymentTransactionService.BuildInvoicePdfPayloadAsync(
+                candidate.InvoiceId,
+                candidate.SourceTransactionCode,
+                null,
+                user.Username,
+                cancellationToken);
+
+            await InsertTransactionSelectionItemAsync(
+                connection,
+                transaction,
+                batchId,
+                rowNumber++,
+                candidate,
+                payload,
+                cancellationToken);
+        }
+
+        await UpdateBatchCountsAsync(connection, transaction, batchId, null, null, candidates.Count, 0, 0, 0, 0, "Processing", cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        await PublishPendingItemsAsync(batchId, user, cancellationToken);
+        return new TransactionReupSelectionResult(
+            batchId,
+            batchCode,
+            requestedInvoiceIds.Count,
+            candidates.Count,
+            candidates.Count,
+            $"Created Transaction History Reup PDF batch for {candidates.Count} invoice(s).");
     }
 
     public async Task RetryFailedAsync(int batchId, AuthUserRecord user, CancellationToken cancellationToken)
@@ -670,20 +735,21 @@ public sealed class TransactionReupService(
         if (Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture) != 1) throw new InvalidOperationException(MissingSchemaMessage);
     }
 
-    private static async Task<int> InsertBatchAsync(SqlConnection connection, SqlTransaction transaction, string batchCode, TransactionReupStoredFile file, AuthUserRecord user, int totalRows, int startNumber, CancellationToken cancellationToken)
+    private static async Task<int> InsertExcelBatchAsync(SqlConnection connection, SqlTransaction transaction, string batchCode, TransactionReupStoredFile file, AuthUserRecord user, int totalRows, int startNumber, CancellationToken cancellationToken)
     {
         const string sql = """
             INSERT INTO [dbo].[TblTransactionReupImportBatch]
-                ([BatchCode], [OriginalFileName], [StoredFileName], [StoredFilePath], [FileSize], [ContentType], [FileExtension], [FileSha256],
+                ([BatchCode], [SourceType], [OriginalFileName], [StoredFileName], [StoredFilePath], [FileSize], [ContentType], [FileExtension], [FileSha256],
                  [ImportedByUserId], [ImportedByUsername], [ImportedAtUtc], [InvoiceStartNumber], [InvoiceEndNumber], [NextInvoiceNumber],
                  [TotalRows], [ValidRows], [PublishedRows], [FailedRows], [SkippedRows], [DuplicateRows], [Status], [CreatedAtUtc], [UpdatedAtUtc])
             OUTPUT INSERTED.[ID]
             VALUES
-                (@batchCode, @originalFileName, @storedFileName, @storedFilePath, @fileSize, @contentType, @extension, @sha256,
+                (@batchCode, @sourceType, @originalFileName, @storedFileName, @storedFilePath, @fileSize, @contentType, @extension, @sha256,
                  @userId, @username, SYSUTCDATETIME(), @startNumber, @startNumber - 1, @startNumber, @totalRows, 0, 0, 0, 0, 0, N'Processing', SYSUTCDATETIME(), SYSUTCDATETIME());
             """;
         await using var command = new SqlCommand(sql, connection, transaction);
         command.Parameters.Add("@batchCode", SqlDbType.NVarChar, 100).Value = batchCode;
+        command.Parameters.Add("@sourceType", SqlDbType.NVarChar, 40).Value = TransactionReupSourceTypes.ExcelImport;
         command.Parameters.Add("@originalFileName", SqlDbType.NVarChar, 260).Value = file.OriginalFileName;
         command.Parameters.Add("@storedFileName", SqlDbType.NVarChar, 260).Value = file.StoredFileName;
         command.Parameters.Add("@storedFilePath", SqlDbType.NVarChar, 500).Value = file.RelativePath;
@@ -694,6 +760,27 @@ public sealed class TransactionReupService(
         command.Parameters.Add("@userId", SqlDbType.Int).Value = user.Id;
         command.Parameters.Add("@username", SqlDbType.NVarChar, 100).Value = user.Username;
         command.Parameters.Add("@startNumber", SqlDbType.Int).Value = startNumber;
+        command.Parameters.Add("@totalRows", SqlDbType.Int).Value = totalRows;
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture);
+    }
+
+    private static async Task<int> InsertTransactionSelectionBatchAsync(SqlConnection connection, SqlTransaction transaction, string batchCode, AuthUserRecord user, int totalRows, CancellationToken cancellationToken)
+    {
+        const string sql = """
+            INSERT INTO [dbo].[TblTransactionReupImportBatch]
+                ([BatchCode], [SourceType], [OriginalFileName], [StoredFileName], [StoredFilePath], [FileSize], [ContentType], [FileExtension], [FileSha256],
+                 [ImportedByUserId], [ImportedByUsername], [ImportedAtUtc], [InvoiceStartNumber], [InvoiceEndNumber], [NextInvoiceNumber],
+                 [TotalRows], [ValidRows], [PublishedRows], [FailedRows], [SkippedRows], [DuplicateRows], [Status], [CreatedAtUtc], [UpdatedAtUtc])
+            OUTPUT INSERTED.[ID]
+            VALUES
+                (@batchCode, @sourceType, NULL, NULL, NULL, 0, NULL, NULL, NULL,
+                 @userId, @username, SYSUTCDATETIME(), NULL, NULL, NULL, @totalRows, @totalRows, 0, 0, 0, 0, N'Processing', SYSUTCDATETIME(), SYSUTCDATETIME());
+            """;
+        await using var command = new SqlCommand(sql, connection, transaction);
+        command.Parameters.Add("@batchCode", SqlDbType.NVarChar, 100).Value = batchCode;
+        command.Parameters.Add("@sourceType", SqlDbType.NVarChar, 40).Value = TransactionReupSourceTypes.TransactionSelection;
+        command.Parameters.Add("@userId", SqlDbType.Int).Value = user.Id;
+        command.Parameters.Add("@username", SqlDbType.NVarChar, 100).Value = user.Username;
         command.Parameters.Add("@totalRows", SqlDbType.Int).Value = totalRows;
         return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture);
     }
@@ -741,7 +828,50 @@ public sealed class TransactionReupService(
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private static async Task UpdateBatchCountsAsync(SqlConnection connection, SqlTransaction transaction, int batchId, int endNumber, int nextNumber, int valid, int published, int failed, int skipped, int duplicate, string status, CancellationToken cancellationToken)
+    private static async Task InsertTransactionSelectionItemAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        int batchId,
+        int rowNumber,
+        PaymentTransactionReupCandidate candidate,
+        InvoicePdfPayloadBuildResult payload,
+        CancellationToken cancellationToken)
+    {
+        const string sql = """
+            INSERT INTO [dbo].[TblTransactionReupImportItem]
+                ([BatchId], [SourceInvoiceId], [RowNumber], [SourceTransactionCode], [SourceRequestCode], [SourceOriginalRequestCode], [SourceCreatedBy],
+                 [TransactionType], [PaymentMethod], [BankName], [GrossAmountVnd], [ProcessingFeeVnd], [TransferContent], [FeeBearer],
+                 [NetAmountVnd], [SourceStatus], [SourceCreatedAt], [SourceUpdatedAt], [ValidationStatus],
+                 [PublishStatus], [InvoiceYear], [InvoiceSequence], [InvoiceCode], [ExpectedPdfFileName], [PayloadJson],
+                 [PublishAttemptCount], [CreatedAtUtc], [UpdatedAtUtc])
+            VALUES
+                (@batchId, @sourceInvoiceId, @rowNumber, @sourceTransactionCode, @sourceRequestCode, N'', @sourceCreatedBy,
+                 @transactionType, @paymentMethod, @bankName, @grossAmountVnd, 0, N'', N'',
+                 @netAmountVnd, @sourceStatus, NULL, NULL, N'Valid',
+                 @publishStatus, NULL, NULL, @invoiceCode, @expectedFileName, @payload,
+                 0, SYSUTCDATETIME(), SYSUTCDATETIME());
+            """;
+        await using var command = new SqlCommand(sql, connection, transaction);
+        command.Parameters.Add("@batchId", SqlDbType.Int).Value = batchId;
+        command.Parameters.Add("@sourceInvoiceId", SqlDbType.Int).Value = candidate.InvoiceId;
+        command.Parameters.Add("@rowNumber", SqlDbType.Int).Value = rowNumber;
+        command.Parameters.Add("@sourceTransactionCode", SqlDbType.NVarChar, 250).Value = payload.TransactionCode;
+        command.Parameters.Add("@sourceRequestCode", SqlDbType.NVarChar, 250).Value = FirstNotEmpty(candidate.SourceRequestCode, candidate.InvoiceNumber);
+        command.Parameters.Add("@sourceCreatedBy", SqlDbType.NVarChar, 250).Value = payload.OperatorName;
+        command.Parameters.Add("@transactionType", SqlDbType.NVarChar, 100).Value = candidate.TransactionType;
+        command.Parameters.Add("@paymentMethod", SqlDbType.NVarChar, 100).Value = candidate.PaymentMethod;
+        command.Parameters.Add("@bankName", SqlDbType.NVarChar, 250).Value = candidate.BankName;
+        AddDecimal(command, "@grossAmountVnd", payload.AmountVnd > 0 ? payload.AmountVnd : candidate.GrossAmountVnd);
+        AddDecimal(command, "@netAmountVnd", payload.AmountVnd > 0 ? payload.AmountVnd : candidate.NetAmountVnd);
+        command.Parameters.Add("@sourceStatus", SqlDbType.NVarChar, 100).Value = candidate.SourceStatus;
+        command.Parameters.Add("@publishStatus", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Pending;
+        command.Parameters.Add("@invoiceCode", SqlDbType.NVarChar, 100).Value = payload.InvoiceCode;
+        command.Parameters.Add("@expectedFileName", SqlDbType.NVarChar, 150).Value = $"{payload.InvoiceCode}.pdf";
+        command.Parameters.Add("@payload", SqlDbType.NVarChar, -1).Value = payload.PayloadJson;
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task UpdateBatchCountsAsync(SqlConnection connection, SqlTransaction transaction, int batchId, int? endNumber, int? nextNumber, int valid, int published, int failed, int skipped, int duplicate, string status, CancellationToken cancellationToken)
     {
         const string sql = """
             UPDATE [dbo].[TblTransactionReupImportBatch]
@@ -752,8 +882,8 @@ public sealed class TransactionReupService(
             """;
         await using var command = new SqlCommand(sql, connection, transaction);
         command.Parameters.Add("@id", SqlDbType.Int).Value = batchId;
-        command.Parameters.Add("@endNumber", SqlDbType.Int).Value = endNumber;
-        command.Parameters.Add("@nextNumber", SqlDbType.Int).Value = nextNumber;
+        command.Parameters.Add("@endNumber", SqlDbType.Int).Value = (object?)endNumber ?? DBNull.Value;
+        command.Parameters.Add("@nextNumber", SqlDbType.Int).Value = (object?)nextNumber ?? DBNull.Value;
         command.Parameters.Add("@valid", SqlDbType.Int).Value = valid;
         command.Parameters.Add("@published", SqlDbType.Int).Value = published;
         command.Parameters.Add("@failed", SqlDbType.Int).Value = failed;
@@ -813,7 +943,7 @@ public sealed class TransactionReupService(
     private static async Task<TransactionReupBatchViewModel?> GetBatchAsync(SqlConnection connection, int batchId, CancellationToken cancellationToken)
     {
         const string sql = """
-            SELECT [ID], [BatchCode], [OriginalFileName], [ImportedByUsername], [ImportedAtUtc],
+            SELECT [ID], [BatchCode], [SourceType], [OriginalFileName], [ImportedByUsername], [ImportedAtUtc],
                    [InvoiceStartNumber], [InvoiceEndNumber], [NextInvoiceNumber], [TotalRows],
                    [ValidRows], [PublishedRows], [FailedRows], [SkippedRows], [DuplicateRows], [Status]
             FROM [dbo].[TblTransactionReupImportBatch] WHERE [ID] = @id;
@@ -828,6 +958,7 @@ public sealed class TransactionReupService(
     {
         Id = reader.GetInt32(reader.GetOrdinal("ID")),
         BatchCode = ReadText(reader, "BatchCode"),
+        SourceType = FirstNotEmpty(ReadText(reader, "SourceType"), TransactionReupSourceTypes.ExcelImport),
         OriginalFileName = ReadText(reader, "OriginalFileName"),
         ImportedByUsername = ReadText(reader, "ImportedByUsername"),
         ImportedAtUtc = ReadDate(reader, "ImportedAtUtc") ?? DateTime.UtcNow,
@@ -846,6 +977,7 @@ public sealed class TransactionReupService(
     private static TransactionReupItemViewModel MapItem(SqlDataReader reader) => new()
     {
         Id = ReadInt(reader, "ID"),
+        SourceInvoiceId = ReadInt(reader, "SourceInvoiceId"),
         RowNumber = ReadInt(reader, "RowNumber"),
         SourceTransactionCode = ReadText(reader, "SourceTransactionCode"),
         SourceRequestCode = ReadText(reader, "SourceRequestCode"),
