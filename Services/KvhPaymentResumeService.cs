@@ -53,7 +53,7 @@ public sealed class KvhPaymentResumeService(
             var syncResult = await kvhSubscriptionService.SyncDeviceSubscriptionAsync(context.DeviceId, request.AllowedTenantId, request.AllowedDeviceId, cancellationToken);
             if (!syncResult.Success)
             {
-                await WriteAsync(context, request, DeviceActivityActions.SubscriptionResumeSkipped, DeviceActivityStatuses.Skipped, null, null,
+                var auditWriteSuccess = await WriteActivitySafeAsync(context, request, DeviceActivityActions.SubscriptionResumeSkipped, DeviceActivityStatuses.Skipped, null, null,
                     "KVH resume skipped because subscription sync failed.",
                     DeviceActivityLogEntry.ToSafeJson(new { syncResult.ErrorCode, syncResult.Message }),
                     correlationId,
@@ -62,6 +62,7 @@ public sealed class KvhPaymentResumeService(
                 return new KvhPaymentResumeResult
                 {
                     Success = false,
+                    AuditWriteSuccess = auditWriteSuccess,
                     Skipped = true,
                     SubscriptionId = context.SubscriptionId,
                     DeviceId = context.DeviceId,
@@ -73,7 +74,7 @@ public sealed class KvhPaymentResumeService(
             var current = await GetCurrentKvhSubscriptionAsync(context.DeviceId, cancellationToken);
             if (current is null)
             {
-                await WriteAsync(context, request, DeviceActivityActions.SubscriptionResumeSkipped, DeviceActivityStatuses.Skipped, null, null,
+                var auditWriteSuccess = await WriteActivitySafeAsync(context, request, DeviceActivityActions.SubscriptionResumeSkipped, DeviceActivityStatuses.Skipped, null, null,
                     "KVH resume skipped because no current subscription was found.",
                     DeviceActivityLogEntry.ToSafeJson(new { syncResult.ReturnedCount, reason = "current_subscription_missing" }),
                     correlationId,
@@ -82,6 +83,7 @@ public sealed class KvhPaymentResumeService(
                 return new KvhPaymentResumeResult
                 {
                     Success = true,
+                    AuditWriteSuccess = auditWriteSuccess,
                     Skipped = true,
                     SubscriptionId = context.SubscriptionId,
                     DeviceId = context.DeviceId,
@@ -91,7 +93,7 @@ public sealed class KvhPaymentResumeService(
 
             if (await HasPendingResumeCommandAsync(context.DeviceId, current.KvhSubscriptionId, cancellationToken))
             {
-                await WriteAsync(context, request, DeviceActivityActions.SubscriptionResumeSkipped, DeviceActivityStatuses.Skipped, current.Status, "resume_pending",
+                var auditWriteSuccess = await WriteActivitySafeAsync(context, request, DeviceActivityActions.SubscriptionResumeSkipped, DeviceActivityStatuses.Skipped, current.Status, "resume_pending",
                     "KVH resume skipped because a resume command is already pending.",
                     DeviceActivityLogEntry.ToSafeJson(new { current.KvhSubscriptionId, current.Status, reason = "pending_resume_command" }),
                     correlationId,
@@ -100,6 +102,7 @@ public sealed class KvhPaymentResumeService(
                 return new KvhPaymentResumeResult
                 {
                     Success = true,
+                    AuditWriteSuccess = auditWriteSuccess,
                     Skipped = true,
                     SubscriptionId = context.SubscriptionId,
                     DeviceId = context.DeviceId,
@@ -111,7 +114,7 @@ public sealed class KvhPaymentResumeService(
 
             if (!IsPaused(current.Status))
             {
-                await WriteAsync(context, request, DeviceActivityActions.SubscriptionResumeSkipped, DeviceActivityStatuses.Skipped, current.Status, current.Status,
+                var auditWriteSuccess = await WriteActivitySafeAsync(context, request, DeviceActivityActions.SubscriptionResumeSkipped, DeviceActivityStatuses.Skipped, current.Status, current.Status,
                     "KVH resume skipped because subscription is already active or not paused.",
                     DeviceActivityLogEntry.ToSafeJson(new { current.KvhSubscriptionId, current.Status, reason = "subscription_not_paused" }),
                     correlationId,
@@ -120,6 +123,7 @@ public sealed class KvhPaymentResumeService(
                 return new KvhPaymentResumeResult
                 {
                     Success = true,
+                    AuditWriteSuccess = auditWriteSuccess,
                     Skipped = true,
                     SubscriptionId = context.SubscriptionId,
                     DeviceId = context.DeviceId,
@@ -139,7 +143,7 @@ public sealed class KvhPaymentResumeService(
 
             if (!submit.Success)
             {
-                await WriteAsync(context, request, DeviceActivityActions.SubscriptionResumeFailed, DeviceActivityStatuses.Failed, current.Status, current.Status,
+                var auditWriteSuccess = await WriteActivitySafeAsync(context, request, DeviceActivityActions.SubscriptionResumeFailed, DeviceActivityStatuses.Failed, current.Status, current.Status,
                     "KVH subscription resume failed after paid invoice.",
                     DeviceActivityLogEntry.ToSafeJson(new { submit.ErrorCode, submit.Message, submit.HttpStatusCode, submit.CommandId }),
                     correlationId,
@@ -148,6 +152,7 @@ public sealed class KvhPaymentResumeService(
                 return new KvhPaymentResumeResult
                 {
                     Success = false,
+                    AuditWriteSuccess = auditWriteSuccess,
                     SubscriptionId = context.SubscriptionId,
                     DeviceId = context.DeviceId,
                     KvhSubscriptionId = current.KvhSubscriptionId,
@@ -158,7 +163,7 @@ public sealed class KvhPaymentResumeService(
                 };
             }
 
-            await WriteAsync(context, request, DeviceActivityActions.SubscriptionResumeRequested, DeviceActivityStatuses.Requested, current.Status, "resume_requested",
+            var requestedAuditWriteSuccess = await WriteActivitySafeAsync(context, request, DeviceActivityActions.SubscriptionResumeRequested, DeviceActivityStatuses.Requested, current.Status, "resume_requested",
                 "KVH subscription resume command submitted after paid invoice.",
                 DeviceActivityLogEntry.ToSafeJson(new { submit.CommandId, submit.JobId, submit.HttpStatusCode }),
                 correlationId,
@@ -171,6 +176,7 @@ public sealed class KvhPaymentResumeService(
             {
                 Success = true,
                 ResumeSubmitted = true,
+                AuditWriteSuccess = requestedAuditWriteSuccess,
                 SubscriptionId = context.SubscriptionId,
                 DeviceId = context.DeviceId,
                 KvhSubscriptionId = current.KvhSubscriptionId,
@@ -183,7 +189,7 @@ public sealed class KvhPaymentResumeService(
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
             logger.LogError(exception, "Failed to handle paid subscription KVH resume. SubscriptionId={SubscriptionId}", request.SubscriptionId);
-            await WriteAsync(context, request, DeviceActivityActions.SubscriptionResumeFailed, DeviceActivityStatuses.Failed, null, null,
+            var auditWriteSuccess = await WriteActivitySafeAsync(context, request, DeviceActivityActions.SubscriptionResumeFailed, DeviceActivityStatuses.Failed, null, null,
                 "KVH subscription resume failed after paid invoice.",
                 DeviceActivityLogEntry.ToSafeJson(new { error = exception.GetBaseException().Message }),
                 correlationId,
@@ -191,6 +197,7 @@ public sealed class KvhPaymentResumeService(
             return new KvhPaymentResumeResult
             {
                 Success = false,
+                AuditWriteSuccess = auditWriteSuccess,
                 SubscriptionId = context.SubscriptionId,
                 DeviceId = context.DeviceId,
                 ErrorCode = exception.GetBaseException().GetType().Name,
@@ -234,7 +241,7 @@ public sealed class KvhPaymentResumeService(
         };
     }
 
-    private async Task WriteAsync(
+    private async Task<bool> WriteActivitySafeAsync(
         SubscriptionContext context,
         KvhPaymentResumeRequest request,
         string action,
@@ -249,26 +256,41 @@ public sealed class KvhPaymentResumeService(
         string? referenceIdOverride = null,
         string? eventKey = null)
     {
-        await activityLogService.WriteAsync(new DeviceActivityLogEntry
+        try
         {
-            DeviceId = context.DeviceId,
-            TenantId = context.TenantId,
-            Category = DeviceActivityCategories.Subscription,
-            Action = action,
-            Status = status,
-            OldValue = oldValue,
-            NewValue = newValue,
-            Summary = summary,
-            DetailJson = detailJson,
-            Source = request.Source,
-            ActorType = string.IsNullOrWhiteSpace(request.ActorType) ? ResolveActorType(request.Source) : request.ActorType,
-            UserId = request.UserId,
-            PerformedBy = request.PerformedBy,
-            ReferenceType = referenceTypeOverride ?? request.ReferenceType,
-            ReferenceId = referenceIdOverride ?? request.ReferenceId,
-            CorrelationId = correlationId,
-            EventKey = eventKey
-        }, cancellationToken);
+            await activityLogService.WriteAsync(new DeviceActivityLogEntry
+            {
+                DeviceId = context.DeviceId,
+                TenantId = context.TenantId,
+                Category = DeviceActivityCategories.Subscription,
+                Action = action,
+                Status = status,
+                OldValue = oldValue,
+                NewValue = newValue,
+                Summary = summary,
+                DetailJson = detailJson,
+                Source = request.Source,
+                ActorType = string.IsNullOrWhiteSpace(request.ActorType) ? ResolveActorType(request.Source) : request.ActorType,
+                UserId = request.UserId,
+                PerformedBy = request.PerformedBy,
+                ReferenceType = referenceTypeOverride ?? request.ReferenceType,
+                ReferenceId = referenceIdOverride ?? request.ReferenceId,
+                CorrelationId = correlationId,
+                EventKey = eventKey
+            }, cancellationToken);
+            return true;
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(
+                exception,
+                "Failed to write KVH payment resume activity. SubscriptionId={SubscriptionId}; DeviceId={DeviceId}; Action={Action}; EventKey={EventKey}.",
+                context.SubscriptionId,
+                context.DeviceId,
+                action,
+                eventKey);
+            return false;
+        }
     }
 
     private async Task<SubscriptionContext?> GetSubscriptionContextAsync(int subscriptionId, int? allowedTenantId, int? allowedDeviceId, CancellationToken cancellationToken)

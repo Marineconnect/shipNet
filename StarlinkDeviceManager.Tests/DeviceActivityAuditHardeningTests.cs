@@ -52,6 +52,35 @@ public sealed class DeviceActivityAuditHardeningTests
         Assert.Contains("if (!shouldContinue) return;", view);
     }
 
+    [Fact]
+    public void NinePayPaidPostCommitActionsIsolateKvhResumeFromRabbitMqFailures()
+    {
+        var service = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "PaymentTransactionService.cs"));
+        var postCommitBody = ExtractMethodBody(service, "private async Task RunNinePayPaidPostCommitActionsSafeAsync");
+
+        Assert.Contains("HandleNinePayPaidKvhResumeSafeAsync", postCommitBody);
+        Assert.Contains("SendNinePayRabbitMqSafeAsync", postCommitBody);
+        Assert.True(
+            postCommitBody.IndexOf("HandleNinePayPaidKvhResumeSafeAsync", StringComparison.Ordinal) <
+            postCommitBody.IndexOf("SendNinePayRabbitMqSafeAsync", StringComparison.Ordinal));
+        Assert.DoesNotContain("WriteNinePayPaidActivityAndResumeSafeAsync", service);
+        Assert.Contains("catch (Exception exception) when (!cancellationToken.IsCancellationRequested)", ExtractMethodBody(service, "private async Task SendNinePayRabbitMqSafeAsync"));
+    }
+
+    [Fact]
+    public void KvhPaymentResumeActivityWriteCannotTurnSuccessfulSubmitIntoFailure()
+    {
+        var service = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "KvhPaymentResumeService.cs"));
+        var model = File.ReadAllText(Path.Combine(ProjectRoot, "Models", "DeviceActivityModels.cs"));
+        var handleBody = ExtractMethodBody(service, "public async Task<KvhPaymentResumeResult> HandlePaidSubscriptionAsync(KvhPaymentResumeRequest");
+
+        Assert.Contains("WriteActivitySafeAsync", service);
+        Assert.Contains("catch (Exception exception) when (!cancellationToken.IsCancellationRequested)", ExtractMethodBody(service, "private async Task<bool> WriteActivitySafeAsync"));
+        Assert.Contains("ResumeSubmitted = true", handleBody);
+        Assert.Contains("AuditWriteSuccess = requestedAuditWriteSuccess", handleBody);
+        Assert.Contains("public bool AuditWriteSuccess { get; set; } = true;", model);
+    }
+
     private static string FindProjectRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -66,5 +95,31 @@ public sealed class DeviceActivityAuditHardeningTests
         }
 
         throw new InvalidOperationException("Project root was not found.");
+    }
+
+    private static string ExtractMethodBody(string source, string methodName)
+    {
+        var methodStart = source.IndexOf(methodName, StringComparison.Ordinal);
+        Assert.True(methodStart >= 0, $"Method {methodName} was not found.");
+        var braceStart = source.IndexOf('{', methodStart);
+        Assert.True(braceStart >= 0, $"Method {methodName} body was not found.");
+        var depth = 0;
+        for (var index = braceStart; index < source.Length; index++)
+        {
+            if (source[index] == '{')
+            {
+                depth++;
+            }
+            else if (source[index] == '}')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    return source[braceStart..(index + 1)];
+                }
+            }
+        }
+
+        throw new InvalidOperationException($"Method {methodName} body was not closed.");
     }
 }

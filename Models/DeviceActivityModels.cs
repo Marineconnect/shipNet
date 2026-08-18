@@ -171,6 +171,7 @@ public sealed class KvhPaymentResumeResult
 {
     public bool Success { get; set; }
     public bool ResumeSubmitted { get; set; }
+    public bool AuditWriteSuccess { get; set; } = true;
     public bool Skipped { get; set; }
     public int SubscriptionId { get; set; }
     public int DeviceId { get; set; }

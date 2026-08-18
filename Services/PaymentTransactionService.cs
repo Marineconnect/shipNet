@@ -1484,59 +1484,32 @@ public class PaymentTransactionService(
         var invoiceNumber = string.Join(", ", mappedInvoices.Select(item => item.InvoiceNumber));
         var processMessage = isPaidStatus ? "IPN processed and invoice marked paid." : $"IPN received with non-paid status '{providerStatus}'.";
         logger.LogInformation("9Pay IPN processed invoice {InvoiceNumber}, payment_no {PaymentNo}, status {Status}.", invoiceNumber, paymentNo, providerStatus);
-        await SendNinePayIpnTelegramNotificationAsync(
-            mappedInvoices.Select(item => item.SubscriptionId).Distinct().ToList(),
-            providerInvoiceNumber,
-            paymentNo,
-            providerStatus,
-            amountVnd,
-            isPaidStatus ? "Paid" : "Not paid",
-            processMessage,
-            cancellationToken);
 
         if (isPaidStatus)
         {
-            foreach (var invoice in mappedInvoices)
-            {
-                await WritePaymentIntegrationLogSafeAsync(
-                    invoice.InvoiceId,
-                    invoice.InvoiceNumber,
-                    paymentNo,
-                    providerInvoiceNumber,
-                    providerStatus,
-                    amountVnd,
-                    rawJson,
-                    completedAt ?? DateTime.UtcNow,
-                    cancellationToken);
-
-                var publishResult = await SendInvoiceToRabbitMqAsync(
-                    invoice.InvoiceId,
-                    paymentNo,
-                    completedAt,
-                    "9Pay IPN",
-                    cancellationToken);
-                if (!publishResult.Success)
-                {
-                    logger.LogError(
-                        "9Pay IPN was processed but invoice PDF RabbitMQ publish failed. InvoiceId={InvoiceId}; InvoiceNumber={InvoiceNumber}; PaymentNo={PaymentNo}; Reason={Reason}.",
-                        invoice.InvoiceId,
-                        invoice.InvoiceNumber,
-                        paymentNo,
-                        publishResult.Message);
-                }
-
-                await WriteNinePayPaidActivityAndResumeSafeAsync(
-                    invoice.InvoiceId,
-                    invoice.SubscriptionId,
-                    invoice.InvoiceNumber,
-                    providerInvoiceNumber,
-                    paymentNo,
-                    providerStatus,
-                    rawJson,
-                    oldInvoiceStatuses.GetValueOrDefault(invoice.InvoiceId) ?? string.Empty,
-                    completedAt ?? DateTime.UtcNow,
-                    cancellationToken);
-            }
+            await RunNinePayPaidPostCommitActionsSafeAsync(
+                mappedInvoices,
+                providerInvoiceNumber,
+                paymentNo,
+                providerStatus,
+                amountVnd,
+                rawJson,
+                oldInvoiceStatuses,
+                completedAt ?? DateTime.UtcNow,
+                processMessage,
+                cancellationToken);
+        }
+        else
+        {
+            await SendNinePayIpnTelegramNotificationAsync(
+                mappedInvoices.Select(item => item.SubscriptionId).Distinct().ToList(),
+                providerInvoiceNumber,
+                paymentNo,
+                providerStatus,
+                amountVnd,
+                "Not paid",
+                processMessage,
+                cancellationToken);
         }
 
         return new NinePayIpnProcessResult
@@ -1548,14 +1521,81 @@ public class PaymentTransactionService(
         };
     }
 
-    private async Task WriteNinePayPaidActivityAndResumeSafeAsync(
+    private async Task RunNinePayPaidPostCommitActionsSafeAsync(
+        IReadOnlyList<(int InvoiceId, int SubscriptionId, string InvoiceNumber, decimal InvoiceAmount)> mappedInvoices,
+        string providerInvoiceNumber,
+        string paymentNo,
+        string providerStatus,
+        decimal amountVnd,
+        string rawJson,
+        IReadOnlyDictionary<int, string> oldInvoiceStatuses,
+        DateTime completedAtUtc,
+        string processMessage,
+        CancellationToken cancellationToken)
+    {
+        foreach (var subscriptionGroup in mappedInvoices.GroupBy(invoice => invoice.SubscriptionId))
+        {
+            var firstInvoice = subscriptionGroup.First();
+            await HandleNinePayPaidKvhResumeSafeAsync(
+                firstInvoice.InvoiceId,
+                firstInvoice.SubscriptionId,
+                firstInvoice.InvoiceNumber,
+                providerInvoiceNumber,
+                paymentNo,
+                providerStatus,
+                cancellationToken);
+        }
+
+        await SendNinePayIpnTelegramNotificationAsync(
+            mappedInvoices.Select(item => item.SubscriptionId).Distinct().ToList(),
+            providerInvoiceNumber,
+            paymentNo,
+            providerStatus,
+            amountVnd,
+            "Paid",
+            processMessage,
+            cancellationToken);
+
+        foreach (var invoice in mappedInvoices)
+        {
+            await WritePaymentIntegrationLogSafeAsync(
+                invoice.InvoiceId,
+                invoice.InvoiceNumber,
+                paymentNo,
+                providerInvoiceNumber,
+                providerStatus,
+                amountVnd,
+                rawJson,
+                completedAtUtc,
+                cancellationToken);
+
+            await WriteNinePayPaidActivitySafeAsync(
+                invoice.InvoiceId,
+                invoice.SubscriptionId,
+                invoice.InvoiceNumber,
+                providerInvoiceNumber,
+                paymentNo,
+                providerStatus,
+                oldInvoiceStatuses.GetValueOrDefault(invoice.InvoiceId) ?? string.Empty,
+                completedAtUtc,
+                cancellationToken);
+
+            await SendNinePayRabbitMqSafeAsync(
+                invoice.InvoiceId,
+                invoice.InvoiceNumber,
+                paymentNo,
+                completedAtUtc,
+                cancellationToken);
+        }
+    }
+
+    private async Task WriteNinePayPaidActivitySafeAsync(
         int invoiceId,
         int subscriptionId,
         string invoiceNumber,
         string providerInvoiceNumber,
         string paymentNo,
         string providerStatus,
-        string rawJson,
         string oldInvoiceStatus,
         DateTime occurredAtUtc,
         CancellationToken cancellationToken)
@@ -1586,7 +1626,24 @@ public class PaymentTransactionService(
                     OccurredAtUtc = occurredAtUtc
                 }, cancellationToken);
             }
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogError(exception, "9Pay IPN paid invoice {InvoiceId}, but payment activity write failed.", invoiceId);
+        }
+    }
 
+    private async Task HandleNinePayPaidKvhResumeSafeAsync(
+        int invoiceId,
+        int subscriptionId,
+        string invoiceNumber,
+        string providerInvoiceNumber,
+        string paymentNo,
+        string providerStatus,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
             var resumeResult = await kvhPaymentResumeService.HandlePaidSubscriptionAsync(new KvhPaymentResumeRequest
             {
                 SubscriptionId = subscriptionId,
@@ -1611,7 +1668,43 @@ public class PaymentTransactionService(
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
-            logger.LogError(exception, "9Pay IPN paid invoice {InvoiceId}, but post-payment activity/KVH resume hook failed.", invoiceId);
+            logger.LogError(exception, "9Pay IPN paid invoice {InvoiceId}, but KVH resume hook threw. SubscriptionId={SubscriptionId}.", invoiceId, subscriptionId);
+        }
+    }
+
+    private async Task SendNinePayRabbitMqSafeAsync(
+        int invoiceId,
+        string invoiceNumber,
+        string paymentNo,
+        DateTime completedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var publishResult = await SendInvoiceToRabbitMqAsync(
+                invoiceId,
+                paymentNo,
+                completedAtUtc,
+                "9Pay IPN",
+                cancellationToken);
+            if (!publishResult.Success)
+            {
+                logger.LogError(
+                    "9Pay IPN was processed but invoice PDF RabbitMQ publish failed. InvoiceId={InvoiceId}; InvoiceNumber={InvoiceNumber}; PaymentNo={PaymentNo}; Reason={Reason}.",
+                    invoiceId,
+                    invoiceNumber,
+                    paymentNo,
+                    publishResult.Message);
+            }
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogError(
+                exception,
+                "9Pay IPN was processed but invoice PDF RabbitMQ publish threw. InvoiceId={InvoiceId}; InvoiceNumber={InvoiceNumber}; PaymentNo={PaymentNo}.",
+                invoiceId,
+                invoiceNumber,
+                paymentNo);
         }
     }
 
