@@ -104,6 +104,59 @@ public sealed class TransactionReupSelectionTests
         Assert.Contains("sessionStorage.removeItem(\"shipnet.transactionHistory.reupPdf.selection.v1\")", details);
     }
 
+    [Fact]
+    public void ProcessPendingRecoversStaleProcessingBeforePendingPublish()
+    {
+        var service = File.ReadAllText(Path.Combine(RepoRoot, "Services", "TransactionReupService.cs"));
+        var processBody = ExtractMethodBody(service, "public async Task<int> ProcessPendingAsync");
+
+        Assert.True(processBody.IndexOf("RecoverStaleProcessingItemsAsync", StringComparison.Ordinal) <
+            processBody.IndexOf("PublishPendingItemsAsync", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void StaleProcessingRecoveryUsesConfiguredUtcTimeout()
+    {
+        var service = File.ReadAllText(Path.Combine(RepoRoot, "Services", "TransactionReupService.cs"));
+        var recoveryBody = ExtractMethodBody(service, "private async Task<int> RecoverStaleProcessingItemsAsync");
+
+        Assert.Contains("TransactionReup:ProcessingStaleMinutes", recoveryBody);
+        Assert.Contains("GetValue(\"TransactionReup:ProcessingStaleMinutes\", 10)", recoveryBody);
+        Assert.Contains("Math.Clamp", recoveryBody);
+        Assert.Contains("1, 120", recoveryBody);
+        Assert.Contains("SYSUTCDATETIME()", recoveryBody);
+        Assert.Contains("DATEADD(minute, -@staleMinutes, SYSUTCDATETIME())", recoveryBody);
+    }
+
+    [Fact]
+    public void StaleProcessingRecoveryOnlyMovesStaleProcessingToPending()
+    {
+        var service = File.ReadAllText(Path.Combine(RepoRoot, "Services", "TransactionReupService.cs"));
+        var recoveryBody = ExtractMethodBody(service, "private async Task<int> RecoverStaleProcessingItemsAsync");
+
+        Assert.Contains("WHERE i.[PublishStatus] = @processing", recoveryBody);
+        Assert.Contains("i.[ProcessingStartedAtUtc] IS NOT NULL", recoveryBody);
+        Assert.Contains("i.[ProcessingStartedAtUtc] < DATEADD", recoveryBody);
+        Assert.Contains("[PublishStatus] = @pending", recoveryBody);
+        Assert.DoesNotContain("WaitingPdf", recoveryBody);
+        Assert.DoesNotContain("Done", recoveryBody);
+        Assert.DoesNotContain("PublishFailed", recoveryBody);
+        Assert.DoesNotContain("INSERT INTO [dbo].[TblTransactionReupImportItem]", recoveryBody);
+        Assert.DoesNotContain("INSERT INTO [dbo].[TblTransactionReupImportBatch]", recoveryBody);
+    }
+
+    [Fact]
+    public void RecoveredItemsStillUseAtomicPendingClaim()
+    {
+        var service = File.ReadAllText(Path.Combine(RepoRoot, "Services", "TransactionReupService.cs"));
+        var publishBody = ExtractMethodBody(service, "private async Task<int> PublishPendingItemsAsync");
+        var claimBody = ExtractMethodBody(service, "private async Task<bool> ClaimPendingItemAsync");
+
+        Assert.Contains("ClaimPendingItemAsync(item.Id", publishBody);
+        Assert.Contains("WHERE [ID] = @id AND [PublishStatus] = @pending", claimBody);
+        Assert.Contains("RecalculateBatchAsync(batchId", ExtractMethodBody(service, "private async Task<int> RecoverStaleProcessingItemsAsync"));
+    }
+
     private static string ExtractMethodBody(string source, string signatureStart)
     {
         var signatureIndex = source.IndexOf(signatureStart, StringComparison.Ordinal);

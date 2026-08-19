@@ -202,7 +202,59 @@ public sealed class TransactionReupService(
 
     public async Task<int> ProcessPendingAsync(CancellationToken cancellationToken)
     {
+        await RecoverStaleProcessingItemsAsync(cancellationToken);
         return await PublishPendingItemsAsync(null, null, cancellationToken);
+    }
+
+    private async Task<int> RecoverStaleProcessingItemsAsync(CancellationToken cancellationToken)
+    {
+        var staleMinutes = Math.Clamp(configuration.GetValue("TransactionReup:ProcessingStaleMinutes", 10), 1, 120);
+        const string sql = """
+            DECLARE @RecoveredBatches TABLE ([BatchId] int NOT NULL);
+
+            UPDATE i
+            SET [PublishStatus] = @pending,
+                [ProcessingStartedAtUtc] = NULL,
+                [ErrorCode] = N'',
+                [ErrorMessage] = N'',
+                [PublishLogs] = CASE
+                    WHEN NULLIF([PublishLogs], N'') IS NULL THEN @log
+                    ELSE CONCAT([PublishLogs], CHAR(13), CHAR(10), @log)
+                END,
+                [UpdatedAtUtc] = SYSUTCDATETIME()
+            OUTPUT INSERTED.[BatchId] INTO @RecoveredBatches([BatchId])
+            FROM [dbo].[TblTransactionReupImportItem] i
+            WHERE i.[PublishStatus] = @processing
+              AND i.[ProcessingStartedAtUtc] IS NOT NULL
+              AND i.[ProcessingStartedAtUtc] < DATEADD(minute, -@staleMinutes, SYSUTCDATETIME());
+
+            SELECT DISTINCT [BatchId] FROM @RecoveredBatches;
+            """;
+
+        var batchIds = new List<int>();
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureSchemaExistsAsync(connection, cancellationToken);
+        await using (var command = new SqlCommand(sql, connection))
+        {
+            command.Parameters.Add("@pending", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Pending;
+            command.Parameters.Add("@processing", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Processing;
+            command.Parameters.Add("@staleMinutes", SqlDbType.Int).Value = staleMinutes;
+            command.Parameters.Add("@log", SqlDbType.NVarChar, -1).Value =
+                $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} | Stale Processing item recovered to Pending by Transaction Reup worker.";
+
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                batchIds.Add(reader.GetInt32(0));
+            }
+        }
+
+        foreach (var batchId in batchIds)
+        {
+            await RecalculateBatchAsync(batchId, cancellationToken);
+        }
+
+        return batchIds.Count;
     }
 
     public async Task RetryFailedAsync(int batchId, AuthUserRecord user, CancellationToken cancellationToken)
