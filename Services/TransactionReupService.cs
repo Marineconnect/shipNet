@@ -560,39 +560,40 @@ public sealed class TransactionReupService(
             UPDATE [dbo].[TblTransactionReupImportItem]
             SET [PublishStatus] = CASE
                     WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN @done
+                    WHEN [PublishStatus] = @error THEN @error
                     WHEN @success = 1 THEN @waitingPdf
                     ELSE @publishFailed
                 END,
                 [RabbitMessageId] = @messageId, [RabbitCorrelationId] = @correlationId,
                 [RabbitExchange] = @rabbitExchange, [RabbitRoutingKey] = @rabbitRoutingKey, [RabbitQueue] = @rabbitQueue,
-                [PublishMessage] = CASE WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN [PublishMessage] ELSE @message END,
+                [PublishMessage] = CASE WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL OR [PublishStatus] = @error THEN [PublishMessage] ELSE @message END,
                 [PublishLogs] = CASE
-                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN [PublishLogs]
+                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL OR [PublishStatus] = @error THEN [PublishLogs]
                     ELSE @logs
                 END,
                 [PublishAttemptCount] = @attemptCount,
                 [PublishedAtUtc] = CASE
-                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN [PublishedAtUtc]
+                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL OR [PublishStatus] = @error THEN [PublishedAtUtc]
                     WHEN @success = 0 THEN [PublishedAtUtc]
                     ELSE SYSUTCDATETIME()
                 END,
                 [ProcessingStartedAtUtc] = CASE
-                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN [ProcessingStartedAtUtc]
+                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL OR [PublishStatus] = @error THEN [ProcessingStartedAtUtc]
                     WHEN @success = 0 THEN [ProcessingStartedAtUtc]
                     ELSE COALESCE([ProcessingStartedAtUtc], SYSUTCDATETIME())
                 END,
                 [WaitingPdfAtUtc] = CASE
-                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN [WaitingPdfAtUtc]
+                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL OR [PublishStatus] = @error THEN [WaitingPdfAtUtc]
                     WHEN @success = 0 THEN [WaitingPdfAtUtc]
                     ELSE SYSUTCDATETIME()
                 END,
                 [ErrorCode] = CASE
-                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN [ErrorCode]
+                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL OR [PublishStatus] = @error THEN [ErrorCode]
                     WHEN @success = 0 THEN N'REUP-RABBIT-PUBLISH-FAILED'
                     ELSE N''
                 END,
                 [ErrorMessage] = CASE
-                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN [ErrorMessage]
+                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL OR [PublishStatus] = @error THEN [ErrorMessage]
                     WHEN @success = 0 THEN @message
                     ELSE N''
                 END,
@@ -604,6 +605,7 @@ public sealed class TransactionReupService(
         await using var command = new SqlCommand(sql, connection);
         command.Parameters.Add("@id", SqlDbType.Int).Value = itemId;
         command.Parameters.Add("@done", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Done;
+        command.Parameters.Add("@error", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Error;
         command.Parameters.Add("@waitingPdf", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.WaitingPdf;
         command.Parameters.Add("@publishFailed", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.PublishFailed;
         command.Parameters.Add("@messageId", SqlDbType.NVarChar, 100).Value = messageId;
@@ -689,9 +691,9 @@ public sealed class TransactionReupService(
         await using var command = new SqlCommand(sql, connection);
         command.Parameters.Add("@id", SqlDbType.Int).Value = itemId;
         command.Parameters.Add("@done", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Done;
+        command.Parameters.Add("@error", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Error;
         command.Parameters.Add("@waitingPdf", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.WaitingPdf;
         command.Parameters.Add("@processing", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Processing;
-        command.Parameters.Add("@error", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Error;
         command.Parameters.Add("@isFailed", SqlDbType.Bit).Value = isFailed;
         command.Parameters.Add("@errorCode", SqlDbType.NVarChar, 100).Value = FirstNotEmpty(request.ErrorCode, "REUP-WORKER-FAILED");
         command.Parameters.Add("@errorMessage", SqlDbType.NVarChar, -1).Value = FirstNotEmpty(request.ErrorMessage, request.ErrorCode, "Invoice worker terminal failure.");

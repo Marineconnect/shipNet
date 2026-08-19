@@ -117,10 +117,14 @@ public sealed class TransactionReupSelectionTests
         var body = ExtractMethodBody(service, "private async Task UpdatePublishResultAsync");
 
         Assert.Contains("WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN @done", body);
+        Assert.Contains("WHEN [PublishStatus] = @error THEN @error", body);
         Assert.Contains("WHEN @success = 1 THEN @waitingPdf", body);
         Assert.Contains("ELSE @publishFailed", body);
-        Assert.Contains("WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN [ErrorCode]", body);
-        Assert.Contains("WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN [ErrorMessage]", body);
+        Assert.Contains("WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL OR [PublishStatus] = @error THEN [PublishMessage]", body);
+        Assert.Contains("WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL OR [PublishStatus] = @error THEN [PublishLogs]", body);
+        Assert.Contains("WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL OR [PublishStatus] = @error THEN [ErrorCode]", body);
+        Assert.Contains("WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL OR [PublishStatus] = @error THEN [ErrorMessage]", body);
+        Assert.Contains("command.Parameters.Add(\"@error\", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Error", body);
     }
 
     [Fact]
