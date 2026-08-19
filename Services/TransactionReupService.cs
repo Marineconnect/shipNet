@@ -191,7 +191,6 @@ public sealed class TransactionReupService(
         await UpdateBatchCountsAsync(connection, transaction, batchId, null, null, candidates.Count, 0, 0, 0, 0, "Processing", cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        await PublishPendingItemsAsync(batchId, user, cancellationToken);
         return new TransactionReupSelectionResult(
             batchId,
             batchCode,
@@ -199,6 +198,11 @@ public sealed class TransactionReupService(
             candidates.Count,
             candidates.Count,
             $"Created Transaction History Reup PDF batch for {candidates.Count} invoice(s).");
+    }
+
+    public async Task<int> ProcessPendingAsync(CancellationToken cancellationToken)
+    {
+        return await PublishPendingItemsAsync(null, null, cancellationToken);
     }
 
     public async Task RetryFailedAsync(int batchId, AuthUserRecord user, CancellationToken cancellationToken)
@@ -225,6 +229,11 @@ public sealed class TransactionReupService(
         if (item is null ||
             (!string.Equals(item.PublishStatus, TransactionReupStatuses.PublishFailed, StringComparison.OrdinalIgnoreCase)
              && !string.Equals(item.PublishStatus, TransactionReupStatuses.Error, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        if (!await ClaimRetryItemAsync(itemId, cancellationToken))
         {
             return;
         }
@@ -261,7 +270,6 @@ public sealed class TransactionReupService(
 
         if (file is null)
         {
-            await MarkItemErrorAsync(itemId, "REUP-PDF-MISSING", "PDF file is required.", cancellationToken);
             throw new InvalidOperationException("REUP-PDF-MISSING: PDF file is required.");
         }
 
@@ -271,7 +279,6 @@ public sealed class TransactionReupService(
         if (!string.IsNullOrWhiteSpace(transactionCode) &&
             !string.Equals(item.SourceTransactionCode, transactionCode.Trim(), StringComparison.OrdinalIgnoreCase))
         {
-            await MarkItemErrorAsync(itemId, "REUP-PDF-CALLBACK-MISMATCH", "Callback transactionCode does not match the Reup item.", cancellationToken);
             throw new InvalidOperationException("REUP-PDF-CALLBACK-MISMATCH: Callback transactionCode does not match the Reup item.");
         }
 
@@ -347,33 +354,109 @@ public sealed class TransactionReupService(
         return stream is null ? null : new TransactionReupItemPdfOpenResult { Item = item, Stream = stream };
     }
 
-    private async Task PublishPendingItemsAsync(int batchId, AuthUserRecord user, CancellationToken cancellationToken)
+    private async Task<int> PublishPendingItemsAsync(int? batchId, AuthUserRecord? user, CancellationToken cancellationToken)
     {
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await EnsureSchemaExistsAsync(connection, cancellationToken);
         const string sql = """
-            SELECT [ID], [SourceTransactionCode], [PayloadJson], [PublishAttemptCount]
-            FROM [dbo].[TblTransactionReupImportItem]
-            WHERE [BatchId] = @batchId AND [PublishStatus] = @status
-            ORDER BY [RowNumber], [ID];
+            SELECT TOP (100)
+                   i.[ID], i.[BatchId], i.[SourceTransactionCode], i.[PayloadJson], i.[PublishAttemptCount],
+                   b.[ImportedByUserId], b.[ImportedByUsername]
+            FROM [dbo].[TblTransactionReupImportItem] i
+            INNER JOIN [dbo].[TblTransactionReupImportBatch] b ON b.[ID] = i.[BatchId]
+            WHERE (@batchId IS NULL OR i.[BatchId] = @batchId)
+              AND i.[PublishStatus] = @status
+            ORDER BY i.[BatchId], i.[RowNumber], i.[ID];
             """;
-        var items = new List<(int Id, string Code, string Payload, int Attempts)>();
+        var items = new List<(int Id, int BatchId, string Code, string Payload, int Attempts, int? UserId, string Username)>();
         await using (var command = new SqlCommand(sql, connection))
         {
-            command.Parameters.Add("@batchId", SqlDbType.Int).Value = batchId;
+            command.Parameters.Add("@batchId", SqlDbType.Int).Value = (object?)batchId ?? DBNull.Value;
             command.Parameters.Add("@status", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Pending;
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-            while (await reader.ReadAsync(cancellationToken)) items.Add((reader.GetInt32(0), reader.GetString(1), reader.GetString(2), reader.GetInt32(3)));
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                items.Add((
+                    ReadInt(reader, "ID"),
+                    ReadInt(reader, "BatchId"),
+                    ReadText(reader, "SourceTransactionCode"),
+                    ReadText(reader, "PayloadJson"),
+                    ReadInt(reader, "PublishAttemptCount"),
+                    reader["ImportedByUserId"] is DBNull ? null : ReadInt(reader, "ImportedByUserId"),
+                    ReadText(reader, "ImportedByUsername")));
+            }
         }
 
+        var processed = 0;
+        var touchedBatches = new HashSet<int>();
         foreach (var item in items)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (!await ClaimPendingItemAsync(item.Id, cancellationToken))
+            {
+                continue;
+            }
+
             var messageId = Guid.NewGuid().ToString();
-            var result = await PublishAsync(item.Payload, item.Code, messageId, user, cancellationToken);
+            var publishUser = user ?? new AuthUserRecord
+            {
+                Id = item.UserId ?? 0,
+                Username = string.IsNullOrWhiteSpace(item.Username) ? "system" : item.Username
+            };
+            var result = await PublishAsync(item.Payload, item.Code, messageId, publishUser, cancellationToken);
             await UpdatePublishResultAsync(item.Id, result, messageId, item.Attempts + 1, cancellationToken);
+            processed++;
+            touchedBatches.Add(item.BatchId);
         }
-        await RecalculateBatchAsync(batchId, cancellationToken);
+
+        foreach (var id in touchedBatches)
+        {
+            await RecalculateBatchAsync(id, cancellationToken);
+        }
+
+        return processed;
+    }
+
+    private async Task<bool> ClaimPendingItemAsync(int itemId, CancellationToken cancellationToken)
+    {
+        const string sql = """
+            UPDATE [dbo].[TblTransactionReupImportItem]
+            SET [PublishStatus] = @processing,
+                [ProcessingStartedAtUtc] = SYSUTCDATETIME(),
+                [ErrorCode] = N'',
+                [ErrorMessage] = N'',
+                [UpdatedAtUtc] = SYSUTCDATETIME()
+            WHERE [ID] = @id AND [PublishStatus] = @pending;
+            """;
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureSchemaExistsAsync(connection, cancellationToken);
+        await using var command = new SqlCommand(sql, connection);
+        command.Parameters.Add("@id", SqlDbType.Int).Value = itemId;
+        command.Parameters.Add("@pending", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Pending;
+        command.Parameters.Add("@processing", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Processing;
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+    }
+
+    private async Task<bool> ClaimRetryItemAsync(int itemId, CancellationToken cancellationToken)
+    {
+        const string sql = """
+            UPDATE [dbo].[TblTransactionReupImportItem]
+            SET [PublishStatus] = @processing,
+                [ProcessingStartedAtUtc] = SYSUTCDATETIME(),
+                [CompletedAtUtc] = NULL,
+                [ErrorCode] = N'',
+                [ErrorMessage] = N'',
+                [UpdatedAtUtc] = SYSUTCDATETIME()
+            WHERE [ID] = @id AND [PublishStatus] IN (@publishFailed, @error);
+            """;
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureSchemaExistsAsync(connection, cancellationToken);
+        await using var command = new SqlCommand(sql, connection);
+        command.Parameters.Add("@id", SqlDbType.Int).Value = itemId;
+        command.Parameters.Add("@processing", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Processing;
+        command.Parameters.Add("@publishFailed", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.PublishFailed;
+        command.Parameters.Add("@error", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Error;
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
     private async Task<InvoiceRabbitMqPublishResult> PublishAsync(string payload, string transactionCode, string messageId, AuthUserRecord user, CancellationToken cancellationToken)

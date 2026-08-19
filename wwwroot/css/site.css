@@ -289,6 +289,22 @@
   min-width:104px;
 }
 
+.transaction-reup-state-summary{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  margin:0 0 14px;
+  color:#c9d8ef;
+  font-size:13px;
+}
+
+.transaction-reup-state-summary span{
+  padding:6px 10px;
+  border:1px solid rgba(88,130,199,.24);
+  border-radius:8px;
+  background:rgba(9,22,48,.56);
+}
+
 .transaction-table-wrap{
   overflow-x:auto;
 }

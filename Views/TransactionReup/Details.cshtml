@@ -2,6 +2,11 @@
 @{
     ViewData["ActiveNav"] = "transactions";
     ViewData["Title"] = $"Import {Model.Batch.BatchCode}";
+    var pendingCount = Model.Items.Count(item => string.Equals(item.PublishStatus, TransactionReupStatuses.Pending, StringComparison.OrdinalIgnoreCase));
+    var processingCount = Model.Items.Count(item => string.Equals(item.PublishStatus, TransactionReupStatuses.Processing, StringComparison.OrdinalIgnoreCase));
+    var waitingPdfCount = Model.Items.Count(item => string.Equals(item.PublishStatus, TransactionReupStatuses.WaitingPdf, StringComparison.OrdinalIgnoreCase));
+    var doneCount = Model.Items.Count(item => string.Equals(item.PublishStatus, TransactionReupStatuses.Done, StringComparison.OrdinalIgnoreCase) || string.Equals(item.PublishStatus, TransactionReupStatuses.Published, StringComparison.OrdinalIgnoreCase));
+    var errorCount = Model.Items.Count(item => string.Equals(item.PublishStatus, TransactionReupStatuses.Error, StringComparison.OrdinalIgnoreCase) || string.Equals(item.PublishStatus, TransactionReupStatuses.PublishFailed, StringComparison.OrdinalIgnoreCase));
 }
 
 @functions {
@@ -59,6 +64,17 @@
             </form>
           </div>
         </header>
+
+        @if (Model.Batch.IsTransactionSelection)
+        {
+          <div class="transaction-reup-state-summary">
+            <span>Pending: <strong>@pendingCount</strong></span>
+            <span>Processing: <strong>@processingCount</strong></span>
+            <span>Waiting PDF: <strong>@waitingPdfCount</strong></span>
+            <span>Done: <strong>@doneCount</strong></span>
+            <span>Error: <strong>@errorCount</strong></span>
+          </div>
+        }
 
         <div class="device-table-wrap transaction-table-wrap">
           <table class="device-table transaction-table">
@@ -214,7 +230,10 @@
 @section Scripts {
 <script>
 (() => {
-  try { sessionStorage.removeItem("shipnet.transactionHistory.reupPdf.selection.v1"); } catch {}
+  @if (Context.Request.Query["clearReupSelection"] == "true")
+  {
+    <text>try { sessionStorage.removeItem("shipnet.transactionHistory.reupPdf.selection.v1"); } catch {}</text>
+  }
   const modal = document.querySelector("[data-reup-error-modal]");
   if (!modal) return;
 

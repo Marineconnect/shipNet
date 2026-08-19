@@ -151,7 +151,7 @@ public class TransactionsController(
                 GetAllowedDeviceId(currentUser),
                 HttpContext.RequestAborted);
 
-            return RedirectToAction(nameof(TransactionReupController.Details), "TransactionReup", new { id = result.BatchId });
+            return RedirectToAction(nameof(TransactionReupController.Details), "TransactionReup", new { id = result.BatchId, clearReupSelection = true });
         }
         catch (InvalidOperationException exception)
         {

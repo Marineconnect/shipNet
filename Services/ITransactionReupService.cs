@@ -16,6 +16,7 @@ public interface ITransactionReupService
         CancellationToken cancellationToken);
     Task RetryFailedAsync(int batchId, AuthUserRecord user, CancellationToken cancellationToken);
     Task RetryItemAsync(int itemId, AuthUserRecord user, CancellationToken cancellationToken);
+    Task<int> ProcessPendingAsync(CancellationToken cancellationToken);
     Task<bool> RecordWorkerResultAsync(TransactionReupWorkerResultRequest request, CancellationToken cancellationToken);
     Task<TransactionReupPdfCallbackResult> SaveItemPdfAsync(
         int itemId,

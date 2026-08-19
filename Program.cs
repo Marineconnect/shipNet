@@ -93,6 +93,7 @@ builder.Services.AddScoped<IInvoicePdfService, InvoicePdfService>();
 builder.Services.AddScoped<IInvoiceIntegrationLogService, InvoiceIntegrationLogService>();
 builder.Services.AddScoped<ITransactionReupFileStorage, TransactionReupFileStorage>();
 builder.Services.AddScoped<ITransactionReupService, TransactionReupService>();
+builder.Services.AddHostedService<TransactionReupPendingWorker>();
 builder.Services.Configure<InvoiceRabbitMqOptions>(builder.Configuration.GetSection(InvoiceRabbitMqOptions.SectionName));
 builder.Services.AddSingleton<IInvoiceRabbitMqPublisher, InvoiceRabbitMqPublisher>();
 
