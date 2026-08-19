@@ -1,5 +1,6 @@
 using System.Data;
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -184,7 +185,7 @@ public sealed class TransactionReupService(
                 candidate,
                 payload,
                 cancellationToken);
-            var itemPayload = PrepareReupItemPayload(payload.PayloadJson, BuildReupItemUploadUrl(itemId), itemId);
+            var itemPayload = PrepareReupItemPayload(payload.PayloadJson, BuildReupItemUploadUrl(itemId), BuildReupItemResultUrl(itemId), itemId);
             await UpdateItemPayloadAsync(connection, transaction, itemId, itemPayload, cancellationToken);
         }
 
@@ -332,6 +333,27 @@ public sealed class TransactionReupService(
             !string.Equals(item.SourceTransactionCode, transactionCode.Trim(), StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("REUP-PDF-CALLBACK-MISMATCH: Callback transactionCode does not match the Reup item.");
+        }
+
+        ValidateCurrentAttempt(item, externalReference);
+
+        if (string.Equals(item.PublishStatus, TransactionReupStatuses.Done, StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(item.PdfSha256))
+        {
+            var incomingSha256 = await ComputeSha256Async(file, cancellationToken);
+            if (string.Equals(item.PdfSha256, incomingSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                return new TransactionReupPdfCallbackResult(
+                    itemId,
+                    item.InvoiceCode,
+                    item.SourceTransactionCode,
+                    item.PdfFileName,
+                    item.PdfSize,
+                    item.PdfSha256,
+                    item.PdfReceivedAtUtc ?? DateTime.UtcNow);
+            }
+
+            throw new InvalidOperationException("REUP-PDF-CALLBACK-CONFLICT: Reup item already has a different PDF.");
         }
 
         var batch = await GetItemBatchAsync(itemId, cancellationToken)
@@ -536,14 +558,44 @@ public sealed class TransactionReupService(
     {
         const string sql = """
             UPDATE [dbo].[TblTransactionReupImportItem]
-            SET [PublishStatus] = @status, [RabbitMessageId] = @messageId, [RabbitCorrelationId] = @correlationId,
+            SET [PublishStatus] = CASE
+                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN @done
+                    WHEN @success = 1 THEN @waitingPdf
+                    ELSE @publishFailed
+                END,
+                [RabbitMessageId] = @messageId, [RabbitCorrelationId] = @correlationId,
                 [RabbitExchange] = @rabbitExchange, [RabbitRoutingKey] = @rabbitRoutingKey, [RabbitQueue] = @rabbitQueue,
-                [PublishMessage] = @message, [PublishLogs] = @logs, [PublishAttemptCount] = @attemptCount,
-                [PublishedAtUtc] = CASE WHEN @success = 0 THEN [PublishedAtUtc] ELSE SYSUTCDATETIME() END,
-                [ProcessingStartedAtUtc] = CASE WHEN @success = 0 THEN [ProcessingStartedAtUtc] ELSE COALESCE([ProcessingStartedAtUtc], SYSUTCDATETIME()) END,
-                [WaitingPdfAtUtc] = CASE WHEN @success = 0 THEN [WaitingPdfAtUtc] ELSE SYSUTCDATETIME() END,
-                [ErrorCode] = CASE WHEN @success = 0 THEN N'REUP-RABBIT-PUBLISH-FAILED' ELSE N'' END,
-                [ErrorMessage] = CASE WHEN @success = 0 THEN @message ELSE N'' END,
+                [PublishMessage] = CASE WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN [PublishMessage] ELSE @message END,
+                [PublishLogs] = CASE
+                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN [PublishLogs]
+                    ELSE @logs
+                END,
+                [PublishAttemptCount] = @attemptCount,
+                [PublishedAtUtc] = CASE
+                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN [PublishedAtUtc]
+                    WHEN @success = 0 THEN [PublishedAtUtc]
+                    ELSE SYSUTCDATETIME()
+                END,
+                [ProcessingStartedAtUtc] = CASE
+                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN [ProcessingStartedAtUtc]
+                    WHEN @success = 0 THEN [ProcessingStartedAtUtc]
+                    ELSE COALESCE([ProcessingStartedAtUtc], SYSUTCDATETIME())
+                END,
+                [WaitingPdfAtUtc] = CASE
+                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN [WaitingPdfAtUtc]
+                    WHEN @success = 0 THEN [WaitingPdfAtUtc]
+                    ELSE SYSUTCDATETIME()
+                END,
+                [ErrorCode] = CASE
+                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN [ErrorCode]
+                    WHEN @success = 0 THEN N'REUP-RABBIT-PUBLISH-FAILED'
+                    ELSE N''
+                END,
+                [ErrorMessage] = CASE
+                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN [ErrorMessage]
+                    WHEN @success = 0 THEN @message
+                    ELSE N''
+                END,
                 [UpdatedAtUtc] = SYSUTCDATETIME()
             WHERE [ID] = @id;
             """;
@@ -551,7 +603,9 @@ public sealed class TransactionReupService(
         await EnsureSchemaExistsAsync(connection, cancellationToken);
         await using var command = new SqlCommand(sql, connection);
         command.Parameters.Add("@id", SqlDbType.Int).Value = itemId;
-        command.Parameters.Add("@status", SqlDbType.NVarChar, 30).Value = result.Success ? TransactionReupStatuses.WaitingPdf : TransactionReupStatuses.PublishFailed;
+        command.Parameters.Add("@done", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Done;
+        command.Parameters.Add("@waitingPdf", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.WaitingPdf;
+        command.Parameters.Add("@publishFailed", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.PublishFailed;
         command.Parameters.Add("@messageId", SqlDbType.NVarChar, 100).Value = messageId;
         command.Parameters.Add("@correlationId", SqlDbType.NVarChar, 250).Value = result.CorrelationId;
         command.Parameters.Add("@rabbitExchange", SqlDbType.NVarChar, 250).Value = result.ExchangeName;
@@ -562,6 +616,94 @@ public sealed class TransactionReupService(
         command.Parameters.Add("@attemptCount", SqlDbType.Int).Value = attemptCount;
         command.Parameters.Add("@success", SqlDbType.Bit).Value = result.Success;
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<bool> RecordItemResultAsync(int itemId, TransactionReupItemResultRequest request, CancellationToken cancellationToken)
+    {
+        if (itemId <= 0)
+        {
+            throw new InvalidOperationException("REUP-CALLBACK-INVALID: Reup item id is invalid.");
+        }
+
+        var item = await GetItemAsync(itemId, cancellationToken)
+            ?? throw new InvalidOperationException("REUP-INVOICE-NOT-FOUND: Reup item was not found.");
+
+        if (!string.IsNullOrWhiteSpace(request.InvoiceCode) &&
+            !string.Equals(item.InvoiceCode, request.InvoiceCode.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("REUP-CALLBACK-MISMATCH: Callback invoiceCode does not match the Reup item.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.TransactionCode) &&
+            !string.Equals(item.SourceTransactionCode, request.TransactionCode.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("REUP-CALLBACK-MISMATCH: Callback transactionCode does not match the Reup item.");
+        }
+
+        ValidateCurrentAttempt(item, request.ExternalReference);
+
+        var isFailed = string.Equals(request.Status?.Trim(), "FAILED", StringComparison.OrdinalIgnoreCase);
+        var logs = BuildItemResultLogs(request);
+        var message = isFailed
+            ? FirstNotEmpty(request.ErrorMessage, request.ErrorCode, "Invoice worker terminal failure.")
+            : "Invoice worker result callback received; waiting for PDF callback to complete Reup item.";
+
+        const string sql = """
+            UPDATE [dbo].[TblTransactionReupImportItem]
+            SET [PublishStatus] = CASE
+                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN @done
+                    WHEN @isFailed = 1 AND [PublishStatus] IN (@waitingPdf, @processing) THEN @error
+                    ELSE [PublishStatus]
+                END,
+                [ErrorCode] = CASE
+                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN [ErrorCode]
+                    WHEN @isFailed = 1 AND [PublishStatus] IN (@waitingPdf, @processing) THEN @errorCode
+                    ELSE [ErrorCode]
+                END,
+                [ErrorMessage] = CASE
+                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN [ErrorMessage]
+                    WHEN @isFailed = 1 AND [PublishStatus] IN (@waitingPdf, @processing) THEN @errorMessage
+                    ELSE [ErrorMessage]
+                END,
+                [PublishMessage] = CASE
+                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN [PublishMessage]
+                    ELSE @message
+                END,
+                [PublishLogs] = CASE
+                    WHEN NULLIF([PublishLogs], N'') IS NULL THEN @logs
+                    ELSE CONCAT([PublishLogs], CHAR(13), CHAR(10), @logs)
+                END,
+                [CompletedAtUtc] = CASE
+                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN [CompletedAtUtc]
+                    WHEN @isFailed = 1 AND [PublishStatus] IN (@waitingPdf, @processing) THEN SYSUTCDATETIME()
+                    ELSE [CompletedAtUtc]
+                END,
+                [UpdatedAtUtc] = SYSUTCDATETIME()
+            WHERE [ID] = @id;
+
+            SELECT [BatchId] FROM [dbo].[TblTransactionReupImportItem] WHERE [ID] = @id;
+            """;
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureSchemaExistsAsync(connection, cancellationToken);
+        await using var command = new SqlCommand(sql, connection);
+        command.Parameters.Add("@id", SqlDbType.Int).Value = itemId;
+        command.Parameters.Add("@done", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Done;
+        command.Parameters.Add("@waitingPdf", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.WaitingPdf;
+        command.Parameters.Add("@processing", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Processing;
+        command.Parameters.Add("@error", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Error;
+        command.Parameters.Add("@isFailed", SqlDbType.Bit).Value = isFailed;
+        command.Parameters.Add("@errorCode", SqlDbType.NVarChar, 100).Value = FirstNotEmpty(request.ErrorCode, "REUP-WORKER-FAILED");
+        command.Parameters.Add("@errorMessage", SqlDbType.NVarChar, -1).Value = FirstNotEmpty(request.ErrorMessage, request.ErrorCode, "Invoice worker terminal failure.");
+        command.Parameters.Add("@message", SqlDbType.NVarChar, -1).Value = message;
+        command.Parameters.Add("@logs", SqlDbType.NVarChar, -1).Value = logs;
+        var batchId = await command.ExecuteScalarAsync(cancellationToken);
+        if (batchId is not null && batchId is not DBNull)
+        {
+            await RecalculateBatchAsync(Convert.ToInt32(batchId, CultureInfo.InvariantCulture), cancellationToken);
+        }
+
+        return true;
     }
 
     public async Task<bool> RecordWorkerResultAsync(TransactionReupWorkerResultRequest request, CancellationToken cancellationToken)
@@ -680,6 +822,37 @@ public sealed class TransactionReupService(
         }
 
         return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string BuildItemResultLogs(TransactionReupItemResultRequest request)
+    {
+        return string.Join(Environment.NewLine, [
+            $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} | Reup item result callback received.",
+            $"Status={request.Status}",
+            $"TransactionCode={request.TransactionCode}",
+            $"InvoiceCode={request.InvoiceCode}",
+            $"ErrorCode={request.ErrorCode}",
+            $"ErrorMessage={request.ErrorMessage}",
+            $"ExternalReference={request.ExternalReference}",
+            $"SourceSystem={request.SourceSystem}"
+        ]);
+    }
+
+    private static void ValidateCurrentAttempt(TransactionReupItemViewModel item, string? externalReference)
+    {
+        if (!string.IsNullOrWhiteSpace(externalReference) &&
+            !string.IsNullOrWhiteSpace(item.RabbitMessageId) &&
+            !string.Equals(item.RabbitMessageId, externalReference.Trim(), StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("REUP-CALLBACK-STALE-ATTEMPT: Callback externalReference does not match the current RabbitMessageId.");
+        }
+    }
+
+    private static async Task<string> ComputeSha256Async(IFormFile file, CancellationToken cancellationToken)
+    {
+        await using var stream = file.OpenReadStream();
+        var hash = await SHA256.HashDataAsync(stream, cancellationToken);
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
     private static async Task<List<TransactionReupSourceRow>> ParseRowsAsync(IFormFile file, CancellationToken cancellationToken)
@@ -806,13 +979,14 @@ public sealed class TransactionReupService(
         }
     }
 
-    private static string PrepareReupItemPayload(string payload, string invoiceUrl, int itemId)
+    private static string PrepareReupItemPayload(string payload, string invoiceUrl, string reupResultUrl, int itemId)
     {
         try
         {
             var node = JsonSerializer.Deserialize<JsonObject>(payload) ?? [];
             node["reup"] = 1;
             node["InvoiceURL"] = invoiceUrl;
+            node["ReupResultURL"] = reupResultUrl;
             node["reupItemId"] = itemId;
             return node.ToJsonString();
         }
@@ -824,10 +998,20 @@ public sealed class TransactionReupService(
 
     private string BuildReupItemUploadUrl(int itemId)
     {
+        return BuildReupItemCallbackUrl(itemId, "pdf");
+    }
+
+    private string BuildReupItemResultUrl(int itemId)
+    {
+        return BuildReupItemCallbackUrl(itemId, "result");
+    }
+
+    private string BuildReupItemCallbackUrl(int itemId, string action)
+    {
         var baseUrl = configuration["InvoicePdfIntegration:PublicBaseUrl"]?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(baseUrl))
         {
-            throw new InvalidOperationException("InvoicePdfIntegration:PublicBaseUrl is required to build Transaction Reup InvoiceURL.");
+            throw new InvalidOperationException("InvoicePdfIntegration:PublicBaseUrl is required to build Transaction Reup callback URLs.");
         }
 
         if (!Uri.TryCreate(baseUrl.TrimEnd('/') + "/", UriKind.Absolute, out var baseUri))
@@ -835,7 +1019,7 @@ public sealed class TransactionReupService(
             throw new InvalidOperationException("InvoicePdfIntegration:PublicBaseUrl must be an absolute URL.");
         }
 
-        return new Uri(baseUri, $"api/transaction-reup/items/{itemId.ToString(CultureInfo.InvariantCulture)}/pdf").AbsoluteUri;
+        return new Uri(baseUri, $"api/transaction-reup/items/{itemId.ToString(CultureInfo.InvariantCulture)}/{action}").AbsoluteUri;
     }
 
     private static string BuildPayload(TransactionReupSourceRow row, DateTime createdAt, DateTime updatedAt, string invoiceCode, string username)

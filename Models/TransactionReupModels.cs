@@ -46,6 +46,17 @@ public sealed class TransactionReupWorkerResultRequest
     public string RawMessage { get; set; } = string.Empty;
 }
 
+public sealed class TransactionReupItemResultRequest
+{
+    public string Status { get; set; } = string.Empty;
+    public string ErrorCode { get; set; } = string.Empty;
+    public string ErrorMessage { get; set; } = string.Empty;
+    public string ExternalReference { get; set; } = string.Empty;
+    public string InvoiceCode { get; set; } = string.Empty;
+    public string TransactionCode { get; set; } = string.Empty;
+    public string SourceSystem { get; set; } = "InvoiceWorker";
+}
+
 public sealed class TransactionReupIndexViewModel
 {
     public List<TransactionReupBatchViewModel> Batches { get; set; } = [];

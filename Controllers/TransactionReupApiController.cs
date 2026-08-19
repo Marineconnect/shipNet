@@ -61,7 +61,9 @@ public sealed class TransactionReupApiController(
             var status = code switch
             {
                 "REUP-INVOICE-NOT-FOUND" => StatusCodes.Status404NotFound,
+                "REUP-CALLBACK-STALE-ATTEMPT" => StatusCodes.Status409Conflict,
                 "REUP-PDF-MISSING" or "REUP-PDF-CALLBACK-INVALID" or "REUP-PDF-CALLBACK-MISMATCH" => StatusCodes.Status400BadRequest,
+                "REUP-PDF-CALLBACK-CONFLICT" => StatusCodes.Status409Conflict,
                 "REUP-PDF-INVALID" => StatusCodes.Status415UnsupportedMediaType,
                 _ => StatusCodes.Status500InternalServerError
             };
@@ -71,6 +73,39 @@ public sealed class TransactionReupApiController(
         {
             logger.LogError(exception, "Transaction Reup PDF callback failed. ItemId={ItemId}.", itemId);
             return StatusCode(StatusCodes.Status500InternalServerError, ErrorBody("REUP-PDF-SAVE-FAILED", exception.GetBaseException().Message));
+        }
+    }
+
+    [HttpPost("items/{itemId:int}/result")]
+    public async Task<IActionResult> RecordItemResult(int itemId, [FromBody] TransactionReupItemResultRequest request)
+    {
+        var keyResult = ValidateApiKey();
+        if (keyResult is not null)
+        {
+            return keyResult;
+        }
+
+        try
+        {
+            var updated = await transactionReupService.RecordItemResultAsync(itemId, request, HttpContext.RequestAborted);
+            return Ok(new { success = true, itemId, updated });
+        }
+        catch (InvalidOperationException exception)
+        {
+            var code = ExtractErrorCode(exception.Message);
+            var status = code switch
+            {
+                "REUP-INVOICE-NOT-FOUND" => StatusCodes.Status404NotFound,
+                "REUP-CALLBACK-STALE-ATTEMPT" => StatusCodes.Status409Conflict,
+                "REUP-CALLBACK-INVALID" or "REUP-CALLBACK-MISMATCH" => StatusCodes.Status400BadRequest,
+                _ => StatusCodes.Status500InternalServerError
+            };
+            return StatusCode(status, ErrorBody(code, exception.GetBaseException().Message));
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Transaction Reup result callback failed. ItemId={ItemId}.", itemId);
+            return StatusCode(StatusCodes.Status500InternalServerError, ErrorBody("REUP-RESULT-SAVE-FAILED", exception.GetBaseException().Message));
         }
     }
 

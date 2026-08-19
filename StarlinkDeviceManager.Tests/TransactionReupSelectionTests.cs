@@ -48,6 +48,7 @@ public sealed class TransactionReupSelectionTests
         var updated = Assert.IsType<string>(method.Invoke(null, [
             "{\"transactionCode\":\"PAY001\",\"invoiceCode\":\"INV001\",\"InvoiceURL\":\"https://example.test/api/invoices/INV001/pdf\"}",
             "https://example.test/api/transaction-reup/items/815/pdf",
+            "https://example.test/api/transaction-reup/items/815/result",
             815
         ]));
 
@@ -55,7 +56,99 @@ public sealed class TransactionReupSelectionTests
         Assert.Equal(1, document.RootElement.GetProperty("reup").GetInt32());
         Assert.Equal(815, document.RootElement.GetProperty("reupItemId").GetInt32());
         Assert.Equal("https://example.test/api/transaction-reup/items/815/pdf", document.RootElement.GetProperty("InvoiceURL").GetString());
+        Assert.Equal("https://example.test/api/transaction-reup/items/815/result", document.RootElement.GetProperty("ReupResultURL").GetString());
         Assert.Equal("INV001", document.RootElement.GetProperty("invoiceCode").GetString());
+    }
+
+    [Fact]
+    public void ReupPayloadContainsDedicatedResultUrl()
+    {
+        var service = File.ReadAllText(Path.Combine(RepoRoot, "Services", "TransactionReupService.cs"));
+        var createBody = ExtractMethodBody(service, "public async Task<TransactionReupSelectionResult> CreateFromTransactionSelectionAsync");
+        var prepareBody = ExtractMethodBody(service, "private static string PrepareReupItemPayload");
+
+        Assert.Contains("BuildReupItemResultUrl(itemId)", createBody);
+        Assert.Contains("node[\"ReupResultURL\"] = reupResultUrl", prepareBody);
+        Assert.Contains("api/transaction-reup/items/{itemId.ToString(CultureInfo.InvariantCulture)}/{action}", service);
+    }
+
+    [Fact]
+    public void TransactionReupApiExposesItemResultCallback()
+    {
+        var controller = File.ReadAllText(Path.Combine(RepoRoot, "Controllers", "TransactionReupApiController.cs"));
+
+        Assert.Contains("[HttpPost(\"items/{itemId:int}/result\")]", controller);
+        Assert.Contains("RecordItemResultAsync(itemId", controller);
+        Assert.Contains("ValidateApiKey()", ExtractMethodBody(controller, "public async Task<IActionResult> RecordItemResult"));
+    }
+
+    [Fact]
+    public void FailureResultCallbackUpdatesOnlyExactItemToError()
+    {
+        var service = File.ReadAllText(Path.Combine(RepoRoot, "Services", "TransactionReupService.cs"));
+        var body = ExtractMethodBody(service, "public async Task<bool> RecordItemResultAsync");
+
+        Assert.Contains("GetItemAsync(itemId", body);
+        Assert.Contains("WHERE [ID] = @id", body);
+        Assert.Contains("WHEN @isFailed = 1 AND [PublishStatus] IN (@waitingPdf, @processing) THEN @error", body);
+        Assert.Contains("[CompletedAtUtc] = CASE", body);
+        Assert.Contains("RecalculateBatchAsync", body);
+        Assert.DoesNotContain("SourceTransactionCode] = @transactionCode", body);
+        Assert.DoesNotContain("InvoiceCode] = @invoiceCode", body);
+    }
+
+    [Fact]
+    public void SuccessResultCallbackDoesNotMarkDoneWithoutPdf()
+    {
+        var service = File.ReadAllText(Path.Combine(RepoRoot, "Services", "TransactionReupService.cs"));
+        var resultBody = ExtractMethodBody(service, "public async Task<bool> RecordItemResultAsync");
+        var pdfBody = ExtractMethodBody(service, "public async Task<TransactionReupPdfCallbackResult> SaveItemPdfAsync");
+
+        Assert.Contains("WHEN @isFailed = 1 AND [PublishStatus] IN (@waitingPdf, @processing) THEN @error", resultBody);
+        Assert.DoesNotContain("WHEN @isFailed = 0", resultBody);
+        Assert.Contains("waiting for PDF callback", resultBody);
+        Assert.Contains("command.Parameters.Add(\"@status\", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Done", pdfBody);
+    }
+
+    [Fact]
+    public void PublishResultCannotRegressDoneOrReceivedPdf()
+    {
+        var service = File.ReadAllText(Path.Combine(RepoRoot, "Services", "TransactionReupService.cs"));
+        var body = ExtractMethodBody(service, "private async Task UpdatePublishResultAsync");
+
+        Assert.Contains("WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN @done", body);
+        Assert.Contains("WHEN @success = 1 THEN @waitingPdf", body);
+        Assert.Contains("ELSE @publishFailed", body);
+        Assert.Contains("WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN [ErrorCode]", body);
+        Assert.Contains("WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN [ErrorMessage]", body);
+    }
+
+    [Fact]
+    public void StaleExternalReferenceCallbacksAreRejected()
+    {
+        var service = File.ReadAllText(Path.Combine(RepoRoot, "Services", "TransactionReupService.cs"));
+        var validatorBody = ExtractMethodBody(service, "private static void ValidateCurrentAttempt");
+        var resultBody = ExtractMethodBody(service, "public async Task<bool> RecordItemResultAsync");
+        var pdfBody = ExtractMethodBody(service, "public async Task<TransactionReupPdfCallbackResult> SaveItemPdfAsync");
+
+        Assert.Contains("REUP-CALLBACK-STALE-ATTEMPT", validatorBody);
+        Assert.Contains("item.RabbitMessageId", validatorBody);
+        Assert.Contains("externalReference.Trim()", validatorBody);
+        Assert.Contains("ValidateCurrentAttempt(item, request.ExternalReference)", resultBody);
+        Assert.Contains("ValidateCurrentAttempt(item, externalReference)", pdfBody);
+    }
+
+    [Fact]
+    public void PdfCallbackIsIdempotentForSameDonePdfAndConflictsOnDifferentPdf()
+    {
+        var service = File.ReadAllText(Path.Combine(RepoRoot, "Services", "TransactionReupService.cs"));
+        var body = ExtractMethodBody(service, "public async Task<TransactionReupPdfCallbackResult> SaveItemPdfAsync");
+
+        Assert.Contains("ComputeSha256Async(file", body);
+        Assert.Contains("string.Equals(item.PdfSha256, incomingSha256", body);
+        Assert.Contains("REUP-PDF-CALLBACK-CONFLICT", body);
+        Assert.True(body.IndexOf("ComputeSha256Async(file", StringComparison.Ordinal) <
+            body.IndexOf("fileStorage.SavePdfAsync", StringComparison.Ordinal));
     }
 
     [Fact]
