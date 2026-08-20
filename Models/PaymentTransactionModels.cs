@@ -43,9 +43,13 @@ public sealed record PaymentTransactionReupCandidate(
     string BankName,
     decimal NetAmountVnd,
     string SourceStatus,
+    DateTime? InvoiceCreatedAt,
     string TenantName,
     string VesselName,
-    string KitNumber);
+    string KitNumber)
+{
+    public string InvoiceCreatedAtDisplay => InvoiceCreatedAt?.ToString("dd/MM/yyyy HH:mm:ss") ?? "-";
+}
 
 public sealed record InvoicePdfPayloadBuildResult(
     int InvoiceId,

@@ -273,6 +273,7 @@ public class PaymentTransactionService(
                    N'' AS [BankName],
                    COALESCE(qr.[InvoiceAmountVnd], qr.[AmountVnd], tx.[AmountVnd], i.[PaidAmount], i.[Amount], 0) AS [NetAmountVnd],
                    COALESCE(NULLIF(tx.[Status], N''), NULLIF(qr.[Status], N''), NULLIF(i.[Status], N''), N'') AS [SourceStatus],
+                   i.[CreatedAt] AS [InvoiceCreatedAt],
                    s.[TenantName],
                    s.[VesselName],
                    COALESCE(NULLIF(d.[KITNumber], N''), NULLIF(s.[KitId], N''), d.[KITID], N'') AS [KitNumber]
@@ -319,6 +320,7 @@ public class PaymentTransactionService(
                     ReadText(reader, "BankName"),
                     ReadDecimal(reader, "NetAmountVnd"),
                     ReadText(reader, "SourceStatus"),
+                    ReadDate(reader, "InvoiceCreatedAt"),
                     ReadText(reader, "TenantName"),
                     ReadText(reader, "VesselName"),
                     ReadText(reader, "KitNumber")));

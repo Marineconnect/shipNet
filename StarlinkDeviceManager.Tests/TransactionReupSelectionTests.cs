@@ -202,6 +202,105 @@ public sealed class TransactionReupSelectionTests
     }
 
     [Fact]
+    public void ReupPdfGetRedirectsToTransactionHistoryWithoutCreatingBatch()
+    {
+        var controller = File.ReadAllText(Path.Combine(RepoRoot, "Controllers", "TransactionsController.cs"));
+        var getBody = ExtractMethodBody(controller, "public IActionResult ReupPdf()");
+
+        Assert.Contains("[HttpGet]", controller);
+        Assert.Contains("return RedirectToAction(nameof(Index));", getBody);
+        Assert.DoesNotContain("CreateFromTransactionSelectionAsync", getBody);
+    }
+
+    [Fact]
+    public void ReupPdfPostStillBeginsSelectionAndRedirectsToDetails()
+    {
+        var controller = File.ReadAllText(Path.Combine(RepoRoot, "Controllers", "TransactionsController.cs"));
+        var postBody = ExtractMethodBody(controller, "public async Task<IActionResult> ReupPdf(TransactionReupSelectionRequest request)");
+
+        Assert.Contains("[HttpPost]", controller);
+        Assert.Contains("[ValidateAntiForgeryToken]", controller);
+        Assert.Contains("CreateFromTransactionSelectionAsync", postBody);
+        Assert.Contains("RedirectToAction(nameof(TransactionReupController.Details), \"TransactionReup\", new { id = result.BatchId, clearReupSelection = true })", postBody);
+        Assert.Contains("logger.LogError", postBody);
+    }
+
+    [Fact]
+    public void ReupPdfCandidatesExposeInvoiceCreatedAt()
+    {
+        var controller = File.ReadAllText(Path.Combine(RepoRoot, "Controllers", "TransactionsController.cs"));
+        var models = File.ReadAllText(Path.Combine(RepoRoot, "Models", "PaymentTransactionModels.cs"));
+        var service = File.ReadAllText(Path.Combine(RepoRoot, "Services", "PaymentTransactionService.cs"));
+
+        Assert.Contains("DateTime? InvoiceCreatedAt", models);
+        Assert.Contains("InvoiceCreatedAtDisplay", models);
+        Assert.Contains("i.[CreatedAt] AS [InvoiceCreatedAt]", service);
+        Assert.Contains("InvoiceCreatedAt = item.InvoiceCreatedAt?.ToString(\"yyyy-MM-dd\")", controller);
+        Assert.Contains("item.InvoiceCreatedAtDisplay", controller);
+    }
+
+    [Fact]
+    public void TransactionHistoryReupReviewStoresInvoiceCreatedAtInBothSelectionPaths()
+    {
+        var view = File.ReadAllText(Path.Combine(RepoRoot, "Views", "Transactions", "Index.cshtml"));
+
+        Assert.Contains("shipnet.transactionHistory.reupPdf.selection.v1", view);
+        Assert.Contains("data-invoice-created-at=\"@item.InvoiceCreatedAt?.ToString(\"yyyy-MM-dd\")\"", view);
+        Assert.Contains("data-invoice-created-at-display=\"@item.InvoiceCreatedAtDisplay\"", view);
+        Assert.Contains("invoiceCreatedAt: checkbox.dataset.invoiceCreatedAt || \"\"", view);
+        Assert.Contains("invoiceCreatedAtDisplay: checkbox.dataset.invoiceCreatedAtDisplay || \"\"", view);
+        Assert.Contains("invoiceCreatedAt: item.invoiceCreatedAt || \"\"", view);
+        Assert.Contains("invoiceCreatedAtDisplay: item.invoiceCreatedAtDisplay || \"\"", view);
+    }
+
+    [Fact]
+    public void ReupReviewModalContainsFiltersCheckboxesAndBulkRemove()
+    {
+        var view = File.ReadAllText(Path.Combine(RepoRoot, "Views", "Transactions", "Index.cshtml"));
+
+        Assert.Contains("data-reup-review-search", view);
+        Assert.Contains("data-reup-review-date-from", view);
+        Assert.Contains("data-reup-review-date-to", view);
+        Assert.Contains("data-reup-review-check-visible", view);
+        Assert.Contains("data-reup-review-row-check", view);
+        Assert.Contains("data-reup-remove-selected", view);
+        Assert.Contains("data-reup-review-clear-filters", view);
+        Assert.Contains("Invoice date", view);
+    }
+
+    [Fact]
+    public void ReupReviewBulkRemoveAndFilteringKeepBasketSemantics()
+    {
+        var view = File.ReadAllText(Path.Combine(RepoRoot, "Views", "Transactions", "Index.cshtml"));
+
+        Assert.Contains("const reviewFilter = { search: \"\", dateFrom: \"\", dateTo: \"\" }", view);
+        Assert.Contains("const reviewCheckedIds = new Set()", view);
+        Assert.Contains("const filteredReviewItems = () => selectedItems().filter(matchesReviewFilter)", view);
+        Assert.Contains("reviewCheckedIds.forEach((id) => delete selection[id])", view);
+        Assert.Contains("saveSelection(selection)", view);
+        Assert.Contains("refreshReupSelection()", view);
+        Assert.Contains("renderReview()", view);
+        Assert.Contains("const items = selectedItems();", ExtractScriptHandler(view, "reupBegin?.addEventListener(\"click\""));
+        Assert.Contains("name=\"InvoiceIds\"", view);
+    }
+
+    [Fact]
+    public void ReupReviewModalUsesNearFullScreenScrollableLayout()
+    {
+        var css = File.ReadAllText(Path.Combine(RepoRoot, "wwwroot", "css", "site.css"));
+
+        Assert.Contains(".transaction-reup-review-modal", css);
+        Assert.Contains("width:min(94vw, 1680px)", css);
+        Assert.Contains("max-height:90vh", css);
+        Assert.Contains("overflow:hidden", css);
+        Assert.Contains(".transaction-reup-review-table-wrap", css);
+        Assert.Contains("overflow:auto", css);
+        Assert.Contains(".transaction-reup-review-table", css);
+        Assert.Contains("min-width:0", css);
+        Assert.Contains("position:sticky", css);
+    }
+
+    [Fact]
     public void ProcessPendingRecoversStaleProcessingBeforePendingPublish()
     {
         var service = File.ReadAllText(Path.Combine(RepoRoot, "Services", "TransactionReupService.cs"));
@@ -279,5 +378,14 @@ public sealed class TransactionReupSelectionTests
         }
 
         throw new InvalidOperationException($"Could not parse method body: {signatureStart}");
+    }
+
+    private static string ExtractScriptHandler(string source, string marker)
+    {
+        var start = source.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"Missing script marker: {marker}");
+        var end = source.IndexOf("});", start, StringComparison.Ordinal);
+        Assert.True(end >= 0, $"Missing script handler end: {marker}");
+        return source[start..(end + 3)];
     }
 }

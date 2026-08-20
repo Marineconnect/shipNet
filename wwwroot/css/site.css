@@ -361,6 +361,129 @@
   font-size:15px;
 }
 
+.transaction-reup-review-modal{
+  width:min(94vw, 1680px);
+  max-width:none;
+  max-height:90vh;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+}
+
+.transaction-reup-review-modal .device-modal-head{
+  flex:0 0 auto;
+}
+
+.transaction-reup-review-separator{
+  margin:0 8px;
+  color:#59749f;
+}
+
+.transaction-reup-review-body{
+  min-height:0;
+  display:flex;
+  flex:1 1 auto;
+  flex-direction:column;
+  gap:14px;
+}
+
+.transaction-reup-review-filters{
+  display:grid;
+  grid-template-columns:minmax(260px, 1.4fr) minmax(170px, .6fr) minmax(170px, .6fr) auto;
+  gap:12px;
+  align-items:end;
+}
+
+.transaction-reup-review-filters label{
+  display:grid;
+  gap:6px;
+}
+
+.transaction-reup-review-filters span{
+  color:#9db2d5;
+  font-size:12px;
+}
+
+.transaction-reup-review-filters input{
+  width:100%;
+  min-height:40px;
+  border:1px solid rgba(88,130,199,.22);
+  border-radius:8px;
+  background:rgba(7,17,35,.72);
+  color:#f1f7ff;
+  padding:0 12px;
+}
+
+.transaction-reup-review-filter-actions{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  justify-content:flex-end;
+}
+
+.transaction-reup-review-table-wrap{
+  min-height:0;
+  flex:1 1 auto;
+  overflow:auto;
+}
+
+.transaction-reup-review-table{
+  width:100%;
+  min-width:0;
+  table-layout:auto;
+}
+
+.transaction-reup-review-table th:first-child,
+.transaction-reup-review-table td:first-child{
+  width:44px;
+  text-align:center;
+}
+
+.transaction-reup-review-table th:nth-child(2),
+.transaction-reup-review-table td:nth-child(2){
+  width:22%;
+}
+
+.transaction-reup-review-table th:nth-child(3),
+.transaction-reup-review-table td:nth-child(3){
+  width:150px;
+}
+
+.transaction-reup-review-table th:last-child,
+.transaction-reup-review-table td:last-child{
+  width:110px;
+  white-space:nowrap;
+}
+
+.transaction-reup-review-actions{
+  flex:0 0 auto;
+  position:sticky;
+  bottom:0;
+  margin:0 -24px -24px;
+  padding:14px 24px 0;
+  background:linear-gradient(180deg, rgba(8,19,39,.72), rgba(8,19,39,.98) 45%);
+}
+
+@media (max-width: 900px){
+  .transaction-reup-review-modal{
+    width:96vw;
+    max-height:90vh;
+  }
+
+  .transaction-reup-review-filters{
+    grid-template-columns:1fr;
+  }
+
+  .transaction-reup-review-filter-actions{
+    justify-content:flex-start;
+    flex-wrap:wrap;
+  }
+
+  .transaction-reup-review-table{
+    min-width:860px;
+  }
+}
+
 .transaction-detail-grid{
   display:grid;
   grid-template-columns:repeat(4, minmax(0, 1fr));

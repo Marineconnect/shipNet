@@ -10,7 +10,8 @@ namespace StarlinkDeviceManager.Controllers;
 public class TransactionsController(
     IPaymentTransactionService paymentTransactionService,
     ITransactionReupService transactionReupService,
-    ISqlAuthService authService) : Controller
+    ISqlAuthService authService,
+    ILogger<TransactionsController> logger) : Controller
 {
     [HttpGet]
     public async Task<IActionResult> Index(
@@ -127,9 +128,17 @@ public class TransactionsController(
                 item.SourceRequestCode,
                 item.TenantName,
                 item.VesselName,
-                item.KitNumber
+                item.KitNumber,
+                InvoiceCreatedAt = item.InvoiceCreatedAt?.ToString("yyyy-MM-dd"),
+                item.InvoiceCreatedAtDisplay
             })
         });
+    }
+
+    [HttpGet]
+    public IActionResult ReupPdf()
+    {
+        return RedirectToAction(nameof(Index));
     }
 
     [HttpPost]
@@ -158,6 +167,24 @@ public class TransactionsController(
             return RedirectToAction(nameof(Index), new
             {
                 message = exception.Message,
+                page = 1,
+                pageSize = 20,
+                search = request.Filter.Search,
+                invoiceNumber = request.Filter.InvoiceNumber,
+                paymentStatus = request.Filter.PaymentStatus,
+                paymentMethod = request.Filter.PaymentMethod,
+                qrState = request.Filter.QrState,
+                tenantId = request.Filter.TenantId,
+                dateFrom = request.Filter.DateFrom?.ToString("yyyy-MM-dd"),
+                dateTo = request.Filter.DateTo?.ToString("yyyy-MM-dd")
+            });
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Unexpected Transaction History Reup PDF begin failure.");
+            return RedirectToAction(nameof(Index), new
+            {
+                message = "Cannot begin Reup PDF right now. Please try again or contact support.",
                 page = 1,
                 pageSize = 20,
                 search = request.Filter.Search,

@@ -177,7 +177,7 @@
             <tr>
               @if (Model.IsTransactionReupAdmin)
               {
-                <td><input type="checkbox" value="@item.InvoiceId" data-reup-invoice data-invoice-id="@item.InvoiceId" data-invoice-number="@item.InvoiceNumber" data-payment-no="@item.ProviderPaymentNo" data-vessel-name="@item.VesselName" data-kit-number="@item.KitNumber" aria-label="Select @item.InvoiceNumber" /></td>
+                <td><input type="checkbox" value="@item.InvoiceId" data-reup-invoice data-invoice-id="@item.InvoiceId" data-invoice-number="@item.InvoiceNumber" data-payment-no="@item.ProviderPaymentNo" data-vessel-name="@item.VesselName" data-kit-number="@item.KitNumber" data-invoice-created-at="@item.InvoiceCreatedAt?.ToString("yyyy-MM-dd")" data-invoice-created-at-display="@item.InvoiceCreatedAtDisplay" aria-label="Select @item.InvoiceNumber" /></td>
               }
               <td>
                 <a class="table-primary-link" asp-controller="MonthlySubscription" asp-action="Details" asp-route-id="@item.SubscriptionId" target="_blank" rel="noopener"><strong>@item.InvoiceNumber</strong></a>
@@ -295,22 +295,56 @@
 </div>
 
 <div class="modal-backdrop transaction-modal-backdrop" data-reup-review-modal hidden>
-  <div class="device-modal transaction-modal" role="dialog" aria-modal="true" aria-labelledby="reupReviewTitle">
+  <div class="device-modal transaction-reup-review-modal" role="dialog" aria-modal="true" aria-labelledby="reupReviewTitle">
     <div class="device-modal-head">
       <div>
         <h2 id="reupReviewTitle">Reup PDF</h2>
-        <p>Selected invoices: <strong data-reup-review-count>0</strong></p>
+        <p>
+          Selected invoices: <strong data-reup-review-count>0</strong>
+          <span class="transaction-reup-review-separator">|</span>
+          Showing: <strong data-reup-review-visible-count>0</strong>
+          <span class="transaction-reup-review-separator">|</span>
+          Checked for removal: <strong data-reup-review-checked-count>0</strong>
+        </p>
       </div>
       <button type="button" class="modal-close" data-close-reup-review aria-label="Close">x</button>
     </div>
-    <div class="transaction-modal-body">
-      <div class="device-table-wrap transaction-table-wrap">
+    <div class="transaction-reup-review-body">
+      <div class="transaction-reup-review-filters">
+        <label>
+          <span>Search</span>
+          <input type="search" data-reup-review-search placeholder="Search invoice, payment, KIT, vessel..." />
+        </label>
+        <label>
+          <span>Invoice date From</span>
+          <input type="date" data-reup-review-date-from />
+        </label>
+        <label>
+          <span>Invoice date To</span>
+          <input type="date" data-reup-review-date-to />
+        </label>
+        <div class="transaction-reup-review-filter-actions">
+          <button type="button" class="btn-secondary" data-reup-review-clear-filters>Clear filters</button>
+          <button type="button" class="btn-secondary" data-reup-remove-selected disabled>Remove selected</button>
+        </div>
+      </div>
+      <div class="device-table-wrap transaction-reup-review-table-wrap">
         <table class="device-table transaction-table transaction-reup-review-table">
-          <thead><tr><th>Invoice</th><th>Payment</th><th>Vessel</th><th>KIT</th><th>Action</th></tr></thead>
+          <thead>
+            <tr>
+              <th><input type="checkbox" data-reup-review-check-visible aria-label="Select visible review rows" /></th>
+              <th>Invoice</th>
+              <th>Invoice date</th>
+              <th>Payment</th>
+              <th>Vessel</th>
+              <th>KIT</th>
+              <th>Action</th>
+            </tr>
+          </thead>
           <tbody data-reup-review-body></tbody>
         </table>
       </div>
-      <div class="device-modal-actions">
+      <div class="device-modal-actions transaction-reup-review-actions">
         <button type="button" class="btn-secondary" data-close-reup-review>Cancel</button>
         <button type="button" class="btn-primary" data-reup-begin>Begin</button>
       </div>
@@ -335,8 +369,18 @@
   const reupReviewModal = document.querySelector("[data-reup-review-modal]");
   const reupReviewBody = document.querySelector("[data-reup-review-body]");
   const reupReviewCount = document.querySelector("[data-reup-review-count]");
+  const reupReviewVisibleCount = document.querySelector("[data-reup-review-visible-count]");
+  const reupReviewCheckedCount = document.querySelector("[data-reup-review-checked-count]");
+  const reupReviewSearch = document.querySelector("[data-reup-review-search]");
+  const reupReviewDateFrom = document.querySelector("[data-reup-review-date-from]");
+  const reupReviewDateTo = document.querySelector("[data-reup-review-date-to]");
+  const reupReviewClearFilters = document.querySelector("[data-reup-review-clear-filters]");
+  const reupReviewCheckVisible = document.querySelector("[data-reup-review-check-visible]");
+  const reupRemoveSelected = document.querySelector("[data-reup-remove-selected]");
   const reupBegin = document.querySelector("[data-reup-begin]");
   const selectionKey = "shipnet.transactionHistory.reupPdf.selection.v1";
+  const reviewFilter = { search: "", dateFrom: "", dateTo: "" };
+  const reviewCheckedIds = new Set();
 
   const esc = (value) => `${value ?? ""}`.replace(/[&<>"']/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[char]));
   const close = (modal) => { if (modal) modal.hidden = true; };
@@ -351,7 +395,9 @@
     invoiceNumber: checkbox.dataset.invoiceNumber || "",
     paymentNo: checkbox.dataset.paymentNo || "",
     vesselName: checkbox.dataset.vesselName || "",
-    kitNumber: checkbox.dataset.kitNumber || ""
+    kitNumber: checkbox.dataset.kitNumber || "",
+    invoiceCreatedAt: checkbox.dataset.invoiceCreatedAt || "",
+    invoiceCreatedAtDisplay: checkbox.dataset.invoiceCreatedAtDisplay || ""
   });
 
   const refreshReupSelection = () => {
@@ -403,7 +449,9 @@
           invoiceNumber: item.invoiceNumber || "",
           paymentNo: item.paymentNo || item.sourceTransactionCode || "",
           vesselName: item.vesselName || "",
-          kitNumber: item.kitNumber || ""
+          kitNumber: item.kitNumber || "",
+          invoiceCreatedAt: item.invoiceCreatedAt || "",
+          invoiceCreatedAtDisplay: item.invoiceCreatedAtDisplay || ""
         };
       });
       saveSelection(selection);
@@ -415,22 +463,82 @@
     }
   });
 
+  const updateReviewCounters = (total, visible) => {
+    if (reupReviewCount) reupReviewCount.textContent = `${total}`;
+    if (reupReviewVisibleCount) reupReviewVisibleCount.textContent = `${visible}`;
+    if (reupReviewCheckedCount) reupReviewCheckedCount.textContent = `${reviewCheckedIds.size}`;
+    if (reupRemoveSelected) {
+      reupRemoveSelected.disabled = reviewCheckedIds.size <= 0;
+      reupRemoveSelected.textContent = reviewCheckedIds.size > 0 ? `Remove selected (${reviewCheckedIds.size})` : "Remove selected";
+    }
+    if (reupBegin) reupBegin.disabled = total <= 0;
+  };
+
+  const matchesReviewFilter = (item) => {
+    const search = reviewFilter.search.trim().toLowerCase();
+    if (search) {
+      const haystack = [
+        item.invoiceNumber,
+        item.paymentNo,
+        item.sourceTransactionCode,
+        item.kitNumber,
+        item.vesselName
+      ].join(" ").toLowerCase();
+      if (!haystack.includes(search)) return false;
+    }
+    const invoiceDate = `${item.invoiceCreatedAt || ""}`.slice(0, 10);
+    if (reviewFilter.dateFrom && (!invoiceDate || invoiceDate < reviewFilter.dateFrom)) return false;
+    if (reviewFilter.dateTo && (!invoiceDate || invoiceDate > reviewFilter.dateTo)) return false;
+    return true;
+  };
+
+  const filteredReviewItems = () => selectedItems().filter(matchesReviewFilter);
+
+  const syncReviewHeaderCheckbox = (visibleItems) => {
+    if (!reupReviewCheckVisible) return;
+    const visibleIds = visibleItems.map((item) => `${item.invoiceId}`);
+    const checkedVisible = visibleIds.filter((id) => reviewCheckedIds.has(id)).length;
+    reupReviewCheckVisible.checked = visibleIds.length > 0 && checkedVisible === visibleIds.length;
+    reupReviewCheckVisible.indeterminate = checkedVisible > 0 && checkedVisible < visibleIds.length;
+    reupReviewCheckVisible.disabled = visibleIds.length === 0;
+  };
+
   const renderReview = () => {
     const items = selectedItems();
-    if (reupReviewCount) reupReviewCount.textContent = `${items.length}`;
+    const visibleItems = items.filter(matchesReviewFilter);
+    const selectionIds = new Set(items.map((item) => `${item.invoiceId}`));
+    Array.from(reviewCheckedIds).forEach((id) => {
+      if (!selectionIds.has(id)) reviewCheckedIds.delete(id);
+    });
+    updateReviewCounters(items.length, visibleItems.length);
+    syncReviewHeaderCheckbox(visibleItems);
     if (!reupReviewBody) return;
-    reupReviewBody.innerHTML = items.map((item) => `
+    reupReviewBody.innerHTML = visibleItems.map((item) => {
+      const id = `${item.invoiceId}`;
+      return `
       <tr>
+        <td><input type="checkbox" data-reup-review-row-check value="${esc(id)}" ${reviewCheckedIds.has(id) ? "checked" : ""} aria-label="Check ${esc(item.invoiceNumber || id)} for removal" /></td>
         <td><strong>${esc(item.invoiceNumber || item.invoiceId)}</strong><div class="muted">Invoice #${esc(item.invoiceId)}</div></td>
+        <td>${esc(item.invoiceCreatedAtDisplay || "-")}</td>
         <td>${esc(item.paymentNo || "-")}</td>
         <td>${esc(item.vesselName || "-")}</td>
         <td>${esc(item.kitNumber || "-")}</td>
         <td><button type="button" class="table-action-btn" data-remove-reup-selected="${esc(item.invoiceId)}">Remove</button></td>
-      </tr>`).join("") || "<tr><td colspan='5' class='tenant-empty'>No selected invoices.</td></tr>";
+      </tr>`;
+    }).join("") || "<tr><td colspan='7' class='tenant-empty'>No selected invoices match the review filters.</td></tr>";
+    reupReviewBody.querySelectorAll("[data-reup-review-row-check]").forEach((checkbox) => {
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) reviewCheckedIds.add(`${checkbox.value}`);
+        else reviewCheckedIds.delete(`${checkbox.value}`);
+        renderReview();
+      });
+    });
     reupReviewBody.querySelectorAll("[data-remove-reup-selected]").forEach((button) => {
       button.addEventListener("click", () => {
         const selection = loadSelection();
-        delete selection[button.dataset.removeReupSelected || ""];
+        const id = button.dataset.removeReupSelected || "";
+        delete selection[id];
+        reviewCheckedIds.delete(id);
         saveSelection(selection);
         refreshReupSelection();
         renderReview();
@@ -443,7 +551,58 @@
     if (reupReviewModal) reupReviewModal.hidden = false;
   });
 
-  document.querySelectorAll("[data-close-reup-review]").forEach((button) => button.addEventListener("click", () => close(reupReviewModal)));
+  const closeReview = () => {
+    reviewCheckedIds.clear();
+    renderReview();
+    close(reupReviewModal);
+  };
+
+  reupReviewSearch?.addEventListener("input", () => {
+    reviewFilter.search = reupReviewSearch.value || "";
+    renderReview();
+  });
+
+  reupReviewDateFrom?.addEventListener("change", () => {
+    reviewFilter.dateFrom = reupReviewDateFrom.value || "";
+    renderReview();
+  });
+
+  reupReviewDateTo?.addEventListener("change", () => {
+    reviewFilter.dateTo = reupReviewDateTo.value || "";
+    renderReview();
+  });
+
+  reupReviewClearFilters?.addEventListener("click", () => {
+    reviewFilter.search = "";
+    reviewFilter.dateFrom = "";
+    reviewFilter.dateTo = "";
+    if (reupReviewSearch) reupReviewSearch.value = "";
+    if (reupReviewDateFrom) reupReviewDateFrom.value = "";
+    if (reupReviewDateTo) reupReviewDateTo.value = "";
+    renderReview();
+  });
+
+  reupReviewCheckVisible?.addEventListener("change", () => {
+    const visibleItems = filteredReviewItems();
+    visibleItems.forEach((item) => {
+      const id = `${item.invoiceId}`;
+      if (reupReviewCheckVisible.checked) reviewCheckedIds.add(id);
+      else reviewCheckedIds.delete(id);
+    });
+    renderReview();
+  });
+
+  reupRemoveSelected?.addEventListener("click", () => {
+    if (reviewCheckedIds.size <= 0) return;
+    const selection = loadSelection();
+    reviewCheckedIds.forEach((id) => delete selection[id]);
+    reviewCheckedIds.clear();
+    saveSelection(selection);
+    refreshReupSelection();
+    renderReview();
+  });
+
+  document.querySelectorAll("[data-close-reup-review]").forEach((button) => button.addEventListener("click", closeReview));
 
   reupBegin?.addEventListener("click", () => {
     const items = selectedItems();
