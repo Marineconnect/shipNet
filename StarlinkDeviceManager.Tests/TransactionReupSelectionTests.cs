@@ -180,6 +180,24 @@ public sealed class TransactionReupSelectionTests
     }
 
     [Fact]
+    public void TransactionReupSchemaCheckRepairsSelectionAndCallbackColumns()
+    {
+        var service = File.ReadAllText(Path.Combine(RepoRoot, "Services", "TransactionReupService.cs"));
+        var ensureBody = ExtractMethodBody(service, "private static async Task EnsureSchemaExistsAsync");
+        var compatibilityBody = ExtractMethodBody(service, "private static async Task EnsureSchemaCompatibilityAsync");
+
+        Assert.Contains("EnsureSchemaCompatibilityAsync(connection, cancellationToken)", ensureBody);
+        Assert.Contains("COL_LENGTH(N'dbo.TblTransactionReupImportBatch', N'SourceType')", compatibilityBody);
+        Assert.Contains("ALTER COLUMN [OriginalFileName] nvarchar(260) NULL", compatibilityBody);
+        Assert.Contains("COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'SourceInvoiceId')", compatibilityBody);
+        Assert.Contains("COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'PdfFileName')", compatibilityBody);
+        Assert.Contains("COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'PdfReceivedAtUtc')", compatibilityBody);
+        Assert.Contains("COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'ErrorCode')", compatibilityBody);
+        Assert.Contains("COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'CompletedAtUtc')", compatibilityBody);
+        Assert.Contains("IX_TblTransactionReupImportItem_SourceInvoiceId", compatibilityBody);
+    }
+
+    [Fact]
     public void CallbackValidationDoesNotTerminallyFailWaitingItemForMalformedRequest()
     {
         var service = File.ReadAllText(Path.Combine(RepoRoot, "Services", "TransactionReupService.cs"));

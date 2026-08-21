@@ -62,6 +62,7 @@ public class KvhSolutionsController(
             CanManageSolutions(currentUser),
             HttpContext.RequestAborted);
         model.ActiveTab = tab;
+        model.CanControlSubscriptionCommands = CanControlSubscriptionCommands(currentUser);
         model.SyncHistory = tab == "history"
             ? await kvhSubscriptionService.GetSyncHistoryAsync(
                 new KvhSyncHistoryFilter
@@ -108,6 +109,10 @@ public class KvhSolutionsController(
         }
 
         var detail = await kvhSubscriptionService.GetSolutionDetailAsync(deviceId, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), CanManageSolutions(currentUser), HttpContext.RequestAborted);
+        if (detail is not null)
+        {
+            detail.CanControlSubscriptionCommands = CanControlSubscriptionCommands(currentUser);
+        }
         return detail is null ? NotFound() : View(detail);
     }
 
@@ -237,7 +242,7 @@ public class KvhSolutionsController(
         string successMessage)
     {
         var currentUser = await GetCurrentUserAsync();
-        if (!CanManageSolutions(currentUser))
+        if (!CanControlSubscriptionCommands(currentUser))
         {
             return Forbid();
         }
@@ -290,6 +295,12 @@ public class KvhSolutionsController(
     private static bool CanManageSolutions(AuthUserRecord? user)
     {
         return CanAccessSolutions(user) && user?.IsViewOnly != true;
+    }
+
+    private static bool CanControlSubscriptionCommands(AuthUserRecord? user)
+    {
+        return CanManageSolutions(user) &&
+            string.Equals(user?.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool CanAccessSolutions(AuthUserRecord? user)

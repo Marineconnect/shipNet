@@ -44,7 +44,7 @@ public sealed class KvhSubscriptionOperationsController(
             pageSize,
             GetAllowedTenantId(currentUser),
             GetAllowedDeviceId(currentUser),
-            CanManageSolutions(currentUser),
+            CanControlSubscriptionCommands(currentUser),
             HttpContext.RequestAborted);
 
         return View("~/Views/KvhSolutions/SubscriptionOperations/Index.cshtml", model);
@@ -56,7 +56,7 @@ public sealed class KvhSubscriptionOperationsController(
     {
         var currentUser = await GetCurrentUserAsync();
         if (!CanAccessSolutions(currentUser)) return Forbid();
-        if (!CanManageSolutions(currentUser)) return Forbid();
+        if (!CanControlSubscriptionCommands(currentUser)) return Forbid();
 
         try
         {
@@ -77,7 +77,7 @@ public sealed class KvhSubscriptionOperationsController(
     {
         var currentUser = await GetCurrentUserAsync();
         if (!CanAccessSolutions(currentUser)) return Forbid();
-        var model = await operationService.GetBatchAsync(id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), CanManageSolutions(currentUser), HttpContext.RequestAborted);
+        var model = await operationService.GetBatchAsync(id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), CanControlSubscriptionCommands(currentUser), HttpContext.RequestAborted);
         if (model is null) return NotFound();
 
         ViewData["ImportPreviewJson"] = TempData["KvhOperationImportPreview"] as string;
@@ -101,7 +101,7 @@ public sealed class KvhSubscriptionOperationsController(
     {
         var currentUser = await GetCurrentUserAsync();
         if (!CanAccessSolutions(currentUser)) return Forbid();
-        if (!CanManageSolutions(currentUser)) return Forbid();
+        if (!CanControlSubscriptionCommands(currentUser)) return Forbid();
 
         try
         {
@@ -139,7 +139,7 @@ public sealed class KvhSubscriptionOperationsController(
     {
         var currentUser = await GetCurrentUserAsync();
         if (!CanAccessSolutions(currentUser)) return Forbid();
-        if (!CanManageSolutions(currentUser)) return Forbid();
+        if (!CanControlSubscriptionCommands(currentUser)) return Forbid();
 
         try
         {
@@ -216,7 +216,7 @@ public sealed class KvhSubscriptionOperationsController(
     {
         var currentUser = await GetCurrentUserAsync();
         if (!CanAccessSolutions(currentUser)) return Forbid();
-        var model = await operationService.GetBatchAsync(id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), CanManageSolutions(currentUser), HttpContext.RequestAborted);
+        var model = await operationService.GetBatchAsync(id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), CanControlSubscriptionCommands(currentUser), HttpContext.RequestAborted);
         return model is null
             ? NotFound()
             : Json(new
@@ -247,9 +247,11 @@ public sealed class KvhSubscriptionOperationsController(
     }
 
     [HttpGet("DownloadTemplate")]
-    public IActionResult DownloadTemplate()
+    public async Task<IActionResult> DownloadTemplate()
     {
-        if (!IsAdminPrincipal()) return Forbid();
+        var currentUser = await GetCurrentUserAsync();
+        if (!CanAccessSolutions(currentUser)) return Forbid();
+        if (!CanControlSubscriptionCommands(currentUser)) return Forbid();
 
         var content = operationService.BuildTemplate();
         return File(content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "kvh-subscription-operation-template.xlsx");
@@ -259,7 +261,7 @@ public sealed class KvhSubscriptionOperationsController(
     {
         var currentUser = await GetCurrentUserAsync();
         if (!CanAccessSolutions(currentUser)) return Forbid();
-        if (!CanManageSolutions(currentUser)) return Forbid();
+        if (!CanControlSubscriptionCommands(currentUser)) return Forbid();
 
         try
         {
@@ -312,15 +314,16 @@ public sealed class KvhSubscriptionOperationsController(
         return CanAccessSolutions(user) && user?.IsViewOnly != true;
     }
 
+    private static bool CanControlSubscriptionCommands(AuthUserRecord? user)
+    {
+        return CanManageSolutions(user) &&
+            string.Equals(user?.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool CanAccessSolutions(AuthUserRecord? user)
     {
         return user is not null &&
             (user.IsAdmin || string.Equals(user.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase));
     }
 
-    private bool IsAdminPrincipal()
-    {
-        return User.HasClaim("UserType", ManagedUserType.Admin) ||
-            string.Equals(User.Identity?.Name?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
-    }
 }

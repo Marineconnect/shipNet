@@ -432,7 +432,7 @@
                           <input type="hidden" name="deviceId" value="@item.DeviceId" />
                           <button type="submit" role="menuitem">Đồng bộ</button>
                         </form>
-                        @if (item.KvhSubscriptionId.HasValue && item.CanPause)
+                        @if (Model.CanControlSubscriptionCommands && item.KvhSubscriptionId.HasValue && item.CanPause)
                         {
                           <form asp-controller="KvhSolutions" asp-action="Pause" method="post" role="none">
                             @Html.AntiForgeryToken()
@@ -441,7 +441,7 @@
                             <button type="submit" role="menuitem">Tạm dừng</button>
                           </form>
                         }
-                        @if (item.KvhSubscriptionId.HasValue && item.CanResume)
+                        @if (Model.CanControlSubscriptionCommands && item.KvhSubscriptionId.HasValue && item.CanResume)
                         {
                           <form asp-controller="KvhSolutions" asp-action="Resume" method="post" role="none">
                             @Html.AntiForgeryToken()
@@ -450,7 +450,7 @@
                             <button type="submit" role="menuitem">Khôi phục</button>
                           </form>
                         }
-                        @if (item.KvhSubscriptionId.HasValue && item.CanCancelSchedule)
+                        @if (Model.CanControlSubscriptionCommands && item.KvhSubscriptionId.HasValue && item.CanCancelSchedule)
                         {
                           <form asp-controller="KvhSolutions" asp-action="CancelSchedule" method="post" role="none">
                             @Html.AntiForgeryToken()

@@ -57,6 +57,7 @@ public sealed class KvhSolutionPageResult
     public KvhSolutionFilter Filter { get; set; } = new();
     public bool IsTenantScoped { get; set; }
     public bool CanManageSolutions { get; set; }
+    public bool CanControlSubscriptionCommands { get; set; }
     public int TotalPages => PageSize <= 0 ? 0 : (int)Math.Ceiling(TotalItems / (double)PageSize);
     public bool HasPreviousPage => CurrentPage > 1;
     public bool HasNextPage => CurrentPage < TotalPages;
@@ -185,6 +186,7 @@ public sealed class KvhSolutionDetailViewModel
     public DateTime? LastUpdateTimeUtc { get; set; }
     public string TrafficId { get; set; } = string.Empty;
     public bool CanManageSolutions { get; set; }
+    public bool CanControlSubscriptionCommands { get; set; }
     public List<KvhSubscriptionEntryViewModel> CurrentSubscriptions { get; set; } = [];
     public List<KvhSubscriptionSyncLogViewModel> SyncLogs { get; set; } = [];
     public List<KvhCommandStatusDto> RecentCommands { get; set; } = [];

@@ -224,6 +224,40 @@ public class KvhSubscriptionOperationTests
         Assert.Contains("data-kvh-operation-live", operationDetails);
     }
 
+    [Fact]
+    public void KvhPauseResumeCommandsAreRestrictedToAdminUsername()
+    {
+        var controller = File.ReadAllText(Path.Combine(ProjectRoot, "Controllers", "KvhSolutionsController.cs"));
+        var models = File.ReadAllText(Path.Combine(ProjectRoot, "Models", "KvhSubscriptionModels.cs"));
+        var index = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "KvhSolutions", "Index.cshtml"));
+        var detail = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "KvhSolutions", "Details.cshtml"));
+
+        Assert.Contains("CanControlSubscriptionCommands(currentUser)", controller);
+        Assert.Contains("string.Equals(user?.Username?.Trim(), \"admin\", StringComparison.OrdinalIgnoreCase)", controller);
+        Assert.Contains("public bool CanControlSubscriptionCommands", models);
+        Assert.Contains("Model.CanControlSubscriptionCommands && item.KvhSubscriptionId.HasValue && item.CanPause", index);
+        Assert.Contains("Model.CanControlSubscriptionCommands && item.KvhSubscriptionId.HasValue && item.CanResume", index);
+        Assert.Contains("Model.CanControlSubscriptionCommands && item.KvhSubscriptionId.HasValue && item.CanCancelSchedule", index);
+        Assert.Contains("Model.CanControlSubscriptionCommands && currentEntry is not null", detail);
+    }
+
+    [Fact]
+    public void KvhSubscriptionOperationWritesAreRestrictedToAdminUsername()
+    {
+        var controller = File.ReadAllText(Path.Combine(ProjectRoot, "Controllers", "KvhSubscriptionOperationsController.cs"));
+        var operationIndex = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "KvhSolutions", "SubscriptionOperations", "Index.cshtml"));
+
+        Assert.Contains("CanControlSubscriptionCommands(currentUser)", controller);
+        Assert.Contains("string.Equals(user?.Username?.Trim(), \"admin\", StringComparison.OrdinalIgnoreCase)", controller);
+        Assert.Contains("operationService.GetBatchesAsync", controller);
+        Assert.Contains("CanControlSubscriptionCommands(currentUser),", controller);
+        Assert.Contains("if (!CanControlSubscriptionCommands(currentUser)) return Forbid();", controller);
+        Assert.Contains("public async Task<IActionResult> DownloadTemplate()", controller);
+        Assert.DoesNotContain("IsAdminPrincipal", controller);
+        Assert.Contains("asp-action=\"DownloadTemplate\"", operationIndex);
+        Assert.Contains("@if (Model.CanManage)", operationIndex);
+    }
+
     private static string FindProjectRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

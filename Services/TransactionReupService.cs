@@ -1198,6 +1198,73 @@ public sealed class TransactionReupService(
         const string sql = "SELECT CASE WHEN OBJECT_ID(N'dbo.TblTransactionReupImportBatch', N'U') IS NOT NULL AND OBJECT_ID(N'dbo.TblTransactionReupImportItem', N'U') IS NOT NULL THEN 1 ELSE 0 END;";
         await using var command = new SqlCommand(sql, connection);
         if (Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture) != 1) throw new InvalidOperationException(MissingSchemaMessage);
+
+        await EnsureSchemaCompatibilityAsync(connection, cancellationToken);
+    }
+
+    private static async Task EnsureSchemaCompatibilityAsync(SqlConnection connection, CancellationToken cancellationToken)
+    {
+        const string sql = """
+            IF COL_LENGTH(N'dbo.TblTransactionReupImportBatch', N'SourceType') IS NULL
+                ALTER TABLE [dbo].[TblTransactionReupImportBatch] ADD [SourceType] nvarchar(40) NOT NULL CONSTRAINT [DF_TblTransactionReupImportBatch_SourceType_Add] DEFAULT(N'EXCEL_IMPORT');
+
+            UPDATE [dbo].[TblTransactionReupImportBatch]
+            SET [SourceType] = N'EXCEL_IMPORT'
+            WHERE NULLIF([SourceType], N'') IS NULL;
+
+            IF EXISTS (SELECT 1 FROM sys.columns WHERE [object_id] = OBJECT_ID(N'dbo.TblTransactionReupImportBatch') AND [name] = N'OriginalFileName' AND [is_nullable] = 0)
+                ALTER TABLE [dbo].[TblTransactionReupImportBatch] ALTER COLUMN [OriginalFileName] nvarchar(260) NULL;
+            IF EXISTS (SELECT 1 FROM sys.columns WHERE [object_id] = OBJECT_ID(N'dbo.TblTransactionReupImportBatch') AND [name] = N'StoredFileName' AND [is_nullable] = 0)
+                ALTER TABLE [dbo].[TblTransactionReupImportBatch] ALTER COLUMN [StoredFileName] nvarchar(260) NULL;
+            IF EXISTS (SELECT 1 FROM sys.columns WHERE [object_id] = OBJECT_ID(N'dbo.TblTransactionReupImportBatch') AND [name] = N'StoredFilePath' AND [is_nullable] = 0)
+                ALTER TABLE [dbo].[TblTransactionReupImportBatch] ALTER COLUMN [StoredFilePath] nvarchar(500) NULL;
+            IF EXISTS (SELECT 1 FROM sys.columns WHERE [object_id] = OBJECT_ID(N'dbo.TblTransactionReupImportBatch') AND [name] = N'ContentType' AND [is_nullable] = 0)
+                ALTER TABLE [dbo].[TblTransactionReupImportBatch] ALTER COLUMN [ContentType] nvarchar(200) NULL;
+            IF EXISTS (SELECT 1 FROM sys.columns WHERE [object_id] = OBJECT_ID(N'dbo.TblTransactionReupImportBatch') AND [name] = N'FileExtension' AND [is_nullable] = 0)
+                ALTER TABLE [dbo].[TblTransactionReupImportBatch] ALTER COLUMN [FileExtension] nvarchar(20) NULL;
+            IF EXISTS (SELECT 1 FROM sys.columns WHERE [object_id] = OBJECT_ID(N'dbo.TblTransactionReupImportBatch') AND [name] = N'FileSha256' AND [is_nullable] = 0)
+                ALTER TABLE [dbo].[TblTransactionReupImportBatch] ALTER COLUMN [FileSha256] varchar(64) NULL;
+            IF EXISTS (SELECT 1 FROM sys.columns WHERE [object_id] = OBJECT_ID(N'dbo.TblTransactionReupImportBatch') AND [name] = N'InvoiceStartNumber' AND [is_nullable] = 0)
+                ALTER TABLE [dbo].[TblTransactionReupImportBatch] ALTER COLUMN [InvoiceStartNumber] int NULL;
+            IF EXISTS (SELECT 1 FROM sys.columns WHERE [object_id] = OBJECT_ID(N'dbo.TblTransactionReupImportBatch') AND [name] = N'InvoiceEndNumber' AND [is_nullable] = 0)
+                ALTER TABLE [dbo].[TblTransactionReupImportBatch] ALTER COLUMN [InvoiceEndNumber] int NULL;
+            IF EXISTS (SELECT 1 FROM sys.columns WHERE [object_id] = OBJECT_ID(N'dbo.TblTransactionReupImportBatch') AND [name] = N'NextInvoiceNumber' AND [is_nullable] = 0)
+                ALTER TABLE [dbo].[TblTransactionReupImportBatch] ALTER COLUMN [NextInvoiceNumber] int NULL;
+
+            IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'SourceInvoiceId') IS NULL
+                ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [SourceInvoiceId] int NULL;
+            IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'PdfFileName') IS NULL
+                ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [PdfFileName] nvarchar(260) NULL;
+            IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'PdfStorageKey') IS NULL
+                ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [PdfStorageKey] nvarchar(500) NULL;
+            IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'PdfSize') IS NULL
+                ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [PdfSize] bigint NULL;
+            IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'PdfSha256') IS NULL
+                ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [PdfSha256] varchar(64) NULL;
+            IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'PdfContentType') IS NULL
+                ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [PdfContentType] nvarchar(100) NULL;
+            IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'PdfReceivedAtUtc') IS NULL
+                ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [PdfReceivedAtUtc] datetime2(7) NULL;
+            IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'ErrorCode') IS NULL
+                ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [ErrorCode] nvarchar(100) NULL;
+            IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'ErrorMessage') IS NULL
+                ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [ErrorMessage] nvarchar(max) NULL;
+            IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'ProcessingStartedAtUtc') IS NULL
+                ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [ProcessingStartedAtUtc] datetime2(7) NULL;
+            IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'WaitingPdfAtUtc') IS NULL
+                ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [WaitingPdfAtUtc] datetime2(7) NULL;
+            IF COL_LENGTH(N'dbo.TblTransactionReupImportItem', N'CompletedAtUtc') IS NULL
+                ALTER TABLE [dbo].[TblTransactionReupImportItem] ADD [CompletedAtUtc] datetime2(7) NULL;
+
+            IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'IX_TblTransactionReupImportItem_BatchId_PublishStatus' AND [object_id] = OBJECT_ID(N'[dbo].[TblTransactionReupImportItem]'))
+                CREATE INDEX [IX_TblTransactionReupImportItem_BatchId_PublishStatus] ON [dbo].[TblTransactionReupImportItem]([BatchId], [PublishStatus], [ID]);
+
+            IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'IX_TblTransactionReupImportItem_SourceInvoiceId' AND [object_id] = OBJECT_ID(N'[dbo].[TblTransactionReupImportItem]'))
+                CREATE INDEX [IX_TblTransactionReupImportItem_SourceInvoiceId] ON [dbo].[TblTransactionReupImportItem]([SourceInvoiceId]) WHERE [SourceInvoiceId] IS NOT NULL;
+            """;
+
+        await using var command = new SqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task<int> InsertExcelBatchAsync(SqlConnection connection, SqlTransaction transaction, string batchCode, TransactionReupStoredFile file, AuthUserRecord user, int totalRows, int startNumber, CancellationToken cancellationToken)

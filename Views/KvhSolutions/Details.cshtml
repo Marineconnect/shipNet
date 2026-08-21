@@ -247,7 +247,7 @@
         <h2>Lệnh KVH gần đây</h2>
         <p>Trạng thái các lệnh Pause, Resume và Cancel schedule gần nhất.</p>
       </div>
-      @if (Model.CanManageSolutions && currentEntry is not null)
+      @if (Model.CanControlSubscriptionCommands && currentEntry is not null)
       {
         @* Test anchor: entry.CanPause / entry.CanCancelSchedule semantics are supplied by currentEntry. *@
         <div class="device-actions kvh-tab-actions">

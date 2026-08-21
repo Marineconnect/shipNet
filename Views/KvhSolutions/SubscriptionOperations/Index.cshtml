@@ -44,9 +44,12 @@
       <h1>Lịch sử Pause/Resume</h1>
       <p>Quản lý các batch thao tác subscription KVH, theo dõi Job ID, trạng thái từng thiết bị và xuất kết quả vận hành.</p>
     </div>
-    <div class="device-actions kvh-hero-actions">
-      <a class="btn-secondary" asp-controller="KvhSubscriptionOperations" asp-action="DownloadTemplate">Tải template</a>
-    </div>
+    @if (Model.CanManage)
+    {
+      <div class="device-actions kvh-hero-actions">
+        <a class="btn-secondary" asp-controller="KvhSubscriptionOperations" asp-action="DownloadTemplate">Tải template</a>
+      </div>
+    }
   </section>
 
   @if (TempData["KvhSolutionSuccess"] is string successMessage)
