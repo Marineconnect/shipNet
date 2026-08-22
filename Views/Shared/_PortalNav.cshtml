@@ -33,9 +33,6 @@
     var canAccessCommercial = !isTenant && !isShipAdmin && !isCrew;
     var canAccessBillingInvoice = User.Identity?.IsAuthenticated == true;
     var canAccessSubscription = !isShipAdmin && !isCrew;
-    var canAccessTransactions = User.HasClaim("CanManageTransactions", "true")
-        || isAdmin
-        || string.Equals(User.Identity?.Name?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
     var canAccessKvhSolutions = isAdmin || string.Equals(User.Identity?.Name?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
     var canAccessUsers = !isCrew;
     var canAccessSettings = !isTenant && !isShipAdmin && !isCrew;
@@ -105,7 +102,7 @@
           <div class="portal-nav-submenu">
             @if (canAccessBillingInvoice)
             {
-              <a asp-controller="BillingInvoice" asp-action="Index" class="portal-nav-subitem@(ActiveClass("billing-invoice"))">Doanh thu (Billing &amp; Invoices)</a>
+              <a asp-controller="BillingInvoice" asp-action="Index" class="portal-nav-subitem@(ActiveClass("billing-invoice", "transactions"))">Báo cáo doanh thu / Billing &amp; Invoice</a>
             }
             @if (canAccessCommercial)
             {
@@ -114,10 +111,6 @@
             @if (canAccessSubscription)
             {
               <a asp-controller="MonthlySubscription" asp-action="Index" class="portal-nav-subitem@(ActiveClass("subscription"))">Chu kỳ tính cước / Billing Cycle</a>
-              @if (canAccessTransactions)
-              {
-                <a asp-controller="Transactions" asp-action="Index" class="portal-nav-subitem@(ActiveClass("transactions"))">Báo cáo doanh thu</a>
-              }
             }
           </div>
         </details>

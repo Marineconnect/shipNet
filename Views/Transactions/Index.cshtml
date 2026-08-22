@@ -39,6 +39,7 @@
       </div>
     </section>
     <nav class="transaction-tabs" aria-label="Transaction views">
+      <a asp-controller="BillingInvoice" asp-action="Index">Billing &amp; Invoice</a>
       <a class="@(Context.Request.Query["tab"] != "reup" ? "is-active" : "")" asp-controller="Transactions" asp-action="Index" asp-route-tab="history">Lịch sử thanh toán</a>
       @if (Model.IsTransactionReupAdmin)
       {

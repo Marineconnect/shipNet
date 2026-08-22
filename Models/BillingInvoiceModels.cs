@@ -15,6 +15,7 @@ public sealed class BillingInvoiceIndexViewModel
     public int TotalItems { get; set; }
     public bool IsTenantScoped { get; set; }
     public bool IsDeviceScoped { get; set; }
+    public bool IsTransactionReupAdmin { get; set; }
     public int TotalPages => PageSize <= 0 ? 1 : Math.Max(1, (int)Math.Ceiling(TotalItems / (double)PageSize));
     public bool HasPreviousPage => CurrentPage > 1;
     public bool HasNextPage => CurrentPage < TotalPages;
@@ -117,4 +118,3 @@ public sealed class BillingInvoicePlanOptionViewModel
     public string PlanName { get; set; } = string.Empty;
     public string PlanCode { get; set; } = string.Empty;
 }
-

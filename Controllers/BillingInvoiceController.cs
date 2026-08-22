@@ -66,6 +66,7 @@ public sealed class BillingInvoiceController(
         model.CurrentPage = pageResult.CurrentPage;
         model.PageSize = pageResult.PageSize;
         model.TotalItems = pageResult.TotalItems;
+        model.IsTransactionReupAdmin = IsTransactionReupAdmin(currentUser);
 
         return View(model);
     }
@@ -136,6 +137,12 @@ public sealed class BillingInvoiceController(
     }
 
     private static bool CanAccessBillingInvoice(AuthUserRecord? user) => user is not null;
+
+    private static bool IsTransactionReupAdmin(AuthUserRecord? user)
+    {
+        return user is not null &&
+            (user.IsAdmin || string.Equals(user.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase));
+    }
 
     private static int? GetAllowedTenantId(AuthUserRecord? user)
     {
