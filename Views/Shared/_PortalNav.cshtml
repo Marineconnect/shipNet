@@ -31,6 +31,7 @@
     var isViewOnly = User.HasClaim("IsViewOnly", "true");
     var canAccessTenant = !isShipAdmin && !isCrew;
     var canAccessCommercial = !isTenant && !isShipAdmin && !isCrew;
+    var canAccessBillingInvoice = User.Identity?.IsAuthenticated == true;
     var canAccessSubscription = !isShipAdmin && !isCrew;
     var canAccessTransactions = User.HasClaim("CanManageTransactions", "true")
         || isAdmin
@@ -71,7 +72,6 @@
   <div class="portal-nav-panel" id="portalNavPanel">
     <nav class="portal-nav-links portal-nav-tree" aria-label="Primary">
       <a asp-controller="Dashboard" asp-action="Index" class="portal-nav-link@(ActiveClass("dashboard"))">Tổng quan / Dashboard</a>
-      <a asp-controller="BillingInvoice" asp-action="Index" class="portal-nav-link@(ActiveClass("billing-invoice"))">Billing &amp; Invoice</a>
       @if (canAccessTenant)
       {
         <details class="portal-nav-group">
@@ -98,11 +98,15 @@
           </div>
         </details>
       }
-      @if (canAccessCommercial || canAccessSubscription)
+      @if (canAccessBillingInvoice || canAccessCommercial || canAccessSubscription)
       {
         <details class="portal-nav-group">
-          <summary class="portal-nav-link portal-nav-summary@(ActiveClass("pricing", "subscription", "transactions"))">Thương mại / Commercial</summary>
+          <summary class="portal-nav-link portal-nav-summary@(ActiveClass("billing-invoice", "pricing", "subscription", "transactions"))">Thương mại / Commercial</summary>
           <div class="portal-nav-submenu">
+            @if (canAccessBillingInvoice)
+            {
+              <a asp-controller="BillingInvoice" asp-action="Index" class="portal-nav-subitem@(ActiveClass("billing-invoice"))">Doanh thu (Billing &amp; Invoices)</a>
+            }
             @if (canAccessCommercial)
             {
               <a asp-controller="Pricing" asp-action="Index" class="portal-nav-subitem@(ActiveClass("pricing"))">Quản lý gói cước / Pricing Management</a>
@@ -112,7 +116,7 @@
               <a asp-controller="MonthlySubscription" asp-action="Index" class="portal-nav-subitem@(ActiveClass("subscription"))">Chu kỳ tính cước / Billing Cycle</a>
               @if (canAccessTransactions)
               {
-                <a asp-controller="Transactions" asp-action="Index" class="portal-nav-subitem@(ActiveClass("transactions"))">Transaction thanh toán / Payment Transactions</a>
+                <a asp-controller="Transactions" asp-action="Index" class="portal-nav-subitem@(ActiveClass("transactions"))">Báo cáo doanh thu</a>
               }
             }
           </div>
