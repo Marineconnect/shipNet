@@ -94,6 +94,7 @@
           <label>
             <span data-i18n="dashboard_kpi_month">Tháng</span>
             <select id="dashboardKpiMonth">
+              <option value="0" selected="@(dashboardKpi.Month == 0)" data-i18n="dashboard_kpi_all_months">Tất cả</option>
               @for (var month = 1; month <= 12; month++)
               {
                 <option value="@month" selected="@(month == dashboardKpi.Month)">Tháng @month</option>
@@ -744,6 +745,7 @@
       dashboard_kpi_title: "Tổng quan doanh thu",
       dashboard_kpi_period: "Chu kỳ:",
       dashboard_kpi_month: "Tháng",
+      dashboard_kpi_all_months: "Tất cả",
       dashboard_kpi_year: "Năm",
       dashboard_total_revenue: "Tổng doanh thu",
       dashboard_active_kits: "KIT kích hoạt",
@@ -933,6 +935,7 @@
 	      dashboard_kpi_title: "Revenue overview",
 	      dashboard_kpi_period: "Cycle:",
 	      dashboard_kpi_month: "Month",
+	      dashboard_kpi_all_months: "All",
 	      dashboard_kpi_year: "Year",
 	      dashboard_total_revenue: "Total revenue",
 	      dashboard_active_kits: "Active KITs",
@@ -1534,6 +1537,11 @@
     return `${buildDashboardCycle(month, year)}-01`;
   }
 
+  function buildDashboardMonthEnd(month, year) {
+    const end = new Date(year, month, 0);
+    return `${year}-${`${month}`.padStart(2, "0")}-${`${end.getDate()}`.padStart(2, "0")}`;
+  }
+
   function setDashboardKpiLoading(isLoading) {
     dashboardKpiGrid?.classList.toggle("is-loading", isLoading);
     if (dashboardKpiLoading) {
@@ -1548,17 +1556,24 @@
   }
 
   function updateDashboardKpiLinks(month, year) {
-    const cycle = buildDashboardCycle(month, year);
-    const monthStart = buildDashboardMonthStart(month, year);
+    const isFullYear = Number(month) === 0;
     const billingUrl = new URL("@Url.Action("Index", "BillingInvoice")", window.location.origin);
-    billingUrl.searchParams.set("billingCycle", cycle);
+    if (isFullYear) {
+      billingUrl.searchParams.set("billingYear", `${year}`);
+    } else {
+      billingUrl.searchParams.set("billingCycle", buildDashboardCycle(month, year));
+    }
     billingUrl.searchParams.set("sortBy", "invoiceAmount");
     billingUrl.searchParams.set("sortDirection", "desc");
     const subscriptionUrl = new URL("@Url.Action("Index", "MonthlySubscription")", window.location.origin);
-    subscriptionUrl.searchParams.set("monthFrom", monthStart);
-    subscriptionUrl.searchParams.set("monthTo", monthStart);
+    subscriptionUrl.searchParams.set("monthFrom", isFullYear ? `${year}-01-01` : buildDashboardMonthStart(month, year));
+    subscriptionUrl.searchParams.set("monthTo", isFullYear ? `${year}-12-31` : buildDashboardMonthEnd(month, year));
     const commissionUrl = new URL("@Url.Action("Index", "BillingInvoice")", window.location.origin);
-    commissionUrl.searchParams.set("billingCycle", cycle);
+    if (isFullYear) {
+      commissionUrl.searchParams.set("billingYear", `${year}`);
+    } else {
+      commissionUrl.searchParams.set("billingCycle", buildDashboardCycle(month, year));
+    }
     commissionUrl.searchParams.set("metricFilter", "margin");
     commissionUrl.searchParams.set("sortBy", "margin");
     commissionUrl.searchParams.set("sortDirection", "desc");
@@ -1587,7 +1602,8 @@
     dashboardKpiRequest?.abort();
     dashboardKpiRequest = new AbortController();
     const request = dashboardKpiRequest;
-    const month = Number(dashboardKpiMonth.value || new Date().getMonth() + 1);
+    const parsedMonth = Number(dashboardKpiMonth.value);
+    const month = Number.isFinite(parsedMonth) ? parsedMonth : new Date().getMonth() + 1;
     const year = Number(dashboardKpiYear.value || new Date().getFullYear());
     const url = new URL(dashboardKpiEndpoint, window.location.origin);
     url.searchParams.set("month", `${month}`);

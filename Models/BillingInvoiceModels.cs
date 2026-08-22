@@ -47,6 +47,7 @@ public sealed class BillingInvoiceFilterViewModel
     public DateTime? DateFrom { get; set; }
     public DateTime? DateTo { get; set; }
     public string? BillingCycle { get; set; }
+    public int? BillingYear { get; set; }
     public int? TenantId { get; set; }
     public int? DeviceId { get; set; }
     public string? Vessel { get; set; }

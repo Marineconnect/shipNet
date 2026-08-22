@@ -138,9 +138,12 @@ public sealed class DeviceActivityAuditHardeningTests
     {
         var controller = File.ReadAllText(Path.Combine(ProjectRoot, "Controllers", "DashboardController.cs"));
         var service = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "DashboardKpiService.cs"));
+        var billingService = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "BillingInvoiceReportService.cs"));
+        var billingModel = File.ReadAllText(Path.Combine(ProjectRoot, "Models", "BillingInvoiceModels.cs"));
         var program = File.ReadAllText(Path.Combine(ProjectRoot, "Program.cs"));
         var nav = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "Shared", "_PortalNav.cshtml"));
         var view = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "Dashboard", "Index.cshtml"));
+        var billingView = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "BillingInvoice", "Index.cshtml"));
 
         Assert.Contains("IDashboardKpiService", program);
         Assert.Contains("public async Task<IActionResult> Kpi(int month, int year)", controller);
@@ -148,11 +151,19 @@ public sealed class DeviceActivityAuditHardeningTests
         Assert.Contains("GetAllowedDeviceId(currentUser)", controller);
         Assert.Contains("s.[UsageMonth] >= @periodStart", service);
         Assert.Contains("s.[UsageMonth] < @periodEndExclusive", service);
+        Assert.Contains("month is >= 0 and <= 12", service);
+        Assert.Contains("periodStart.AddYears(1)", service);
         Assert.Contains("LOWER(COALESCE(i.[Status], N'')) NOT IN (N'void', N'cancelled', N'canceled')", service);
         Assert.Contains("COALESCE(NULLIF(v.[MarginAmount], 0), v.[SalePrice] - v.[BuyPrice])", service);
         Assert.DoesNotContain("CREATE TABLE", service, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("dashboardKpiEndpoint", view);
         Assert.Contains("loadDashboardKpi", view);
+        Assert.Contains("dashboard_kpi_all_months", view);
+        Assert.Contains("billingYear", view);
+        Assert.Contains("public int? BillingYear", billingModel);
+        Assert.Contains("s.[UsageMonth] >= @billingYearStart", billingService);
+        Assert.Contains("s.[UsageMonth] < @billingYearEnd", billingService);
+        Assert.Contains("billingYear", billingView);
         Assert.True(
             nav.IndexOf("Quản lý gói cước / Pricing Management", StringComparison.Ordinal) <
             nav.IndexOf("Chu kỳ tính cước / Billing Cycle", StringComparison.Ordinal));

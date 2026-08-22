@@ -188,6 +188,7 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
             "(@dateFrom IS NULL OR i.[CreatedAt] >= @dateFrom)",
             "(@dateTo IS NULL OR i.[CreatedAt] < DATEADD(day, 1, @dateTo))",
             "(@billingCycle IS NULL OR s.[UsageMonth] = @billingCycle)",
+            "(@billingYearStart IS NULL OR @billingCycle IS NOT NULL OR (s.[UsageMonth] >= @billingYearStart AND s.[UsageMonth] < @billingYearEnd))",
             "(@kitId IS NULL OR COALESCE(NULLIF(d.[KITNumber], N''), NULLIF(s.[KitId], N''), NULLIF(d.[KITID], N''), N'') LIKE @kitId)",
             "(@vessel IS NULL OR COALESCE(NULLIF(s.[VesselName], N''), NULLIF(d.[VesselName], N''), N'') LIKE @vessel)"
         };
@@ -239,6 +240,9 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
         command.Parameters.Add("@dateFrom", SqlDbType.DateTime).Value = (object?)filter.DateFrom ?? DBNull.Value;
         command.Parameters.Add("@dateTo", SqlDbType.DateTime).Value = (object?)filter.DateTo ?? DBNull.Value;
         command.Parameters.Add("@billingCycle", SqlDbType.Date).Value = (object?)ParseBillingCycle(filter.BillingCycle) ?? DBNull.Value;
+        var billingYearStart = filter.BillingYear is >= 2000 and <= 2100 ? new DateTime(filter.BillingYear.Value, 1, 1) : (DateTime?)null;
+        command.Parameters.Add("@billingYearStart", SqlDbType.Date).Value = (object?)billingYearStart ?? DBNull.Value;
+        command.Parameters.Add("@billingYearEnd", SqlDbType.Date).Value = (object?)billingYearStart?.AddYears(1) ?? DBNull.Value;
         command.Parameters.Add("@kitId", SqlDbType.NVarChar, 120).Value = string.IsNullOrWhiteSpace(filter.KitId) ? DBNull.Value : $"%{filter.KitId}%";
         command.Parameters.Add("@vessel", SqlDbType.NVarChar, 250).Value = string.IsNullOrWhiteSpace(filter.Vessel) ? DBNull.Value : $"%{filter.Vessel}%";
         if (!string.IsNullOrWhiteSpace(filter.Search))
@@ -274,6 +278,11 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
         filter.Search = NormalizeNullable(filter.Search);
         filter.SortBy = SortColumns.ContainsKey(filter.SortBy) ? filter.SortBy : "createdAt";
         filter.SortDirection = string.Equals(filter.SortDirection, "asc", StringComparison.OrdinalIgnoreCase) ? "asc" : "desc";
+        filter.BillingYear = filter.BillingYear is >= 2000 and <= 2100 ? filter.BillingYear : null;
+        if (!string.IsNullOrWhiteSpace(filter.BillingCycle))
+        {
+            filter.BillingYear = null;
+        }
         filter.TenantIdScope = allowedTenantId;
         filter.DeviceIdScope = allowedDeviceId;
         if (allowedTenantId.HasValue) filter.TenantId = allowedTenantId.Value;

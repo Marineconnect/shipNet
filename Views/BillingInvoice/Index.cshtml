@@ -33,6 +33,7 @@
         Add("dateFrom", Model.Filter.DateFrom?.ToString("yyyy-MM-dd"));
         Add("dateTo", Model.Filter.DateTo?.ToString("yyyy-MM-dd"));
         Add("billingCycle", Model.Filter.BillingCycle);
+        Add("billingYear", Model.Filter.BillingYear?.ToString(System.Globalization.CultureInfo.InvariantCulture));
         Add("tenantId", Model.Filter.TenantId?.ToString(System.Globalization.CultureInfo.InvariantCulture));
         Add("deviceId", Model.Filter.DeviceId?.ToString(System.Globalization.CultureInfo.InvariantCulture));
         Add("vessel", Model.Filter.Vessel);
@@ -155,6 +156,10 @@
         </header>
 
         <form asp-controller="BillingInvoice" asp-action="Index" method="get" class="billing-filter-grid">
+          @if (Model.Filter.BillingYear.HasValue && string.IsNullOrWhiteSpace(Model.Filter.BillingCycle))
+          {
+            <input type="hidden" name="billingYear" value="@Model.Filter.BillingYear.Value" />
+          }
           <label>
             <span>Số dòng</span>
             <select name="pageSize">

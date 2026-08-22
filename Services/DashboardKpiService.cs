@@ -11,10 +11,14 @@ public sealed class DashboardKpiService(IConfiguration configuration) : IDashboa
 
     public async Task<DashboardKpiViewModel> GetKpiAsync(int month, int year, int? allowedTenantId = null, int? allowedDeviceId = null, CancellationToken cancellationToken = default)
     {
-        var normalizedMonth = month is >= 1 and <= 12 ? month : DateTime.Now.Month;
         var normalizedYear = year is >= 2000 and <= 2100 ? year : DateTime.Now.Year;
-        var periodStart = new DateTime(normalizedYear, normalizedMonth, 1);
-        var periodEndExclusive = periodStart.AddMonths(1);
+        var normalizedMonth = month is >= 0 and <= 12 ? month : DateTime.Now.Month;
+        var periodStart = normalizedMonth == 0
+            ? new DateTime(normalizedYear, 1, 1)
+            : new DateTime(normalizedYear, normalizedMonth, 1);
+        var periodEndExclusive = normalizedMonth == 0
+            ? periodStart.AddYears(1)
+            : periodStart.AddMonths(1);
 
         var model = new DashboardKpiViewModel
         {
