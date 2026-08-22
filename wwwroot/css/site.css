@@ -6153,6 +6153,22 @@ body.is-map-fullscreen{
   min-height:104px;
   padding:16px;
 }
+.billing-kpi-card.is-link{
+  display:block;
+  text-decoration:none;
+  transition:border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+.billing-kpi-card.is-link:hover,
+.billing-kpi-card.is-link:focus-visible{
+  border-color:rgba(54,214,255,.55);
+  box-shadow:0 0 0 3px rgba(54,214,255,.08), var(--shadow);
+  outline:none;
+  transform:translateY(-1px);
+}
+.billing-kpi-card.is-active{
+  border-color:rgba(54,214,255,.72);
+  box-shadow:0 0 0 3px rgba(54,214,255,.12), var(--shadow);
+}
 .billing-kpi-card span{
   display:block;
   color:#8ea4c7;

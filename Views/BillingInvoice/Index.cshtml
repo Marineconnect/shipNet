@@ -41,10 +41,47 @@
         Add("invoiceType", Model.Filter.InvoiceType);
         Add("invoiceStatus", Model.Filter.InvoiceStatus);
         Add("paymentStatus", Model.Filter.PaymentStatus);
+        Add("metricFilter", Model.Filter.MetricFilter);
         Add("invoiceNumber", Model.Filter.InvoiceNumber);
         Add("search", Model.Filter.Search);
         return routes;
     }
+
+    Dictionary<string, string> KpiRoutes(string metricFilter)
+    {
+        var routes = CurrentRoutes(page: 1);
+        routes["metricFilter"] = metricFilter;
+        routes.Remove("paymentStatus");
+
+        if (metricFilter == "paid")
+        {
+            routes["paymentStatus"] = "paid";
+            routes["sortBy"] = "paidAmount";
+            routes["sortDirection"] = "desc";
+        }
+        else if (metricFilter == "pending")
+        {
+            routes["paymentStatus"] = "pending";
+            routes["sortBy"] = "invoiceAmount";
+            routes["sortDirection"] = "desc";
+        }
+        else if (metricFilter == "margin")
+        {
+            routes["sortBy"] = "margin";
+            routes["sortDirection"] = "desc";
+        }
+        else if (metricFilter == "total")
+        {
+            routes["sortBy"] = "invoiceAmount";
+            routes["sortDirection"] = "desc";
+        }
+
+        return routes;
+    }
+
+    string KpiCardClass(string metricFilter) => string.Equals(Model.Filter.MetricFilter, metricFilter, StringComparison.OrdinalIgnoreCase)
+        ? "device-card billing-kpi-card is-link is-active"
+        : "device-card billing-kpi-card is-link";
 
     string StatusClass(string? status, decimal paid, decimal amount, decimal refund)
     {
@@ -87,12 +124,24 @@
       </nav>
 
       <section class="billing-kpi-grid">
-        <article class="device-card billing-kpi-card"><span>Tổng tiền invoice</span><strong>@Money(Model.Summary.TotalInvoiceAmount)</strong></article>
-        <article class="device-card billing-kpi-card"><span>Đã thanh toán</span><strong>@Money(Model.Summary.PaidAmount)</strong></article>
-        <article class="device-card billing-kpi-card"><span>Còn phải thu</span><strong>@Money(Model.Summary.PendingAmount)</strong></article>
-        <article class="device-card billing-kpi-card"><span>Tổng lợi nhuận</span><strong class="margin-@MarginClass(Model.Summary.TotalMargin)">@Money(Model.Summary.TotalMargin)</strong></article>
-        <article class="device-card billing-kpi-card"><span>Invoice đã thanh toán</span><strong>@Model.Summary.PaidInvoiceCount</strong></article>
-        <article class="device-card billing-kpi-card"><span>Invoice chờ thu</span><strong>@Model.Summary.PendingInvoiceCount</strong></article>
+        <a class="@KpiCardClass("total")" asp-controller="BillingInvoice" asp-action="Index" asp-all-route-data="@KpiRoutes("total")" title="Lọc toàn bộ invoice theo bộ lọc hiện tại">
+          <span>Tổng tiền invoice</span><strong>@Money(Model.Summary.TotalInvoiceAmount)</strong>
+        </a>
+        <a class="@KpiCardClass("paid")" asp-controller="BillingInvoice" asp-action="Index" asp-all-route-data="@KpiRoutes("paid")" title="Lọc invoice đã thanh toán">
+          <span>Đã thanh toán</span><strong>@Money(Model.Summary.PaidAmount)</strong>
+        </a>
+        <a class="@KpiCardClass("pending")" asp-controller="BillingInvoice" asp-action="Index" asp-all-route-data="@KpiRoutes("pending")" title="Lọc invoice còn phải thu">
+          <span>Còn phải thu</span><strong>@Money(Model.Summary.PendingAmount)</strong>
+        </a>
+        <a class="@KpiCardClass("margin")" asp-controller="BillingInvoice" asp-action="Index" asp-all-route-data="@KpiRoutes("margin")" title="Lọc invoice có lợi nhuận">
+          <span>Tổng lợi nhuận</span><strong class="margin-@MarginClass(Model.Summary.TotalMargin)">@Money(Model.Summary.TotalMargin)</strong>
+        </a>
+        <a class="@KpiCardClass("paid")" asp-controller="BillingInvoice" asp-action="Index" asp-all-route-data="@KpiRoutes("paid")" title="Lọc invoice đã thanh toán">
+          <span>Invoice đã thanh toán</span><strong>@Model.Summary.PaidInvoiceCount</strong>
+        </a>
+        <a class="@KpiCardClass("pending")" asp-controller="BillingInvoice" asp-action="Index" asp-all-route-data="@KpiRoutes("pending")" title="Lọc invoice còn phải thu">
+          <span>Invoice chờ thu</span><strong>@Model.Summary.PendingInvoiceCount</strong>
+        </a>
       </section>
 
       <section class="device-card billing-invoice-card">
@@ -198,6 +247,16 @@
               <option value="pending" selected="@(Model.Filter.PaymentStatus == "pending")">Chờ thanh toán</option>
               <option value="refunded" selected="@(Model.Filter.PaymentStatus == "refunded")">Đã hoàn tiền</option>
               <option value="void" selected="@(Model.Filter.PaymentStatus == "void")">Đã hủy</option>
+            </select>
+          </label>
+          <label>
+            <span>Chỉ số KPI</span>
+            <select name="metricFilter">
+              <option value="">Tất cả</option>
+              <option value="total" selected="@(Model.Filter.MetricFilter == "total")">Tổng tiền invoice</option>
+              <option value="paid" selected="@(Model.Filter.MetricFilter == "paid")">Đã thanh toán</option>
+              <option value="pending" selected="@(Model.Filter.MetricFilter == "pending")">Còn phải thu</option>
+              <option value="margin" selected="@(Model.Filter.MetricFilter == "margin")">Tổng lợi nhuận</option>
             </select>
           </label>
           <label>

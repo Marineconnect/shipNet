@@ -218,6 +218,11 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
             clauses.Add("LOWER(i.[Status]) IN (N'void', N'cancelled', N'canceled')");
         }
 
+        if (string.Equals(filter.MetricFilter, "margin", StringComparison.OrdinalIgnoreCase))
+        {
+            clauses.Add("COALESCE(NULLIF(i.[MarginAmount], 0), i.[SalePrice] - i.[BuyPrice]) <> 0");
+        }
+
         return string.Join(" AND ", clauses);
     }
 
@@ -252,6 +257,19 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
         filter.InvoiceType = NormalizeNullable(filter.InvoiceType);
         filter.InvoiceStatus = NormalizeNullable(filter.InvoiceStatus);
         filter.PaymentStatus = NormalizeNullable(filter.PaymentStatus);
+        filter.MetricFilter = NormalizeMetricFilter(filter.MetricFilter);
+        if (filter.MetricFilter == "paid")
+        {
+            filter.PaymentStatus = "paid";
+        }
+        else if (filter.MetricFilter == "pending")
+        {
+            filter.PaymentStatus = "pending";
+        }
+        else if (filter.MetricFilter == "total" || filter.MetricFilter == "margin")
+        {
+            filter.PaymentStatus = null;
+        }
         filter.InvoiceNumber = NormalizeNullable(filter.InvoiceNumber);
         filter.Search = NormalizeNullable(filter.Search);
         filter.SortBy = SortColumns.ContainsKey(filter.SortBy) ? filter.SortBy : "createdAt";
@@ -266,6 +284,12 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
     {
         var trimmed = value?.Trim();
         return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
+    }
+
+    private static string? NormalizeMetricFilter(string? value)
+    {
+        var normalized = NormalizeNullable(value)?.ToLowerInvariant();
+        return normalized is "total" or "paid" or "pending" or "margin" ? normalized : null;
     }
 
     private static DateTime? ParseBillingCycle(string? value)

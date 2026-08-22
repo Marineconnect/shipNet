@@ -55,6 +55,7 @@ public sealed class BillingInvoiceFilterViewModel
     public string? InvoiceType { get; set; }
     public string? InvoiceStatus { get; set; }
     public string? PaymentStatus { get; set; }
+    public string? MetricFilter { get; set; }
     public string? InvoiceNumber { get; set; }
     public string? Search { get; set; }
     public string SortBy { get; set; } = "createdAt";
