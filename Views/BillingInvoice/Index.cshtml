@@ -127,27 +127,21 @@
 
       <section class="billing-kpi-grid">
         <a class="@KpiCardClass("total") kpi-total" asp-controller="BillingInvoice" asp-action="Index" asp-all-route-data="@KpiRoutes("total")" title="Lọc toàn bộ invoice theo bộ lọc hiện tại">
-          <span class="billing-kpi-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v12H4V6Zm2 2v8h12V8H6Zm6 1a3 3 0 1 1 0 6 3 3 0 0 1 0-6Z" fill="currentColor"/></svg></span>
           <span>Tổng tiền invoice</span><strong>@Money(Model.Summary.TotalInvoiceAmount)</strong>
         </a>
         <a class="@KpiCardClass("paid") kpi-paid" asp-controller="BillingInvoice" asp-action="Index" asp-all-route-data="@KpiRoutes("paid")" title="Lọc invoice đã thanh toán">
-          <span class="billing-kpi-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.4 16.6-4-4L6.8 11l2.6 2.6L17.2 6 18.6 7.4l-9.2 9.2Z" fill="currentColor"/></svg></span>
           <span>Đã thanh toán</span><strong>@Money(Model.Summary.PaidAmount)</strong>
         </a>
         <a class="@KpiCardClass("pending") kpi-pending" asp-controller="BillingInvoice" asp-action="Index" asp-all-route-data="@KpiRoutes("pending")" title="Lọc invoice còn phải thu">
-          <span class="billing-kpi-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 6h2v7h5v2h-7V6Zm1-4a10 10 0 1 1 0 20 10 10 0 0 1 0-20Z" fill="currentColor"/></svg></span>
           <span>Còn phải thu</span><strong>@Money(Model.Summary.PendingAmount)</strong>
         </a>
-        <a class="@KpiCardClass("margin") kpi-margin" asp-controller="BillingInvoice" asp-action="Index" asp-all-route-data="@KpiRoutes("margin")" title="Lọc invoice có lợi nhuận">
-          <span class="billing-kpi-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17h16v2H4v-2Zm1-3 4-4 3 3 6-7 1.5 1.3-7.4 8.7-3.1-3.1-2.6 2.6L5 14Z" fill="currentColor"/></svg></span>
-          <span>Tổng lợi nhuận</span><strong class="margin-@MarginClass(Model.Summary.TotalMargin)">@Money(Model.Summary.TotalMargin)</strong>
+        <a class="@KpiCardClass("margin") kpi-margin" asp-controller="BillingInvoice" asp-action="Index" asp-all-route-data="@KpiRoutes("margin")" title="Lọc invoice có hoa hồng">
+          <span>Tổng hoa hồng</span><strong class="margin-@MarginClass(Model.Summary.TotalMargin)">@Money(Model.Summary.TotalMargin)</strong>
         </a>
         <a class="@KpiCardClass("paid") kpi-count-paid" asp-controller="BillingInvoice" asp-action="Index" asp-all-route-data="@KpiRoutes("paid")" title="Lọc invoice đã thanh toán">
-          <span class="billing-kpi-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5V4Zm3 4h8V6H8v2Zm0 4h8v-2H8v2Zm0 4h5v-2H8v2Z" fill="currentColor"/></svg></span>
           <span>Invoice đã thanh toán</span><strong>@Model.Summary.PaidInvoiceCount</strong>
         </a>
         <a class="@KpiCardClass("pending") kpi-count-pending" asp-controller="BillingInvoice" asp-action="Index" asp-all-route-data="@KpiRoutes("pending")" title="Lọc invoice còn phải thu">
-          <span class="billing-kpi-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12v7a6 6 0 0 1-3 5.2V18h3v2H6v-2h3v-3.8A6 6 0 0 1 6 9V2Zm2 2v5a4 4 0 0 0 8 0V4H8Z" fill="currentColor"/></svg></span>
           <span>Invoice chờ thu</span><strong>@Model.Summary.PendingInvoiceCount</strong>
         </a>
       </section>
@@ -264,7 +258,7 @@
               <option value="total" selected="@(Model.Filter.MetricFilter == "total")">Tổng tiền invoice</option>
               <option value="paid" selected="@(Model.Filter.MetricFilter == "paid")">Đã thanh toán</option>
               <option value="pending" selected="@(Model.Filter.MetricFilter == "pending")">Còn phải thu</option>
-              <option value="margin" selected="@(Model.Filter.MetricFilter == "margin")">Tổng lợi nhuận</option>
+              <option value="margin" selected="@(Model.Filter.MetricFilter == "margin")">Tổng hoa hồng</option>
             </select>
           </label>
           <label>
@@ -396,3 +390,19 @@
     </div>
   </div>
 </div>
+
+<script>
+(() => {
+  document.querySelectorAll(".billing-kpi-card.is-link").forEach((card) => {
+    card.addEventListener("click", () => {
+      if (card.classList.contains("is-loading")) return;
+      card.classList.add("is-loading");
+      card.setAttribute("aria-busy", "true");
+      const label = document.createElement("span");
+      label.className = "billing-kpi-loading";
+      label.textContent = "Đang lọc...";
+      card.appendChild(label);
+    });
+  });
+})();
+</script>
