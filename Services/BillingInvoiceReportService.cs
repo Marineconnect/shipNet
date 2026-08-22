@@ -8,6 +8,9 @@ namespace StarlinkDeviceManager.Services;
 
 public sealed class BillingInvoiceReportService(IConfiguration configuration) : IBillingInvoiceReportService
 {
+    private const string ValidInvoiceStatusSql = "LOWER(COALESCE(i.[Status], N'')) NOT IN (N'void', N'cancelled', N'canceled')";
+    private const string InvalidInvoiceStatusSql = "LOWER(COALESCE(i.[Status], N'')) IN (N'void', N'cancelled', N'canceled')";
+
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")
         ?? throw new InvalidOperationException("Missing connection string: DefaultConnection");
 
@@ -224,9 +227,13 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
             clauses.Add("COALESCE(NULLIF(i.[MarginAmount], 0), i.[SalePrice] - i.[BuyPrice]) <> 0");
         }
 
-        if (IsDashboardDrillDown(filter.Source))
+        if (string.Equals(filter.InvoiceValidity, "valid", StringComparison.OrdinalIgnoreCase))
         {
-            clauses.Add("LOWER(COALESCE(i.[Status], N'')) NOT IN (N'void', N'cancelled', N'canceled')");
+            clauses.Add(ValidInvoiceStatusSql);
+        }
+        else if (string.Equals(filter.InvoiceValidity, "invalid", StringComparison.OrdinalIgnoreCase))
+        {
+            clauses.Add(InvalidInvoiceStatusSql);
         }
 
         return string.Join(" AND ", clauses);
@@ -267,6 +274,7 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
         filter.InvoiceStatus = NormalizeNullable(filter.InvoiceStatus);
         filter.PaymentStatus = NormalizeNullable(filter.PaymentStatus);
         filter.MetricFilter = NormalizeMetricFilter(filter.MetricFilter);
+        filter.InvoiceValidity = NormalizeInvoiceValidity(filter.InvoiceValidity);
         filter.Source = NormalizeSource(filter.Source);
         if (filter.MetricFilter == "paid")
         {
@@ -307,15 +315,17 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
         return normalized is "total" or "paid" or "pending" or "margin" ? normalized : null;
     }
 
+    private static string? NormalizeInvoiceValidity(string? value)
+    {
+        var normalized = NormalizeNullable(value)?.ToLowerInvariant();
+        return normalized is "valid" or "invalid" ? normalized : null;
+    }
+
     private static string? NormalizeSource(string? value)
     {
         var normalized = NormalizeNullable(value)?.ToLowerInvariant();
         return normalized is "dashboard-revenue" or "dashboard-commission" ? normalized : null;
     }
-
-    private static bool IsDashboardDrillDown(string? source) =>
-        string.Equals(source, "dashboard-revenue", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(source, "dashboard-commission", StringComparison.OrdinalIgnoreCase);
 
     private static DateTime? ParseBillingCycle(string? value)
     {

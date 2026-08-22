@@ -162,13 +162,21 @@ public sealed class DeviceActivityAuditHardeningTests
         Assert.Contains("billingYear", view);
         Assert.Contains("source = \"dashboard-revenue\"", view);
         Assert.Contains("source = \"dashboard-commission\"", view);
+        Assert.Contains("invoiceValidity = \"valid\"", view);
         Assert.Contains("public int? BillingYear", billingModel);
+        Assert.Contains("public string? InvoiceValidity", billingModel);
         Assert.Contains("public string? Source", billingModel);
         Assert.Contains("s.[UsageMonth] >= @billingYearStart", billingService);
         Assert.Contains("s.[UsageMonth] < @billingYearEnd", billingService);
-        Assert.Contains("LOWER(COALESCE(i.[Status], N'')) NOT IN (N'void', N'cancelled', N'canceled')", billingService);
+        Assert.Contains("private const string ValidInvoiceStatusSql", billingService);
+        Assert.Contains("private const string InvalidInvoiceStatusSql", billingService);
+        Assert.Contains("string.Equals(filter.InvoiceValidity, \"valid\"", billingService);
+        Assert.Contains("string.Equals(filter.InvoiceValidity, \"invalid\"", billingService);
+        Assert.DoesNotContain("IsDashboardDrillDown", billingService);
         Assert.Contains("dashboard-commission", billingService);
         Assert.Contains("dashboard-revenue", billingService);
+        Assert.Contains("invoiceValidity", billingView);
+        Assert.Contains("Tính hợp lệ invoice", billingView);
         Assert.Contains("source", billingView);
         Assert.Contains("billingYear", billingView);
         Assert.True(

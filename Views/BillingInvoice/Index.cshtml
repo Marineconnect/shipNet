@@ -47,6 +47,7 @@
         Add("invoiceStatus", Model.Filter.InvoiceStatus);
         Add("paymentStatus", Model.Filter.PaymentStatus);
         Add("metricFilter", Model.Filter.MetricFilter);
+        Add("invoiceValidity", Model.Filter.InvoiceValidity);
         Add("source", Model.Filter.Source);
         Add("invoiceNumber", Model.Filter.InvoiceNumber);
         Add("search", Model.Filter.Search);
@@ -91,6 +92,9 @@
 
     var isDashboardDrillDown = Model.Filter.Source is "dashboard-revenue" or "dashboard-commission";
     var drillDownMetricText = Model.Filter.Source == "dashboard-commission" ? "Hoa hồng" : "Doanh thu";
+    var invoiceValidityText = Model.Filter.InvoiceValidity == "valid"
+        ? "Invoice hợp lệ"
+        : Model.Filter.InvoiceValidity == "invalid" ? "Invoice đã hủy" : "Tất cả invoice";
     var drillDownPeriodText = !string.IsNullOrWhiteSpace(Model.Filter.BillingCycle)
         && DateTime.TryParseExact(Model.Filter.BillingCycle, new[] { "yyyy-MM", "yyyy-MM-dd", "MM/yyyy" }, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var parsedCycle)
             ? parsedCycle.ToString("MM/yyyy")
@@ -124,7 +128,7 @@
           <h1>Báo cáo doanh thu</h1>
           @if (isDashboardDrillDown)
           {
-            <div class="billing-context-chip">Từ Dashboard • @drillDownMetricText • @(drillDownPeriodText ?? "Chu kỳ hiện tại") • Invoice hợp lệ</div>
+            <div class="billing-context-chip">Từ Dashboard • @drillDownMetricText • @(drillDownPeriodText ?? "Chu kỳ hiện tại") • @invoiceValidityText</div>
           }
         </div>
         <a class="btn-primary billing-export-btn" asp-controller="BillingInvoice" asp-action="Export" asp-all-route-data="@CurrentRoutes(page: 1)">
@@ -263,6 +267,14 @@
               {
                 <option value="@status" selected="@(Model.Filter.InvoiceStatus == status)">@status</option>
               }
+            </select>
+          </label>
+          <label>
+            <span>Tính hợp lệ invoice</span>
+            <select name="invoiceValidity">
+              <option value="">Tất cả</option>
+              <option value="valid" selected="@(Model.Filter.InvoiceValidity == "valid")">Invoice hợp lệ</option>
+              <option value="invalid" selected="@(Model.Filter.InvoiceValidity == "invalid")">Invoice đã hủy</option>
             </select>
           </label>
           <label>
@@ -485,6 +497,7 @@
     invoiceStatus: "",
     paymentStatus: "",
     metricFilter: "",
+    invoiceValidity: "",
     sortBy: "createdAt",
     sortDirection: "desc"
   };

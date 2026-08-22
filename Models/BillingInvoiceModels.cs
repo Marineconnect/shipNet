@@ -57,6 +57,7 @@ public sealed class BillingInvoiceFilterViewModel
     public string? InvoiceStatus { get; set; }
     public string? PaymentStatus { get; set; }
     public string? MetricFilter { get; set; }
+    public string? InvoiceValidity { get; set; }
     public string? Source { get; set; }
     public string? InvoiceNumber { get; set; }
     public string? Search { get; set; }

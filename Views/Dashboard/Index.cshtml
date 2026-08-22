@@ -49,12 +49,12 @@
     var selectedMonthStart = isFullYearKpi ? $"{dashboardKpi.Year:D4}-01-01" : $"{dashboardKpi.Year:D4}-{dashboardKpi.Month:D2}-01";
     var selectedMonthEnd = isFullYearKpi ? $"{dashboardKpi.Year:D4}-12-31" : new DateTime(dashboardKpi.Year, dashboardKpi.Month, 1).AddMonths(1).AddDays(-1).ToString("yyyy-MM-dd");
     var billingKpiUrl = isFullYearKpi
-        ? Url.Action("Index", "BillingInvoice", new { billingYear = dashboardKpi.Year, source = "dashboard-revenue", sortBy = "invoiceAmount", sortDirection = "desc" }) ?? "/BillingInvoice"
-        : Url.Action("Index", "BillingInvoice", new { billingCycle = selectedCycle, source = "dashboard-revenue", sortBy = "invoiceAmount", sortDirection = "desc" }) ?? "/BillingInvoice";
+        ? Url.Action("Index", "BillingInvoice", new { billingYear = dashboardKpi.Year, invoiceValidity = "valid", source = "dashboard-revenue", sortBy = "invoiceAmount", sortDirection = "desc" }) ?? "/BillingInvoice"
+        : Url.Action("Index", "BillingInvoice", new { billingCycle = selectedCycle, invoiceValidity = "valid", source = "dashboard-revenue", sortBy = "invoiceAmount", sortDirection = "desc" }) ?? "/BillingInvoice";
     var subscriptionKpiUrl = Url.Action("Index", "MonthlySubscription", new { monthFrom = selectedMonthStart, monthTo = selectedMonthEnd }) ?? "/MonthlySubscription";
     var commissionKpiUrl = isFullYearKpi
-        ? Url.Action("Index", "BillingInvoice", new { billingYear = dashboardKpi.Year, metricFilter = "margin", source = "dashboard-commission", sortBy = "margin", sortDirection = "desc" }) ?? "/BillingInvoice"
-        : Url.Action("Index", "BillingInvoice", new { billingCycle = selectedCycle, metricFilter = "margin", source = "dashboard-commission", sortBy = "margin", sortDirection = "desc" }) ?? "/BillingInvoice";
+        ? Url.Action("Index", "BillingInvoice", new { billingYear = dashboardKpi.Year, metricFilter = "margin", invoiceValidity = "valid", source = "dashboard-commission", sortBy = "margin", sortDirection = "desc" }) ?? "/BillingInvoice"
+        : Url.Action("Index", "BillingInvoice", new { billingCycle = selectedCycle, metricFilter = "margin", invoiceValidity = "valid", source = "dashboard-commission", sortBy = "margin", sortDirection = "desc" }) ?? "/BillingInvoice";
     var kpiYears = dashboardKpi.Years.Count > 0 ? dashboardKpi.Years : new List<int> { dashboardKpi.Year };
 }
 
@@ -1569,6 +1569,7 @@
     } else {
       billingUrl.searchParams.set("billingCycle", buildDashboardCycle(month, year));
     }
+    billingUrl.searchParams.set("invoiceValidity", "valid");
     billingUrl.searchParams.set("source", "dashboard-revenue");
     billingUrl.searchParams.set("sortBy", "invoiceAmount");
     billingUrl.searchParams.set("sortDirection", "desc");
@@ -1582,6 +1583,7 @@
       commissionUrl.searchParams.set("billingCycle", buildDashboardCycle(month, year));
     }
     commissionUrl.searchParams.set("metricFilter", "margin");
+    commissionUrl.searchParams.set("invoiceValidity", "valid");
     commissionUrl.searchParams.set("source", "dashboard-commission");
     commissionUrl.searchParams.set("sortBy", "margin");
     commissionUrl.searchParams.set("sortDirection", "desc");
