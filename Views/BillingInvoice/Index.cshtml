@@ -180,7 +180,7 @@
           {
             <label>
               <span>Tenant</span>
-              <select name="tenantId">
+              <select name="tenantId" id="billingTenantFilter">
                 <option value="">Tất cả tenant</option>
                 @foreach (var tenant in Model.Tenants)
                 {
@@ -193,11 +193,11 @@
           {
             <label>
               <span>Tàu / thiết bị</span>
-              <select name="deviceId">
+              <select name="deviceId" id="billingDeviceFilter">
                 <option value="">Tất cả tàu</option>
                 @foreach (var device in Model.Devices)
                 {
-                  <option value="@device.Id" selected="@(Model.Filter.DeviceId == device.Id)">@device.DisplayName (@device.KitId)</option>
+                  <option value="@device.Id" data-tenant-id="@device.TenantId" selected="@(Model.Filter.DeviceId == device.Id)">@device.DisplayName</option>
                 }
               </select>
             </label>
@@ -404,5 +404,46 @@
       card.appendChild(label);
     });
   });
+})();
+</script>
+
+<script>
+(() => {
+  const tenantSelect = document.getElementById("billingTenantFilter");
+  const deviceSelect = document.getElementById("billingDeviceFilter");
+  if (!(tenantSelect instanceof HTMLSelectElement) || !(deviceSelect instanceof HTMLSelectElement)) return;
+
+  const sourceOptions = Array.from(deviceSelect.options).map((option) => ({
+    value: option.value,
+    text: option.textContent || "",
+    tenantId: option.dataset.tenantId || "",
+    selected: option.selected
+  }));
+
+  function rebuildDeviceOptions() {
+    const tenantId = tenantSelect.value;
+    const currentValue = deviceSelect.value;
+    deviceSelect.innerHTML = "";
+
+    sourceOptions.forEach((source) => {
+      if (source.value && tenantId && source.tenantId !== tenantId) return;
+      const option = document.createElement("option");
+      option.value = source.value;
+      option.textContent = source.text;
+      if (source.tenantId) option.dataset.tenantId = source.tenantId;
+      deviceSelect.appendChild(option);
+    });
+
+    if (Array.from(deviceSelect.options).some((option) => option.value === currentValue)) {
+      deviceSelect.value = currentValue;
+    } else {
+      deviceSelect.value = "";
+    }
+
+    deviceSelect.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  tenantSelect.addEventListener("change", rebuildDeviceOptions);
+  rebuildDeviceOptions();
 })();
 </script>

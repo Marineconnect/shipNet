@@ -110,7 +110,7 @@ public sealed class BillingInvoiceDeviceOptionViewModel
     public string DeviceName { get; set; } = string.Empty;
     public string VesselName { get; set; } = string.Empty;
     public string KitId { get; set; } = string.Empty;
-    public string DisplayName => string.IsNullOrWhiteSpace(VesselName) ? DeviceName : $"{VesselName} - {DeviceName}";
+    public string DisplayName => string.IsNullOrWhiteSpace(VesselName) ? DeviceName : VesselName;
 }
 
 public sealed class BillingInvoicePlanOptionViewModel

@@ -5220,9 +5220,10 @@ body.is-map-fullscreen{
   right:5px;
   padding:8px;
   border:1px solid rgba(88,130,199,.34);
-  border-radius:10px;
-  background:#08142a;
+  border-radius:14px;
+  background:linear-gradient(180deg, #0a1831, #071225);
   box-shadow:0 18px 40px rgba(0,0,0,.36);
+  overflow:hidden;
 }
 .live-select-panel.is-portaled{
   position:fixed;
@@ -5259,7 +5260,22 @@ body.is-map-fullscreen{
   max-height:260px;
   min-height:0;
   overflow-y:auto;
+  overflow-x:hidden;
   overscroll-behavior:contain;
+  padding-right:2px;
+  scrollbar-width:thin;
+  scrollbar-color:rgba(125,160,220,.65) rgba(7,18,37,.75);
+}
+.live-select-options::-webkit-scrollbar{
+  width:8px;
+}
+.live-select-options::-webkit-scrollbar-track{
+  background:rgba(7,18,37,.75);
+  border-radius:999px;
+}
+.live-select-options::-webkit-scrollbar-thumb{
+  background:rgba(125,160,220,.65);
+  border-radius:999px;
 }
 .live-select-panel.is-portaled .live-select-options{
   max-height:none;
@@ -5269,13 +5285,16 @@ body.is-map-fullscreen{
   width:100%;
   min-height:34px;
   border:0;
-  border-radius:5px;
-  padding:7px 10px;
+  border-radius:8px;
+  padding:9px 11px;
   background:transparent;
   color:#f3f8ff;
   display:block;
   font:inherit;
   text-align:left;
+  line-height:1.28;
+  white-space:normal;
+  overflow-wrap:anywhere;
   cursor:pointer;
 }
 .live-select-option:hover,
