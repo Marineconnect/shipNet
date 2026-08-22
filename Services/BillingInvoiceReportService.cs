@@ -224,6 +224,11 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
             clauses.Add("COALESCE(NULLIF(i.[MarginAmount], 0), i.[SalePrice] - i.[BuyPrice]) <> 0");
         }
 
+        if (IsDashboardDrillDown(filter.Source))
+        {
+            clauses.Add("LOWER(COALESCE(i.[Status], N'')) NOT IN (N'void', N'cancelled', N'canceled')");
+        }
+
         return string.Join(" AND ", clauses);
     }
 
@@ -262,6 +267,7 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
         filter.InvoiceStatus = NormalizeNullable(filter.InvoiceStatus);
         filter.PaymentStatus = NormalizeNullable(filter.PaymentStatus);
         filter.MetricFilter = NormalizeMetricFilter(filter.MetricFilter);
+        filter.Source = NormalizeSource(filter.Source);
         if (filter.MetricFilter == "paid")
         {
             filter.PaymentStatus = "paid";
@@ -300,6 +306,16 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
         var normalized = NormalizeNullable(value)?.ToLowerInvariant();
         return normalized is "total" or "paid" or "pending" or "margin" ? normalized : null;
     }
+
+    private static string? NormalizeSource(string? value)
+    {
+        var normalized = NormalizeNullable(value)?.ToLowerInvariant();
+        return normalized is "dashboard-revenue" or "dashboard-commission" ? normalized : null;
+    }
+
+    private static bool IsDashboardDrillDown(string? source) =>
+        string.Equals(source, "dashboard-revenue", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(source, "dashboard-commission", StringComparison.OrdinalIgnoreCase);
 
     private static DateTime? ParseBillingCycle(string? value)
     {

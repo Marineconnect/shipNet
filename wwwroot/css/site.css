@@ -6478,6 +6478,18 @@ body.is-map-fullscreen{
   height:18px;
   flex:0 0 18px;
 }
+.billing-context-chip{
+  display:inline-flex;
+  align-items:center;
+  margin-top:14px;
+  padding:8px 12px;
+  border:1px solid rgba(54,214,255,.32);
+  border-radius:999px;
+  background:rgba(20,132,180,.14);
+  color:#eaf6ff;
+  font-size:13px;
+  font-weight:800;
+}
 .billing-kpi-grid{
   display:grid;
   grid-template-columns:repeat(auto-fit, minmax(190px, 1fr));

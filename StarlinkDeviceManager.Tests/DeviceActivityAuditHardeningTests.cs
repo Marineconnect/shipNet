@@ -160,9 +160,16 @@ public sealed class DeviceActivityAuditHardeningTests
         Assert.Contains("loadDashboardKpi", view);
         Assert.Contains("dashboard_kpi_all_months", view);
         Assert.Contains("billingYear", view);
+        Assert.Contains("source = \"dashboard-revenue\"", view);
+        Assert.Contains("source = \"dashboard-commission\"", view);
         Assert.Contains("public int? BillingYear", billingModel);
+        Assert.Contains("public string? Source", billingModel);
         Assert.Contains("s.[UsageMonth] >= @billingYearStart", billingService);
         Assert.Contains("s.[UsageMonth] < @billingYearEnd", billingService);
+        Assert.Contains("LOWER(COALESCE(i.[Status], N'')) NOT IN (N'void', N'cancelled', N'canceled')", billingService);
+        Assert.Contains("dashboard-commission", billingService);
+        Assert.Contains("dashboard-revenue", billingService);
+        Assert.Contains("source", billingView);
         Assert.Contains("billingYear", billingView);
         Assert.True(
             nav.IndexOf("Quản lý gói cước / Pricing Management", StringComparison.Ordinal) <

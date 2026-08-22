@@ -1,4 +1,5 @@
 @model BillingInvoiceIndexViewModel
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 @{
     ViewData["ActiveNav"] = "billing-invoice";
     ViewData["Title"] = "Báo cáo doanh thu";
@@ -7,7 +8,10 @@
     var pageWindowStart = Math.Max(1, Model.CurrentPage - 2);
     var pageWindowEnd = Math.Min(Model.TotalPages, Model.CurrentPage + 2);
 
-    string Money(decimal value) => value == 0 ? "0" : $"{value:#,##0.##}";
+    var defaultCurrency = (Configuration["System:DefaultCurrency"] ?? "VND").Trim().ToUpperInvariant();
+    string Money(decimal value) => string.Equals(defaultCurrency, "VND", StringComparison.OrdinalIgnoreCase)
+        ? string.Create(System.Globalization.CultureInfo.GetCultureInfo("vi-VN"), $"{value:N0} ₫")
+        : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{value:N2} {defaultCurrency}");
     string DateText(DateTime value) => value == default ? "-" : value.ToString("dd/MM/yyyy");
     string DateTimeText(DateTime? value) => value.HasValue ? value.Value.ToString("dd/MM/yyyy HH:mm") : "-";
     string MarginClass(decimal value) => value > 0 ? "positive" : value < 0 ? "negative" : "neutral";
@@ -43,6 +47,7 @@
         Add("invoiceStatus", Model.Filter.InvoiceStatus);
         Add("paymentStatus", Model.Filter.PaymentStatus);
         Add("metricFilter", Model.Filter.MetricFilter);
+        Add("source", Model.Filter.Source);
         Add("invoiceNumber", Model.Filter.InvoiceNumber);
         Add("search", Model.Filter.Search);
         return routes;
@@ -84,6 +89,13 @@
         ? "device-card billing-kpi-card is-link is-active"
         : "device-card billing-kpi-card is-link";
 
+    var isDashboardDrillDown = Model.Filter.Source is "dashboard-revenue" or "dashboard-commission";
+    var drillDownMetricText = Model.Filter.Source == "dashboard-commission" ? "Hoa hồng" : "Doanh thu";
+    var drillDownPeriodText = !string.IsNullOrWhiteSpace(Model.Filter.BillingCycle)
+        && DateTime.TryParseExact(Model.Filter.BillingCycle, new[] { "yyyy-MM", "yyyy-MM-dd", "MM/yyyy" }, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var parsedCycle)
+            ? parsedCycle.ToString("MM/yyyy")
+            : Model.Filter.BillingYear?.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
     string StatusClass(string? status, decimal paid, decimal amount, decimal refund)
     {
         var normalized = (status ?? string.Empty).Trim().ToLowerInvariant();
@@ -110,6 +122,10 @@
         <div>
           <div class="device-brand">BÁO CÁO DOANH THU</div>
           <h1>Báo cáo doanh thu</h1>
+          @if (isDashboardDrillDown)
+          {
+            <div class="billing-context-chip">Từ Dashboard • @drillDownMetricText • @(drillDownPeriodText ?? "Chu kỳ hiện tại") • Invoice hợp lệ</div>
+          }
         </div>
         <a class="btn-primary billing-export-btn" asp-controller="BillingInvoice" asp-action="Export" asp-all-route-data="@CurrentRoutes(page: 1)">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10.2l3.6-3.6L17 11l-5 5-5-5 1.4-1.4 3.6 3.6V3h2ZM5 19h14v2H5v-2Z" fill="currentColor"/></svg>
@@ -159,6 +175,10 @@
           @if (Model.Filter.BillingYear.HasValue && string.IsNullOrWhiteSpace(Model.Filter.BillingCycle))
           {
             <input type="hidden" name="billingYear" value="@Model.Filter.BillingYear.Value" />
+          }
+          @if (!string.IsNullOrWhiteSpace(Model.Filter.Source))
+          {
+            <input type="hidden" name="source" value="@Model.Filter.Source" />
           }
           <label>
             <span>Số dòng</span>
@@ -284,7 +304,7 @@
               <option value="vessel" selected="@(Model.Filter.SortBy == "vessel")">Tàu</option>
               <option value="invoiceAmount" selected="@(Model.Filter.SortBy == "invoiceAmount")">Tiền invoice</option>
               <option value="paidAmount" selected="@(Model.Filter.SortBy == "paidAmount")">Tiền đã thu</option>
-              <option value="margin" selected="@(Model.Filter.SortBy == "margin")">Lợi nhuận</option>
+              <option value="margin" selected="@(Model.Filter.SortBy == "margin")">Hoa hồng</option>
               <option value="status" selected="@(Model.Filter.SortBy == "status")">Trạng thái</option>
             </select>
           </label>
@@ -316,8 +336,8 @@
                 <th>Đến ngày</th>
                 <th>Giá mua</th>
                 <th>Giá bán</th>
-                <th><a asp-action="Index" asp-all-route-data="@CurrentRoutes("margin", SortDirectionFor("margin"), 1)">Lợi nhuận</a></th>
-                <th>Tỷ suất LN</th>
+                <th><a asp-action="Index" asp-all-route-data="@CurrentRoutes("margin", SortDirectionFor("margin"), 1)">Hoa hồng</a></th>
+                <th>Tỷ suất hoa hồng</th>
                 <th><a asp-action="Index" asp-all-route-data="@CurrentRoutes("invoiceAmount", SortDirectionFor("invoiceAmount"), 1)">Tiền invoice</a></th>
                 <th><a asp-action="Index" asp-all-route-data="@CurrentRoutes("paidAmount", SortDirectionFor("paidAmount"), 1)">Đã thu</a></th>
                 <th>Còn phải thu</th>
