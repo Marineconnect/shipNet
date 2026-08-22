@@ -441,9 +441,66 @@
     }
 
     deviceSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    window.setTimeout(() => window.refreshBillingFilterStates?.(), 0);
   }
 
   tenantSelect.addEventListener("change", rebuildDeviceOptions);
   rebuildDeviceOptions();
+})();
+</script>
+
+<script>
+(() => {
+  const defaults = {
+    pageSize: "20",
+    tenantId: "",
+    deviceId: "",
+    pricingPlanId: "",
+    invoiceType: "",
+    invoiceStatus: "",
+    paymentStatus: "",
+    metricFilter: "",
+    sortBy: "createdAt",
+    sortDirection: "desc"
+  };
+  const valueControls = new Set([
+    "dateFrom",
+    "dateTo",
+    "billingCycle",
+    "kitId",
+    "vessel",
+    "invoiceNumber",
+    "search"
+  ]);
+
+  function controlIsActive(control) {
+    const name = control.getAttribute("name");
+    if (!name) return false;
+    if (valueControls.has(name)) return Boolean(control.value?.trim());
+    return control.value !== (defaults[name] ?? "");
+  }
+
+  function setFilterState(control) {
+    const label = control.closest("label");
+    const active = controlIsActive(control);
+    label?.classList.toggle("has-filter-active", active);
+    control.classList.toggle("has-filter-active", active);
+    const liveSelect = control.closest(".live-select") || label?.querySelector(".live-select");
+    liveSelect?.classList.toggle("has-filter-active", active);
+  }
+
+  function refreshFilterStates() {
+    document.querySelectorAll(".billing-filter-grid input[name], .billing-filter-grid select[name]").forEach((control) => {
+      if (control instanceof HTMLInputElement || control instanceof HTMLSelectElement) {
+        setFilterState(control);
+      }
+    });
+  }
+
+  window.refreshBillingFilterStates = refreshFilterStates;
+  document.addEventListener("DOMContentLoaded", () => window.setTimeout(refreshFilterStates, 0));
+  window.setTimeout(refreshFilterStates, 60);
+  document.querySelector(".billing-filter-grid")?.addEventListener("change", refreshFilterStates);
+  document.querySelector(".billing-filter-grid")?.addEventListener("input", refreshFilterStates);
 })();
 </script>

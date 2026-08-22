@@ -6313,7 +6313,7 @@ body.is-map-fullscreen{
   border:1px solid rgba(88,130,199,.24);
   border-radius:12px;
   background-color:rgba(9,22,48,.86);
-  color:#eaf5ff;
+  color:#fff;
   outline:none;
   padding:0 14px;
   font:inherit;
@@ -6321,9 +6321,28 @@ body.is-map-fullscreen{
   font-weight:600;
   color-scheme:dark;
 }
+.billing-filter-grid .live-select-trigger{
+  color:#fff;
+}
+.billing-filter-grid .live-select-value{
+  color:#fff;
+}
 .billing-filter-grid input::placeholder{
   color:#8fa4c8;
   opacity:1;
+}
+.billing-filter-grid label.has-filter-active > span{
+  color:#5edcff;
+}
+.billing-filter-grid input.has-filter-active,
+.billing-filter-grid select.has-filter-active,
+.billing-filter-grid .live-select.has-filter-active .live-select-trigger{
+  border-color:rgba(54,214,255,.72);
+  background-color:rgba(10,31,64,.96);
+  box-shadow:0 0 0 3px rgba(54,214,255,.10);
+}
+.billing-filter-grid .live-select.has-filter-active .live-select-caret{
+  border-top-color:#5edcff;
 }
 .billing-filter-grid input:focus,
 .billing-filter-grid select:focus{
