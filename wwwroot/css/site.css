@@ -6143,18 +6143,41 @@ body.is-map-fullscreen{
   justify-content:space-between;
   gap:18px;
 }
+.billing-export-btn{
+  width:auto;
+  min-width:150px;
+  height:46px;
+  padding:0 22px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  flex:0 0 auto;
+  text-decoration:none;
+}
+.billing-export-btn svg{
+  width:18px;
+  height:18px;
+  flex:0 0 18px;
+}
 .billing-kpi-grid{
   display:grid;
-  grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns:repeat(auto-fit, minmax(190px, 1fr));
   gap:12px;
   margin:0 0 18px;
 }
 .billing-kpi-card{
   min-height:104px;
   padding:16px;
+  position:relative;
+  overflow:hidden;
 }
 .billing-kpi-card.is-link{
-  display:block;
+  display:grid;
+  grid-template-columns:46px minmax(0, 1fr);
+  grid-template-rows:auto auto;
+  column-gap:12px;
+  align-items:center;
   text-decoration:none;
   transition:border-color .16s ease, box-shadow .16s ease, transform .16s ease;
 }
@@ -6169,17 +6192,51 @@ body.is-map-fullscreen{
   border-color:rgba(54,214,255,.72);
   box-shadow:0 0 0 3px rgba(54,214,255,.12), var(--shadow);
 }
+.billing-kpi-card::after{
+  content:"";
+  position:absolute;
+  inset:auto -28px -42px auto;
+  width:112px;
+  height:112px;
+  border-radius:999px;
+  background:rgba(255,255,255,.06);
+  pointer-events:none;
+}
+.billing-kpi-icon{
+  grid-row:1 / span 2;
+  width:46px;
+  height:46px;
+  border-radius:14px;
+  display:grid;
+  place-items:center;
+  background:rgba(255,255,255,.12);
+  color:#fff;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);
+}
+.billing-kpi-icon svg{
+  width:24px;
+  height:24px;
+}
+.billing-kpi-card.kpi-total{background:linear-gradient(135deg, rgba(30,80,186,.98), rgba(13,27,58,.96))}
+.billing-kpi-card.kpi-paid{background:linear-gradient(135deg, rgba(16,132,98,.98), rgba(10,36,55,.96))}
+.billing-kpi-card.kpi-pending{background:linear-gradient(135deg, rgba(202,116,28,.98), rgba(49,29,48,.96))}
+.billing-kpi-card.kpi-margin{background:linear-gradient(135deg, rgba(106,83,214,.98), rgba(18,31,66,.96))}
+.billing-kpi-card.kpi-count-paid{background:linear-gradient(135deg, rgba(28,151,198,.98), rgba(9,33,64,.96))}
+.billing-kpi-card.kpi-count-pending{background:linear-gradient(135deg, rgba(191,68,91,.98), rgba(49,24,50,.96))}
 .billing-kpi-card span{
   display:block;
-  color:#8ea4c7;
+  color:rgba(235,245,255,.78);
   font-size:12px;
+  font-weight:800;
+  letter-spacing:.04em;
   text-transform:uppercase;
 }
 .billing-kpi-card strong{
   display:block;
-  margin-top:10px;
+  margin-top:8px;
   color:#f2f7ff;
   font-size:22px;
+  line-height:1.12;
 }
 .billing-filter-grid{
   display:grid;
