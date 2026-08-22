@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>&#x110;&#x103;ng nh&#x1EAD;p - Shipnet portal</title>
+    <link rel="stylesheet" href="/css/site.css?v=XyH1jqpVgKmihSAuyOp-siVFBYt0Qq_-38-fJreFoYI" />
+</head>
+<body class="app-body ">
+    
+<div class="login-page">
+    <div class="login-shell">
+        <section class="login-card shipnet-login-card">
+            <div class="login-card-glow"></div>
+
+            <div class="login-header-row">
+                <div class="login-brand-simple">
+                    <div class="brand-mark">S</div>
+                    <div>
+                        <h1>Shipnet portal</h1>
+                        <p data-i18n="brand_subtitle">Device access control</p>
+                    </div>
+                </div>
+
+                <div class="language-switch" aria-label="Language switch">
+                    <button type="button" class="language-btn is-active" data-lang="vi">VI</button>
+                    <button type="button" class="language-btn" data-lang="en">EN</button>
+                </div>
+            </div>
+
+            <div class="login-badge" data-i18n="badge">Secure Access</div>
+            <div class="form-head">
+                <h2 data-i18n="title">Đăng nhập</h2>
+                <p data-i18n="description">Đăng nhập để xem danh sách thiết bị và thông tin truy cập tập trung.</p>
+            </div>
+
+            <form method="post" class="login-form" id="login-form" action="/Account/Login">
+                
+
+                <div class="form-group">
+                    <label data-i18n="username_label" for="Username">Tên đăng nhập</label>
+                    <input class="input" type="text" data-val="true" data-val-length="T&#xEA;n &#x111;&#x103;ng nh&#x1EAD;p kh&#xF4;ng &#x111;&#x1B0;&#x1EE3;c v&#x1B0;&#x1EE3;t qu&#xE1; 50 k&#xFD; t&#x1EF1;" data-val-length-max="50" data-val-required="Vui l&#xF2;ng nh&#x1EAD;p t&#xEA;n &#x111;&#x103;ng nh&#x1EAD;p" id="Username" maxlength="50" name="Username" value="" />
+                    <span class="field-error field-validation-valid" data-valmsg-for="Username" data-valmsg-replace="true"></span>
+                </div>
+
+                <div class="form-group">
+                    <label data-i18n="password_label" for="Password">Mật khẩu</label>
+                    <input class="input" type="password" data-val="true" data-val-length="M&#x1EAD;t kh&#x1EA9;u kh&#xF4;ng &#x111;&#x1B0;&#x1EE3;c v&#x1B0;&#x1EE3;t qu&#xE1; 100 k&#xFD; t&#x1EF1;" data-val-length-max="100" data-val-required="Vui l&#xF2;ng nh&#x1EAD;p m&#x1EAD;t kh&#x1EA9;u" id="Password" maxlength="100" name="Password" />
+                    <span class="field-error field-validation-valid" data-valmsg-for="Password" data-valmsg-replace="true"></span>
+                </div>
+
+                <div class="form-meta">
+                    <label class="remember-box">
+                        <input type="checkbox" data-val="true" data-val-required="The RememberMe field is required." id="RememberMe" name="RememberMe" value="true" />
+                        <span data-i18n="remember_me">Ghi nhớ mật khẩu</span>
+                    </label>
+                </div>
+
+                <button type="submit" class="btn-primary btn-submit" id="login-submit">
+                    <span class="btn-spinner" aria-hidden="true"></span>
+                    <span class="btn-label" data-i18n="submit">Đăng nhập</span>
+                </button>
+
+            <input name="__RequestVerificationToken" type="hidden" value="CfDJ8DpJdNoDkz9Lj1FbIiwSyAHdJbwypOTo6cnYK1PTzqgjwlKKMQV3PvbIvG83rd9tTcrn1neo5Dlr9M0Fx5YEzDVUqjcJhRoJuHMJA7DMlzjN-cmuDy6y93QFFgQhisEKNF_LnBkdHzA1IC-tyxAllMA" /><input name="RememberMe" type="hidden" value="false" /></form>
+        </section>
+    </div>
+</div>
+
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-validate/1.19.5/jquery.validate.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-validation-unobtrusive/4.0.0/jquery.validate.unobtrusive.min.js"></script>
+    <script>
+        (function () {
+            const translations = {
+                vi: {
+                    brand_subtitle: "Device access control",
+                    badge: "Secure Access",
+                    title: "Đăng nhập",
+                    description: "Đăng nhập để xem danh sách thiết bị và thông tin truy cập tập trung.",
+                    username_label: "Tên đăng nhập",
+                    password_label: "Mật khẩu",
+                    remember_me: "Ghi nhớ mật khẩu",
+                    submit: "Đăng nhập",
+                    submit_processing: "Đang xử lý...",
+                },
+                en: {
+                    brand_subtitle: "Device access control",
+                    badge: "Secure Access",
+                    title: "Sign in",
+                    description: "Sign in to view the device inventory and centralized access details.",
+                    username_label: "Username",
+                    password_label: "Password",
+                    remember_me: "Remember password",
+                    submit: "Sign in",
+                    submit_processing: "Processing...",
+                }
+            };
+
+            const storageKey = "shipnet-portal-language";
+            const buttons = document.querySelectorAll(".language-btn");
+            const targets = document.querySelectorAll("[data-i18n]");
+            const form = document.getElementById("login-form");
+            const submitButton = document.getElementById("login-submit");
+            const submitLabel = submitButton?.querySelector(".btn-label");
+            let currentLanguage = localStorage.getItem(storageKey) || "vi";
+            let isSubmitting = false;
+
+            function applyLanguage(lang) {
+                currentLanguage = lang;
+                const dictionary = translations[lang] || translations.vi;
+
+                targets.forEach((element) => {
+                    const key = element.getAttribute("data-i18n");
+                    if (!dictionary[key]) {
+                        return;
+                    }
+
+                    if (element === submitLabel && isSubmitting) {
+                        element.textContent = dictionary.submit_processing;
+                        return;
+                    }
+
+                    element.textContent = dictionary[key];
+                });
+
+                buttons.forEach((button) => {
+                    button.classList.toggle("is-active", button.dataset.lang === lang);
+                });
+
+                localStorage.setItem(storageKey, lang);
+                document.documentElement.lang = lang === "en" ? "en" : "vi";
+            }
+
+            function setProcessingState(enabled) {
+                if (!submitButton || !submitLabel) {
+                    return;
+                }
+
+                isSubmitting = enabled;
+                submitButton.disabled = enabled;
+                submitButton.classList.toggle("is-processing", enabled);
+
+                const dictionary = translations[currentLanguage] || translations.vi;
+                submitLabel.textContent = enabled ? dictionary.submit_processing : dictionary.submit;
+            }
+
+            applyLanguage(currentLanguage);
+
+            buttons.forEach((button) => {
+                button.addEventListener("click", function () {
+                    applyLanguage(button.dataset.lang);
+                });
+            });
+
+            form?.addEventListener("submit", function (event) {
+                if (window.jQuery && typeof window.jQuery(form).valid === "function" && !window.jQuery(form).valid()) {
+                    return;
+                }
+
+                if (typeof form.reportValidity === "function" && !form.reportValidity()) {
+                    event.preventDefault();
+                    return;
+                }
+
+                setProcessingState(true);
+            });
+        })();
+    </script>
+
+    <script>
+    (() => {
+        const storageKey = "shipnet-portal-language";
+        const splitPattern = /\s\/\s/;
+        const ignoredTags = new Set(["SCRIPT", "STYLE", "TEXTAREA", "CODE", "PRE"]);
+
+        function currentLanguage() {
+            return localStorage.getItem(storageKey) === "en" ? "en" : "vi";
+        }
+
+        function pickLanguageText(value, lang) {
+            if (!value || !splitPattern.test(value)) return value;
+            const parts = value.split(splitPattern);
+            if (parts.length < 2) return value;
+            return (lang === "en" ? parts.slice(1).join(" / ") : parts[0]).trim();
+        }
+
+        function normalizeTextNode(node, lang) {
+            const value = node.nodeValue || "";
+            const source = node.__shipnetI18nSource || value;
+            if (!splitPattern.test(source)) return;
+            node.__shipnetI18nSource = source;
+            node.nodeValue = value.replace(value.trim(), pickLanguageText(source.trim(), lang));
+        }
+
+        function normalizeElementAttributes(element, lang) {
+            ["placeholder", "aria-label", "title", "alt"].forEach((name) => {
+                const value = element.getAttribute(name);
+                if (!value) return;
+                const sourceName = `data-i18n-source-${name}`;
+                const source = element.getAttribute(sourceName) || value;
+                if (!splitPattern.test(source)) return;
+                element.setAttribute(sourceName, source);
+                element.setAttribute(name, pickLanguageText(source, lang));
+            });
+        }
+
+        function applySplitLanguage(lang = currentLanguage()) {
+            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+                acceptNode(node) {
+                    const parent = node.parentElement;
+                    if (!parent || ignoredTags.has(parent.tagName)) return NodeFilter.FILTER_REJECT;
+                    if (!splitPattern.test(node.__shipnetI18nSource || node.nodeValue || "")) return NodeFilter.FILTER_REJECT;
+                    return NodeFilter.FILTER_ACCEPT;
+                }
+            });
+
+            const textNodes = [];
+            while (walker.nextNode()) textNodes.push(walker.currentNode);
+            textNodes.forEach((node) => normalizeTextNode(node, lang));
+
+            document.querySelectorAll("[placeholder], [aria-label], [title], [alt]").forEach((element) => {
+                normalizeElementAttributes(element, lang);
+            });
+
+            document.querySelectorAll(".language-btn").forEach((button) => {
+                button.classList.toggle("is-active", button.dataset.lang === lang);
+            });
+            document.documentElement.lang = lang;
+            document.querySelectorAll("select[data-live-search-ready='true']").forEach((select) => {
+                select.dispatchEvent(new CustomEvent("shipnet:languagechange"));
+            });
+        }
+
+        function buildLiveSelect(select) {
+            select.dataset.liveSearchReady = "true";
+            select.classList.add("live-select-native");
+
+            const wrapper = document.createElement("div");
+            wrapper.className = "live-select";
+            const trigger = document.createElement("button");
+            trigger.type = "button";
+            trigger.className = "live-select-trigger";
+            trigger.setAttribute("aria-haspopup", "listbox");
+            trigger.setAttribute("aria-expanded", "false");
+
+            const triggerText = document.createElement("span");
+            triggerText.className = "live-select-value";
+            const triggerCaret = document.createElement("span");
+            triggerCaret.className = "live-select-caret";
+            triggerCaret.setAttribute("aria-hidden", "true");
+            trigger.append(triggerText, triggerCaret);
+
+            const panel = document.createElement("div");
+            panel.className = "live-select-panel";
+            panel.hidden = true;
+            const search = document.createElement("input");
+            search.type = "search";
+            search.className = "live-select-search";
+            search.autocomplete = "off";
+            search.placeholder = "T\u00ecm trong danh s\u00e1ch / Search list";
+            search.setAttribute("aria-label", "T\u00ecm trong danh s\u00e1ch / Search list");
+
+            const optionList = document.createElement("div");
+            optionList.className = "live-select-options";
+            optionList.setAttribute("role", "listbox");
+            panel.append(search, optionList);
+
+            select.parentElement?.insertBefore(wrapper, select);
+            wrapper.append(trigger, panel, select);
+
+            let sourceOptions = Array.from(select.options);
+            let suppressObserver = false;
+
+            const selectedOption = () => Array.from(select.options).find((option) => option.selected) || select.options[0];
+            const syncTrigger = () => {
+                triggerText.textContent = pickLanguageText(selectedOption()?.textContent?.trim() || "", currentLanguage());
+                trigger.disabled = select.disabled;
+                wrapper.classList.toggle("is-disabled", select.disabled);
+            };
+
+            const closePanel = () => {
+                panel.hidden = true;
+                wrapper.classList.remove("is-open");
+                trigger.setAttribute("aria-expanded", "false");
+                search.value = "";
+                panel.classList.remove("is-portaled");
+                panel.style.removeProperty("top");
+                panel.style.removeProperty("left");
+                panel.style.removeProperty("width");
+                if (panel.parentElement !== wrapper) {
+                    wrapper.insertBefore(panel, select);
+                }
+            };
+
+            const positionPanel = () => {
+                if (panel.hidden) return;
+                const rect = trigger.getBoundingClientRect();
+                const viewportGap = 10;
+                const maxPanelHeight = Math.min(330, window.innerHeight - (viewportGap * 2));
+                const availableBelow = window.innerHeight - rect.bottom - viewportGap;
+                const availableAbove = rect.top - viewportGap;
+                const openAbove = availableBelow < 190 && availableAbove > availableBelow;
+                const availableHeight = Math.max(120, openAbove ? availableAbove : availableBelow);
+                const panelHeight = Math.min(maxPanelHeight, availableHeight);
+
+                panel.style.left = `${Math.max(viewportGap, Math.min(rect.left, window.innerWidth - rect.width - viewportGap))}px`;
+                panel.style.width = `${rect.width}px`;
+                panel.style.maxHeight = `${panelHeight}px`;
+                panel.style.top = openAbove
+                    ? `${Math.max(viewportGap, rect.top - Math.min(panelHeight, panel.scrollHeight))}px`
+                    : `${Math.min(window.innerHeight - viewportGap, rect.bottom + 4)}px`;
+                panel.classList.toggle("opens-above", openAbove);
+            };
+
+            const renderOptions = () => {
+                const query = search.value.trim().toLowerCase();
+                optionList.innerHTML = "";
+                const filtered = sourceOptions.filter((option) => {
+                    const text = option.textContent?.trim() || "";
+                    return !query || text.toLowerCase().includes(query) || option.value.toLowerCase().includes(query);
+                });
+
+                filtered.forEach((option) => {
+                    const item = document.createElement("button");
+                    item.type = "button";
+                    item.className = "live-select-option";
+                    item.textContent = pickLanguageText(option.textContent?.trim() || "", currentLanguage());
+                    item.setAttribute("role", "option");
+                    item.setAttribute("aria-selected", String(option.value === select.value));
+                    item.classList.toggle("is-selected", option.value === select.value);
+                    item.disabled = option.disabled;
+                    item.addEventListener("click", () => {
+                        suppressObserver = true;
+                        select.value = option.value;
+                        suppressObserver = false;
+                        syncTrigger();
+                        closePanel();
+                        select.dispatchEvent(new CustomEvent("change", {
+                            bubbles: true,
+                            detail: { liveSelectUserSelection: true }
+                        }));
+                    });
+                    optionList.appendChild(item);
+                });
+
+                if (filtered.length === 0) {
+                    const empty = document.createElement("div");
+                    empty.className = "live-select-empty";
+                    empty.textContent = currentLanguage() === "en" ? "No matching options" : "Kh\u00f4ng c\u00f3 k\u1ebft qu\u1ea3 ph\u00f9 h\u1ee3p";
+                    optionList.appendChild(empty);
+                }
+            };
+
+            const openPanel = () => {
+                if (trigger.disabled) return;
+                document.querySelectorAll(".live-select.is-open").forEach((item) => {
+                    if (item === wrapper) return;
+                    item.classList.remove("is-open");
+                    const otherPanel = item.querySelector(".live-select-panel");
+                    if (otherPanel) otherPanel.hidden = true;
+                    item.querySelector(".live-select-trigger")?.setAttribute("aria-expanded", "false");
+                });
+                sourceOptions = Array.from(select.options);
+                renderOptions();
+                document.body.appendChild(panel);
+                panel.classList.add("is-portaled");
+                panel.hidden = false;
+                wrapper.classList.add("is-open");
+                trigger.setAttribute("aria-expanded", "true");
+                positionPanel();
+                window.setTimeout(() => {
+                    positionPanel();
+                    search.focus();
+                }, 0);
+            };
+
+            trigger.addEventListener("click", () => panel.hidden ? openPanel() : closePanel());
+            search.addEventListener("input", renderOptions);
+            search.addEventListener("keydown", (event) => {
+                if (event.key === "Escape") {
+                    closePanel();
+                    trigger.focus();
+                }
+            });
+            select.addEventListener("change", syncTrigger);
+            select.addEventListener("shipnet:languagechange", () => {
+                syncTrigger();
+                if (!panel.hidden) renderOptions();
+            });
+            select.form?.addEventListener("reset", () => window.setTimeout(syncTrigger, 0));
+
+            const observer = new MutationObserver(() => {
+                if (suppressObserver) return;
+                sourceOptions = Array.from(select.options);
+                syncTrigger();
+                if (!panel.hidden) renderOptions();
+            });
+            observer.observe(select, { childList: true, attributes: true, attributeFilter: ["disabled"] });
+            document.addEventListener("click", (event) => {
+                if (!wrapper.contains(event.target) && !panel.contains(event.target)) closePanel();
+            });
+            window.addEventListener("resize", positionPanel);
+            window.addEventListener("scroll", positionPanel, true);
+            syncTrigger();
+        }
+
+        function enhanceSelectSearch(select) {
+            if (!(select instanceof HTMLSelectElement) || select.multiple || select.size > 1 || select.dataset.liveSearchReady === "true") {
+                return;
+            }
+
+            const usefulOptions = Array.from(select.options).filter((option) => option.value || option.textContent?.trim());
+            if (usefulOptions.length < 2) {
+                return;
+            }
+
+            buildLiveSelect(select);
+            return;
+
+            select.dataset.liveSearchReady = "true";
+            const search = document.createElement("input");
+            search.type = "search";
+            search.className = "select-live-search";
+            search.autocomplete = "off";
+            search.placeholder = "Tìm trong danh sách / Search list";
+            search.setAttribute("aria-label", "Tìm trong danh sách / Search list");
+
+            select.parentElement?.insertBefore(search, select);
+
+            let sourceOptions = Array.from(select.options).map((option) => option.cloneNode(true));
+            let suppressObserver = false;
+
+            const refreshSource = () => {
+                if (suppressObserver) return;
+                sourceOptions = Array.from(select.options).map((option) => option.cloneNode(true));
+            };
+
+            const renderOptions = () => {
+                const query = search.value.trim().toLowerCase();
+                const selectedValue = select.value;
+                const filtered = sourceOptions.filter((option) => {
+                    const value = option.value || "";
+                    const text = option.textContent || "";
+                    return !query || !value || text.toLowerCase().includes(query) || value.toLowerCase().includes(query);
+                });
+
+                suppressObserver = true;
+                select.innerHTML = "";
+                filtered.forEach((option) => select.appendChild(option.cloneNode(true)));
+                if (Array.from(select.options).some((option) => option.value === selectedValue)) {
+                    select.value = selectedValue;
+                }
+                suppressObserver = false;
+            };
+
+            const observer = new MutationObserver(() => {
+                refreshSource();
+                if (search.value) renderOptions();
+            });
+            observer.observe(select, { childList: true });
+            search.addEventListener("input", renderOptions);
+            search.addEventListener("search", renderOptions);
+        }
+
+        function enhanceAllSelectSearch() {
+            document.querySelectorAll("select").forEach(enhanceSelectSearch);
+            window.shipnetApplySplitLanguage?.();
+        }
+
+        function applyViewOnlyMode() {
+            if (!document.body.classList.contains("is-view-only")) return;
+
+            const blockedPattern = /\/(Create|Edit|Update|Delete|Save|Import|Change|LoginAsUser|RefreshExpiredDevice|RebootDeviceRouter|NinePayQrInfo|NinePayBankTransferInfo|NinePaySubscriptionQr)(\?|\/|$)/i;
+            const blockedIds = [
+                "openDeviceModal",
+                "openUserCreateModal",
+                "openTenantCreateModal",
+                "openPricingCreateModal",
+                "openTenantPricingCreateModal",
+                "openSubscriptionModal",
+                "makeGroupedQrButton",
+                "makeQrButton",
+                "openInvoiceModal",
+                "detailPlanAddButton",
+                "detailRouterRebootButton",
+                "dataOptInAction"
+            ];
+
+            blockedIds.forEach((id) => {
+                const element = document.getElementById(id);
+                if (element) element.hidden = true;
+            });
+
+            document.querySelectorAll("a[href], form[action]").forEach((element) => {
+                const target = element.getAttribute("href") || element.getAttribute("action") || "";
+                if (!blockedPattern.test(target)) return;
+                element.hidden = true;
+                element.setAttribute("aria-hidden", "true");
+            });
+
+            document.querySelectorAll("button[type='submit'], .js-delete-device-plan, .js-edit-device-plan").forEach((button) => {
+                const form = button.closest("form");
+                const action = form?.getAttribute("action") || "";
+                const label = button.textContent || "";
+                if (!blockedPattern.test(action) && !/(Tạo|Thêm|Sửa|Xóa|Lưu|Cập nhật|Create|Add|Edit|Delete|Save|Update|Import)/i.test(label)) {
+                    return;
+                }
+                button.disabled = true;
+                button.classList.add("is-view-only-disabled");
+                button.setAttribute("title", "Tài khoản chỉ theo dõi không được thực hiện thao tác này / View-only accounts cannot perform this action");
+            });
+        }
+
+        function initFloatingTableScroll() {
+            const wrapperSelector = ".table-wrap, .device-table-wrap, .kvh-table-wrap, .transaction-table-wrap";
+            const registeredWrappers = new WeakSet();
+            const floatingScroll = document.createElement("div");
+            const floatingInner = document.createElement("div");
+            let activeWrapper = null;
+            let syncing = false;
+            let frame = 0;
+
+            floatingScroll.className = "shipnet-floating-scroll";
+            floatingInner.className = "shipnet-floating-scroll-inner";
+            floatingScroll.hidden = true;
+            floatingScroll.setAttribute("aria-hidden", "true");
+            floatingScroll.appendChild(floatingInner);
+            document.body.appendChild(floatingScroll);
+
+            function getWrappers() {
+                return Array.from(document.querySelectorAll(wrapperSelector))
+                    .filter((wrapper) => wrapper instanceof HTMLElement);
+            }
+
+            function isHorizontallyScrollable(wrapper) {
+                return wrapper.scrollWidth - wrapper.clientWidth > 2;
+            }
+
+            function pickActiveWrapper() {
+                const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+                const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+                let best = null;
+                let bestScore = 0;
+
+                getWrappers().forEach((wrapper) => {
+                    if (!isHorizontallyScrollable(wrapper)) return;
+
+                    const rect = wrapper.getBoundingClientRect();
+                    const visibleWidth = Math.min(rect.right, viewportWidth) - Math.max(rect.left, 0);
+                    const visibleHeight = Math.min(rect.bottom, viewportHeight) - Math.max(rect.top, 0);
+                    if (visibleWidth < 120 || visibleHeight < 60) return;
+
+                    const nativeScrollbarVisible = rect.bottom <= viewportHeight - 24;
+                    if (nativeScrollbarVisible) return;
+
+                    const score = visibleWidth * visibleHeight;
+                    if (score > bestScore) {
+                        best = wrapper;
+                        bestScore = score;
+                    }
+                });
+
+                return best;
+            }
+
+            function syncFromWrapper(wrapper) {
+                if (syncing || wrapper !== activeWrapper) return;
+                syncing = true;
+                floatingScroll.scrollLeft = wrapper.scrollLeft;
+                syncing = false;
+            }
+
+            function registerWrapper(wrapper) {
+                if (registeredWrappers.has(wrapper)) return;
+                registeredWrappers.add(wrapper);
+                wrapper.addEventListener("scroll", () => syncFromWrapper(wrapper), { passive: true });
+            }
+
+            function updateFloatingScroll() {
+                frame = 0;
+                getWrappers().forEach(registerWrapper);
+
+                const wrapper = pickActiveWrapper();
+                activeWrapper = wrapper;
+
+                if (!wrapper) {
+                    floatingScroll.hidden = true;
+                    return;
+                }
+
+                const rect = wrapper.getBoundingClientRect();
+                const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+                const left = Math.max(8, rect.left);
+                const right = Math.min(viewportWidth - 8, rect.right);
+                const width = Math.max(0, right - left);
+
+                if (width < 120) {
+                    floatingScroll.hidden = true;
+                    return;
+                }
+
+                floatingInner.style.width = `${wrapper.scrollWidth}px`;
+                floatingScroll.style.left = `${left}px`;
+                floatingScroll.style.width = `${width}px`;
+                floatingScroll.hidden = false;
+
+                syncing = true;
+                floatingScroll.scrollLeft = wrapper.scrollLeft;
+                syncing = false;
+            }
+
+            function requestUpdate() {
+                if (frame) return;
+                frame = window.requestAnimationFrame(updateFloatingScroll);
+            }
+
+            floatingScroll.addEventListener("scroll", () => {
+                if (syncing || !activeWrapper) return;
+                syncing = true;
+                activeWrapper.scrollLeft = floatingScroll.scrollLeft;
+                syncing = false;
+            }, { passive: true });
+
+            window.addEventListener("scroll", requestUpdate, { passive: true });
+            window.addEventListener("resize", requestUpdate);
+            new MutationObserver(requestUpdate).observe(document.body, { childList: true, subtree: true });
+            requestUpdate();
+        }
+
+        window.shipnetApplySplitLanguage = applySplitLanguage;
+        window.shipnetEnhanceSelectSearch = enhanceAllSelectSearch;
+        document.addEventListener("DOMContentLoaded", () => {
+            enhanceAllSelectSearch();
+            applySplitLanguage();
+            applyViewOnlyMode();
+            initFloatingTableScroll();
+            let enhanceTimer = null;
+            const observer = new MutationObserver((mutations) => {
+                if (!mutations.some((mutation) => mutation.target instanceof HTMLSelectElement || Array.from(mutation.addedNodes).some((node) => node instanceof HTMLSelectElement || (node instanceof Element && node.querySelector?.("select"))))) {
+                    applyViewOnlyMode();
+                    return;
+                }
+                window.clearTimeout(enhanceTimer);
+                enhanceTimer = window.setTimeout(() => {
+                    enhanceAllSelectSearch();
+                    applyViewOnlyMode();
+                }, 80);
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+        });
+        document.addEventListener("click", (event) => {
+            const button = event.target instanceof Element ? event.target.closest(".language-btn[data-lang]") : null;
+            if (!button) return;
+            const lang = button.getAttribute("data-lang") === "en" ? "en" : "vi";
+            localStorage.setItem(storageKey, lang);
+            window.setTimeout(() => applySplitLanguage(lang), 0);
+        });
+    })();
+    </script>
+</body>
+</html>
