@@ -119,8 +119,8 @@
         </a>
         <a class="dashboard-kpi-card is-kit" id="dashboardKitCard" href="@subscriptionKpiUrl">
           <span data-i18n="dashboard_active_kits">KIT kích hoạt</span>
-          <strong id="dashboardActiveKits">@dashboardKpi.ActiveKitCount.ToString("N0", CultureInfo.GetCultureInfo("vi-VN"))</strong>
-          <em><span id="dashboardBilledKits">@dashboardKpi.BilledKitCount.ToString("N0", CultureInfo.GetCultureInfo("vi-VN"))</span> <span data-i18n="dashboard_billed_kits">KIT đã có invoice</span></em>
+          <strong id="dashboardActiveKits">@dashboardKpi.ActiveKitCount.ToString("N0", CultureInfo.GetCultureInfo("vi-VN")) KIT</strong>
+          <em><span id="dashboardBilledKits">@dashboardKpi.BilledKitCount.ToString("N0", CultureInfo.GetCultureInfo("vi-VN"))</span> <span data-i18n="dashboard_billed_kits">đã có invoice</span></em>
         </a>
         <a class="dashboard-kpi-card is-commission" id="dashboardCommissionCard" href="@commissionKpiUrl">
           <span data-i18n="dashboard_total_commission">Tổng hoa hồng</span>
@@ -747,7 +747,7 @@
       dashboard_kpi_year: "Năm",
       dashboard_total_revenue: "Tổng doanh thu",
       dashboard_active_kits: "KIT kích hoạt",
-      dashboard_billed_kits: "KIT đã có invoice",
+      dashboard_billed_kits: "đã có invoice",
       dashboard_total_commission: "Tổng hoa hồng",
       dashboard_kpi_loading: "Đang tải chỉ số...",
       dashboard_kpi_error: "Không tải được chỉ số doanh thu.",
@@ -936,7 +936,7 @@
 	      dashboard_kpi_year: "Year",
 	      dashboard_total_revenue: "Total revenue",
 	      dashboard_active_kits: "Active KITs",
-	      dashboard_billed_kits: "KITs with invoice",
+	      dashboard_billed_kits: "with invoice",
 	      dashboard_total_commission: "Total commission",
 	      dashboard_kpi_loading: "Loading metrics...",
 	      dashboard_kpi_error: "Could not load revenue metrics.",
@@ -1573,7 +1573,7 @@
     const year = Number(data.year ?? data.Year ?? dashboardKpiYear?.value ?? new Date().getFullYear());
     if (dashboardKpiPeriod) dashboardKpiPeriod.textContent = data.periodDisplay ?? data.PeriodDisplay ?? "-";
     if (dashboardTotalRevenue) dashboardTotalRevenue.textContent = formatDashboardMoney(data.totalRevenue ?? data.TotalRevenue);
-    if (dashboardActiveKits) dashboardActiveKits.textContent = formatDashboardNumber(data.activeKitCount ?? data.ActiveKitCount);
+    if (dashboardActiveKits) dashboardActiveKits.textContent = `${formatDashboardNumber(data.activeKitCount ?? data.ActiveKitCount)} KIT`;
     if (dashboardBilledKits) dashboardBilledKits.textContent = formatDashboardNumber(data.billedKitCount ?? data.BilledKitCount);
     if (dashboardTotalCommission) dashboardTotalCommission.textContent = formatDashboardMoney(data.totalCommission ?? data.TotalCommission);
     updateDashboardKpiLinks(month, year);
