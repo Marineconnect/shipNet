@@ -133,6 +133,34 @@ public sealed class DeviceActivityAuditHardeningTests
         Assert.Contains("asp-all-route-data=\"@CurrentRoutes", view);
     }
 
+    [Fact]
+    public void DashboardRevenueKpiUsesBillingCycleScopeAndExistingInvoiceData()
+    {
+        var controller = File.ReadAllText(Path.Combine(ProjectRoot, "Controllers", "DashboardController.cs"));
+        var service = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "DashboardKpiService.cs"));
+        var program = File.ReadAllText(Path.Combine(ProjectRoot, "Program.cs"));
+        var nav = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "Shared", "_PortalNav.cshtml"));
+        var view = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "Dashboard", "Index.cshtml"));
+
+        Assert.Contains("IDashboardKpiService", program);
+        Assert.Contains("public async Task<IActionResult> Kpi(int month, int year)", controller);
+        Assert.Contains("GetAllowedTenantId(currentUser)", controller);
+        Assert.Contains("GetAllowedDeviceId(currentUser)", controller);
+        Assert.Contains("s.[UsageMonth] >= @periodStart", service);
+        Assert.Contains("s.[UsageMonth] < @periodEndExclusive", service);
+        Assert.Contains("LOWER(COALESCE(i.[Status], N'')) NOT IN (N'void', N'cancelled', N'canceled')", service);
+        Assert.Contains("COALESCE(NULLIF(v.[MarginAmount], 0), v.[SalePrice] - v.[BuyPrice])", service);
+        Assert.DoesNotContain("CREATE TABLE", service, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("dashboardKpiEndpoint", view);
+        Assert.Contains("loadDashboardKpi", view);
+        Assert.True(
+            nav.IndexOf("Quản lý gói cước / Pricing Management", StringComparison.Ordinal) <
+            nav.IndexOf("Chu kỳ tính cước / Billing Cycle", StringComparison.Ordinal));
+        Assert.True(
+            nav.IndexOf("Chu kỳ tính cước / Billing Cycle", StringComparison.Ordinal) <
+            nav.IndexOf("Báo cáo doanh thu / Billing &amp; Invoice", StringComparison.Ordinal));
+    }
+
     private static string FindProjectRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

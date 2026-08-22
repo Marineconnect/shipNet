@@ -12,6 +12,7 @@ public class DashboardController(
     IKvhCommandService kvhCommandService,
     IDeviceActivityLogService deviceActivityLogService,
     ITenantService tenantService,
+    IDashboardKpiService dashboardKpiService,
     ISqlAuthService authService) : Controller
 {
     [HttpGet]
@@ -43,6 +44,26 @@ public class DashboardController(
         {
             return StatusCode(StatusCodes.Status500InternalServerError, new
             {
+                message = ex.Message,
+                detail = ex.ToString()
+            });
+        }
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> Kpi(int month, int year)
+    {
+        try
+        {
+            var currentUser = await GetCurrentUserAsync();
+            var kpi = await dashboardKpiService.GetKpiAsync(month, year, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            return Json(ToKpiJson(kpi));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
                 message = ex.Message,
                 detail = ex.ToString()
             });
@@ -775,11 +796,13 @@ public class DashboardController(
         var allowedDeviceId = GetAllowedDeviceId(currentUser);
         var devicePage = await deviceService.GetDevicesAsync(normalizedPage, normalizedPageSize, normalizedSearch, allowedTenantId, allowedDeviceId, stockOnly: normalizedTab == "stock", cancellationToken: HttpContext.RequestAborted);
         var tenants = await tenantService.GetTenantOptionsAsync(allowedTenantId, HttpContext.RequestAborted);
+        var kpi = await dashboardKpiService.GetKpiAsync(DateTime.Now.Month, DateTime.Now.Year, allowedTenantId, allowedDeviceId, HttpContext.RequestAborted);
 
         return new DeviceDashboardViewModel
         {
             Devices = devicePage.Devices,
             Tenants = tenants,
+            Kpi = kpi,
             CurrentPage = normalizedPage,
             PageSize = normalizedPageSize,
             TotalDevices = devicePage.TotalDevices,
@@ -881,6 +904,24 @@ public class DashboardController(
     private static string NormalizeDeviceTab(string? tab)
     {
         return string.Equals(tab?.Trim(), "stock", StringComparison.OrdinalIgnoreCase) ? "stock" : "synced";
+    }
+
+    private static object ToKpiJson(DashboardKpiViewModel kpi)
+    {
+        return new
+        {
+            success = true,
+            month = kpi.Month,
+            year = kpi.Year,
+            periodStart = kpi.PeriodStart.ToString("yyyy-MM-dd"),
+            periodEnd = kpi.PeriodEnd.ToString("yyyy-MM-dd"),
+            periodDisplay = kpi.PeriodDisplay,
+            totalRevenue = kpi.TotalRevenue,
+            activeKitCount = kpi.ActiveKitCount,
+            billedKitCount = kpi.BilledKitCount,
+            totalCommission = kpi.TotalCommission,
+            years = kpi.Years
+        };
     }
 
     private IActionResult AjaxError(int statusCode, string errorCode, string message, string messageEn)

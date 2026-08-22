@@ -100,10 +100,6 @@
         <details class="portal-nav-group">
           <summary class="portal-nav-link portal-nav-summary@(ActiveClass("billing-invoice", "pricing", "subscription", "transactions"))">Thương mại / Commercial</summary>
           <div class="portal-nav-submenu">
-            @if (canAccessBillingInvoice)
-            {
-              <a asp-controller="BillingInvoice" asp-action="Index" class="portal-nav-subitem@(ActiveClass("billing-invoice", "transactions"))">Báo cáo doanh thu / Billing &amp; Invoice</a>
-            }
             @if (canAccessCommercial)
             {
               <a asp-controller="Pricing" asp-action="Index" class="portal-nav-subitem@(ActiveClass("pricing"))">Quản lý gói cước / Pricing Management</a>
@@ -111,6 +107,10 @@
             @if (canAccessSubscription)
             {
               <a asp-controller="MonthlySubscription" asp-action="Index" class="portal-nav-subitem@(ActiveClass("subscription"))">Chu kỳ tính cước / Billing Cycle</a>
+            }
+            @if (canAccessBillingInvoice)
+            {
+              <a asp-controller="BillingInvoice" asp-action="Index" class="portal-nav-subitem@(ActiveClass("billing-invoice", "transactions"))">Báo cáo doanh thu / Billing &amp; Invoice</a>
             }
           </div>
         </details>

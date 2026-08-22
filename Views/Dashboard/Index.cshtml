@@ -1,4 +1,5 @@
 @model DeviceDashboardViewModel
+@using System.Globalization
 @using System.Security.Claims
 @inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 @{
@@ -39,6 +40,16 @@
         : null;
     var defaultCurrency = (Configuration["System:DefaultCurrency"] ?? "VND").Trim().ToUpperInvariant();
     var moneyDecimals = string.Equals(defaultCurrency, "VND", StringComparison.OrdinalIgnoreCase) ? "0" : "2";
+    string FormatDashboardMoney(decimal value) => string.Equals(defaultCurrency, "VND", StringComparison.OrdinalIgnoreCase)
+        ? string.Create(CultureInfo.GetCultureInfo("vi-VN"), $"{value:N0} ₫")
+        : string.Create(CultureInfo.InvariantCulture, $"{value:N2} {defaultCurrency}");
+    var dashboardKpi = Model.Kpi ?? new DashboardKpiViewModel();
+    var selectedCycle = $"{dashboardKpi.Year:D4}-{dashboardKpi.Month:D2}";
+    var selectedMonthStart = $"{dashboardKpi.Year:D4}-{dashboardKpi.Month:D2}-01";
+    var billingKpiUrl = Url.Action("Index", "BillingInvoice", new { billingCycle = selectedCycle, sortBy = "invoiceAmount", sortDirection = "desc" }) ?? "/BillingInvoice";
+    var subscriptionKpiUrl = Url.Action("Index", "MonthlySubscription", new { monthFrom = selectedMonthStart, monthTo = selectedMonthStart }) ?? "/MonthlySubscription";
+    var commissionKpiUrl = Url.Action("Index", "BillingInvoice", new { billingCycle = selectedCycle, metricFilter = "margin", sortBy = "margin", sortDirection = "desc" }) ?? "/BillingInvoice";
+    var kpiYears = dashboardKpi.Years.Count > 0 ? dashboardKpi.Years : new List<int> { dashboardKpi.Year };
 }
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQkQfQ52JfCc0QfVIJ7VPF2uu5mBgwI=" crossorigin="" />
@@ -71,6 +82,53 @@
         }
       </div>
     </div>
+
+    <section class="dashboard-kpi-panel" id="dashboardKpiPanel" data-kpi-endpoint="@Url.Action("Kpi", "Dashboard")">
+      <div class="dashboard-kpi-head">
+        <div>
+          <div class="dashboard-kpi-eyebrow" data-i18n="dashboard_kpi_eyebrow">Doanh thu tháng</div>
+          <h2 data-i18n="dashboard_kpi_title">Tổng quan doanh thu</h2>
+          <p><span data-i18n="dashboard_kpi_period">Chu kỳ:</span> <strong id="dashboardKpiPeriod">@dashboardKpi.PeriodDisplay</strong></p>
+        </div>
+        <div class="dashboard-kpi-filters" aria-label="Dashboard revenue filters">
+          <label>
+            <span data-i18n="dashboard_kpi_month">Tháng</span>
+            <select id="dashboardKpiMonth">
+              @for (var month = 1; month <= 12; month++)
+              {
+                <option value="@month" selected="@(month == dashboardKpi.Month)">Tháng @month</option>
+              }
+            </select>
+          </label>
+          <label>
+            <span data-i18n="dashboard_kpi_year">Năm</span>
+            <select id="dashboardKpiYear">
+              @foreach (var year in kpiYears)
+              {
+                <option value="@year" selected="@(year == dashboardKpi.Year)">@year</option>
+              }
+            </select>
+          </label>
+        </div>
+      </div>
+      <div class="dashboard-kpi-error" id="dashboardKpiError" hidden data-i18n="dashboard_kpi_error">Không tải được chỉ số doanh thu.</div>
+      <div class="dashboard-kpi-grid" id="dashboardKpiGrid" aria-live="polite">
+        <a class="dashboard-kpi-card is-revenue" id="dashboardRevenueCard" href="@billingKpiUrl">
+          <span data-i18n="dashboard_total_revenue">Tổng doanh thu</span>
+          <strong id="dashboardTotalRevenue">@FormatDashboardMoney(dashboardKpi.TotalRevenue)</strong>
+        </a>
+        <a class="dashboard-kpi-card is-kit" id="dashboardKitCard" href="@subscriptionKpiUrl">
+          <span data-i18n="dashboard_active_kits">KIT kích hoạt</span>
+          <strong id="dashboardActiveKits">@dashboardKpi.ActiveKitCount.ToString("N0", CultureInfo.GetCultureInfo("vi-VN"))</strong>
+          <em><span id="dashboardBilledKits">@dashboardKpi.BilledKitCount.ToString("N0", CultureInfo.GetCultureInfo("vi-VN"))</span> <span data-i18n="dashboard_billed_kits">KIT đã có invoice</span></em>
+        </a>
+        <a class="dashboard-kpi-card is-commission" id="dashboardCommissionCard" href="@commissionKpiUrl">
+          <span data-i18n="dashboard_total_commission">Tổng hoa hồng</span>
+          <strong id="dashboardTotalCommission">@FormatDashboardMoney(dashboardKpi.TotalCommission)</strong>
+        </a>
+      </div>
+      <div class="dashboard-kpi-loading" id="dashboardKpiLoading" hidden data-i18n="dashboard_kpi_loading">Đang tải chỉ số...</div>
+    </section>
 
     <section class="device-card">
       <div class="device-card-head">
@@ -682,6 +740,17 @@
       nav_password: "Đổi mật khẩu",
       nav_account_name: "Admin User",
       nav_account_role: "Operations Admin",
+      dashboard_kpi_eyebrow: "Doanh thu tháng",
+      dashboard_kpi_title: "Tổng quan doanh thu",
+      dashboard_kpi_period: "Chu kỳ:",
+      dashboard_kpi_month: "Tháng",
+      dashboard_kpi_year: "Năm",
+      dashboard_total_revenue: "Tổng doanh thu",
+      dashboard_active_kits: "KIT kích hoạt",
+      dashboard_billed_kits: "KIT đã có invoice",
+      dashboard_total_commission: "Tổng hoa hồng",
+      dashboard_kpi_loading: "Đang tải chỉ số...",
+      dashboard_kpi_error: "Không tải được chỉ số doanh thu.",
       inventory_title: "Device Inventory",
       customer_name: "Shipnet Operations",
       customer_type: "Fleet Control Center",
@@ -860,6 +929,17 @@
 	      nav_password: "Change Password",
 	      nav_account_name: "Admin User",
 	      nav_account_role: "Operations Admin",
+	      dashboard_kpi_eyebrow: "Monthly revenue",
+	      dashboard_kpi_title: "Revenue overview",
+	      dashboard_kpi_period: "Cycle:",
+	      dashboard_kpi_month: "Month",
+	      dashboard_kpi_year: "Year",
+	      dashboard_total_revenue: "Total revenue",
+	      dashboard_active_kits: "Active KITs",
+	      dashboard_billed_kits: "KITs with invoice",
+	      dashboard_total_commission: "Total commission",
+	      dashboard_kpi_loading: "Loading metrics...",
+	      dashboard_kpi_error: "Could not load revenue metrics.",
 	      inventory_title: "Device Inventory",
       customer_name: "Shipnet Operations",
       customer_type: "Fleet Control Center",
@@ -1105,6 +1185,23 @@
   const telemetryTimelineAction = "@Url.Action("TelemetryTimeline", "Dashboard")";
   const devicePageDataAction = "@Url.Action("DevicePageData", "Dashboard")";
   const dashboardIndexAction = "@Url.Action("Index", "Dashboard")";
+  const dashboardKpiPanel = q("#dashboardKpiPanel");
+  const dashboardKpiEndpoint = dashboardKpiPanel?.dataset.kpiEndpoint || "";
+  const dashboardKpiMonth = q("#dashboardKpiMonth");
+  const dashboardKpiYear = q("#dashboardKpiYear");
+  const dashboardKpiGrid = q("#dashboardKpiGrid");
+  const dashboardKpiLoading = q("#dashboardKpiLoading");
+  const dashboardKpiError = q("#dashboardKpiError");
+  const dashboardKpiPeriod = q("#dashboardKpiPeriod");
+  const dashboardTotalRevenue = q("#dashboardTotalRevenue");
+  const dashboardActiveKits = q("#dashboardActiveKits");
+  const dashboardBilledKits = q("#dashboardBilledKits");
+  const dashboardTotalCommission = q("#dashboardTotalCommission");
+  const dashboardRevenueCard = q("#dashboardRevenueCard");
+  const dashboardKitCard = q("#dashboardKitCard");
+  const dashboardCommissionCard = q("#dashboardCommissionCard");
+  const dashboardCurrency = @Json.Serialize(defaultCurrency);
+  const dashboardMoneyDecimals = Number(@moneyDecimals);
   const deviceDetailsUrlTemplate = "@Url.Action("Details", "Dashboard", new { id = "__DEVICE_ID__" })";
   const createSubscriptionUrlTemplate = "@Html.Raw(Url.Action("Index", "MonthlySubscription", new { openCreate = true, deviceId = "__DEVICE_ID__" }))";
   const detailWifiForm = q("#detailWifiForm");
@@ -1157,6 +1254,7 @@
   let currentActivityPage = 1;
   let currentActivityTotalItems = 0;
   let currentTelemetryByMetric = new Map();
+  let dashboardKpiRequest = null;
   let kvhCommandPollTimer = null;
   let openActionMenu = null;
   let currentDevicePlanOptions = [];
@@ -1412,6 +1510,109 @@
   function buildCreateSubscriptionUrl(deviceId) {
     const targetPath = createSubscriptionUrlTemplate.replace("__DEVICE_ID__", encodeURIComponent(deviceId));
     return new URL(targetPath, window.location.origin).toString();
+  }
+
+  function formatDashboardMoney(value) {
+    const numericValue = Number(value || 0);
+    const locale = dashboardCurrency === "VND" ? "vi-VN" : "en-US";
+    const formatted = new Intl.NumberFormat(locale, {
+      minimumFractionDigits: dashboardMoneyDecimals,
+      maximumFractionDigits: dashboardMoneyDecimals
+    }).format(numericValue);
+    return dashboardCurrency === "VND" ? `${formatted} ₫` : `${formatted} ${dashboardCurrency}`;
+  }
+
+  function formatDashboardNumber(value) {
+    return new Intl.NumberFormat(lang === "en" ? "en-US" : "vi-VN", { maximumFractionDigits: 0 }).format(Number(value || 0));
+  }
+
+  function buildDashboardCycle(month, year) {
+    return `${year}-${`${month}`.padStart(2, "0")}`;
+  }
+
+  function buildDashboardMonthStart(month, year) {
+    return `${buildDashboardCycle(month, year)}-01`;
+  }
+
+  function setDashboardKpiLoading(isLoading) {
+    dashboardKpiGrid?.classList.toggle("is-loading", isLoading);
+    if (dashboardKpiLoading) {
+      dashboardKpiLoading.hidden = !isLoading;
+    }
+    if (dashboardKpiMonth) {
+      dashboardKpiMonth.disabled = isLoading;
+    }
+    if (dashboardKpiYear) {
+      dashboardKpiYear.disabled = isLoading;
+    }
+  }
+
+  function updateDashboardKpiLinks(month, year) {
+    const cycle = buildDashboardCycle(month, year);
+    const monthStart = buildDashboardMonthStart(month, year);
+    const billingUrl = new URL("@Url.Action("Index", "BillingInvoice")", window.location.origin);
+    billingUrl.searchParams.set("billingCycle", cycle);
+    billingUrl.searchParams.set("sortBy", "invoiceAmount");
+    billingUrl.searchParams.set("sortDirection", "desc");
+    const subscriptionUrl = new URL("@Url.Action("Index", "MonthlySubscription")", window.location.origin);
+    subscriptionUrl.searchParams.set("monthFrom", monthStart);
+    subscriptionUrl.searchParams.set("monthTo", monthStart);
+    const commissionUrl = new URL("@Url.Action("Index", "BillingInvoice")", window.location.origin);
+    commissionUrl.searchParams.set("billingCycle", cycle);
+    commissionUrl.searchParams.set("metricFilter", "margin");
+    commissionUrl.searchParams.set("sortBy", "margin");
+    commissionUrl.searchParams.set("sortDirection", "desc");
+
+    if (dashboardRevenueCard) dashboardRevenueCard.href = billingUrl.toString();
+    if (dashboardKitCard) dashboardKitCard.href = subscriptionUrl.toString();
+    if (dashboardCommissionCard) dashboardCommissionCard.href = commissionUrl.toString();
+  }
+
+  function renderDashboardKpi(data) {
+    const month = Number(data.month ?? data.Month ?? dashboardKpiMonth?.value ?? 1);
+    const year = Number(data.year ?? data.Year ?? dashboardKpiYear?.value ?? new Date().getFullYear());
+    if (dashboardKpiPeriod) dashboardKpiPeriod.textContent = data.periodDisplay ?? data.PeriodDisplay ?? "-";
+    if (dashboardTotalRevenue) dashboardTotalRevenue.textContent = formatDashboardMoney(data.totalRevenue ?? data.TotalRevenue);
+    if (dashboardActiveKits) dashboardActiveKits.textContent = formatDashboardNumber(data.activeKitCount ?? data.ActiveKitCount);
+    if (dashboardBilledKits) dashboardBilledKits.textContent = formatDashboardNumber(data.billedKitCount ?? data.BilledKitCount);
+    if (dashboardTotalCommission) dashboardTotalCommission.textContent = formatDashboardMoney(data.totalCommission ?? data.TotalCommission);
+    updateDashboardKpiLinks(month, year);
+  }
+
+  async function loadDashboardKpi() {
+    if (!dashboardKpiEndpoint || !dashboardKpiMonth || !dashboardKpiYear) {
+      return;
+    }
+
+    dashboardKpiRequest?.abort();
+    dashboardKpiRequest = new AbortController();
+    const request = dashboardKpiRequest;
+    const month = Number(dashboardKpiMonth.value || new Date().getMonth() + 1);
+    const year = Number(dashboardKpiYear.value || new Date().getFullYear());
+    const url = new URL(dashboardKpiEndpoint, window.location.origin);
+    url.searchParams.set("month", `${month}`);
+    url.searchParams.set("year", `${year}`);
+
+    setDashboardKpiLoading(true);
+    if (dashboardKpiError) dashboardKpiError.hidden = true;
+    try {
+      const response = await fetch(url.toString(), {
+        signal: request.signal,
+        headers: { "Accept": "application/json", "X-Requested-With": "XMLHttpRequest" }
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      renderDashboardKpi(await response.json());
+    } catch (error) {
+      if (error.name !== "AbortError" && dashboardKpiError) {
+        dashboardKpiError.hidden = false;
+      }
+    } finally {
+      if (dashboardKpiRequest === request && !request.signal.aborted) {
+        setDashboardKpiLoading(false);
+      }
+    }
   }
 
   function closeActionMenu() {
@@ -3354,6 +3555,11 @@
   setActiveTelemetryRange(900);
   metricCards.forEach((metricCard) => { metricCard.state.dataset.stateKey = "detail_chart_loading"; });
   applyLanguage(lang);
+  if (dashboardKpiMonth && dashboardKpiYear) {
+    updateDashboardKpiLinks(Number(dashboardKpiMonth.value), Number(dashboardKpiYear.value));
+    dashboardKpiMonth.addEventListener("change", loadDashboardKpi);
+    dashboardKpiYear.addEventListener("change", loadDashboardKpi);
+  }
   window.history.replaceState(
     { page: currentPage, pageSize: currentPageSize, search: currentSearchTerm, tab: currentDeviceTab, detailId: initialSelectedDeviceId || undefined },
     "",

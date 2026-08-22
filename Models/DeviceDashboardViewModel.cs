@@ -22,6 +22,22 @@ public class DeviceDashboardViewModel
     public bool CanManageDataOptIn { get; set; }
     public int? SelectedDeviceId { get; set; }
     public string ActiveDeviceTab { get; set; } = "synced";
+    public DashboardKpiViewModel Kpi { get; set; } = new();
+}
+
+public class DashboardKpiViewModel
+{
+    public int Month { get; set; } = DateTime.Now.Month;
+    public int Year { get; set; } = DateTime.Now.Year;
+    public DateTime PeriodStart { get; set; } = new(DateTime.Now.Year, DateTime.Now.Month, 1);
+    public DateTime PeriodEnd { get; set; } = new(DateTime.Now.Year, DateTime.Now.Month, DateTime.DaysInMonth(DateTime.Now.Year, DateTime.Now.Month));
+    public decimal TotalRevenue { get; set; }
+    public int ActiveKitCount { get; set; }
+    public int BilledKitCount { get; set; }
+    public decimal TotalCommission { get; set; }
+    public List<int> Years { get; set; } = [];
+
+    public string PeriodDisplay => $"{PeriodStart:dd/MM/yyyy} - {PeriodEnd:dd/MM/yyyy}";
 }
 
 public class DevicePageResult
