@@ -1,0 +1,321 @@
+@model BillingInvoiceIndexViewModel
+@{
+    ViewData["ActiveNav"] = "billing-invoice";
+    ViewData["Title"] = "Billing & Invoices";
+    var previousPage = Math.Max(1, Model.CurrentPage - 1);
+    var nextPage = Math.Min(Model.TotalPages, Model.CurrentPage + 1);
+    var pageWindowStart = Math.Max(1, Model.CurrentPage - 2);
+    var pageWindowEnd = Math.Min(Model.TotalPages, Model.CurrentPage + 2);
+
+    string Money(decimal value) => value == 0 ? "0" : $"{value:#,##0.##}";
+    string DateText(DateTime value) => value == default ? "-" : value.ToString("dd/MM/yyyy");
+    string DateTimeText(DateTime? value) => value.HasValue ? value.Value.ToString("dd/MM/yyyy HH:mm") : "-";
+    string MarginClass(decimal value) => value > 0 ? "positive" : value < 0 ? "negative" : "neutral";
+    string SortDirectionFor(string key) => string.Equals(Model.Filter.SortBy, key, StringComparison.OrdinalIgnoreCase) && Model.Filter.SortDirection == "asc" ? "desc" : "asc";
+    Dictionary<string, string> CurrentRoutes(string? sortBy = null, string? sortDirection = null, int? page = null)
+    {
+        var routes = new Dictionary<string, string>
+        {
+            ["page"] = (page ?? Model.CurrentPage).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["pageSize"] = Model.PageSize.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["sortBy"] = sortBy ?? Model.Filter.SortBy,
+            ["sortDirection"] = sortDirection ?? Model.Filter.SortDirection
+        };
+
+        void Add(string key, string? value)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                routes[key] = value;
+            }
+        }
+
+        Add("dateFrom", Model.Filter.DateFrom?.ToString("yyyy-MM-dd"));
+        Add("dateTo", Model.Filter.DateTo?.ToString("yyyy-MM-dd"));
+        Add("billingCycle", Model.Filter.BillingCycle);
+        Add("tenantId", Model.Filter.TenantId?.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Add("deviceId", Model.Filter.DeviceId?.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Add("vessel", Model.Filter.Vessel);
+        Add("kitId", Model.Filter.KitId);
+        Add("pricingPlanId", Model.Filter.PricingPlanId?.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Add("invoiceType", Model.Filter.InvoiceType);
+        Add("invoiceStatus", Model.Filter.InvoiceStatus);
+        Add("paymentStatus", Model.Filter.PaymentStatus);
+        Add("invoiceNumber", Model.Filter.InvoiceNumber);
+        Add("search", Model.Filter.Search);
+        return routes;
+    }
+
+    string StatusClass(string? status, decimal paid, decimal amount, decimal refund)
+    {
+        var normalized = (status ?? string.Empty).Trim().ToLowerInvariant();
+        if (normalized is "void" or "cancelled" or "canceled") return "void";
+        if (normalized == "refunded" || (amount > 0 && refund >= amount)) return "void";
+        if (normalized == "paid" || (amount > 0 && paid >= amount)) return "paid";
+        if (paid > 0 && paid < amount) return "pending";
+        return "unknown";
+    }
+}
+
+<div class="device-page">
+  <div class="device-shell">
+    <partial name="_PortalNav" />
+
+    <div class="device-dashboard billing-invoice-page">
+      <nav class="portal-breadcrumb" aria-label="Breadcrumb">
+        <a asp-controller="Dashboard" asp-action="Index">Tong quan</a>
+        <span>Billing & Invoice</span>
+      </nav>
+
+      <section class="device-hero billing-invoice-hero">
+        <div>
+          <div class="device-brand">BILLING & INVOICE</div>
+          <h1>Billing & Invoices</h1>
+          <p>Tong hop invoice theo subscription. Du lieu duoc tong hop tu invoice phat sinh trong subscription, khong tao bang billing rieng.</p>
+        </div>
+        <a class="btn-primary" asp-controller="BillingInvoice" asp-action="Export" asp-all-route-data="@CurrentRoutes(page: 1)">Export CSV</a>
+      </section>
+
+      <section class="billing-kpi-grid">
+        <article class="device-card billing-kpi-card"><span>Total Invoice Amount</span><strong>@Money(Model.Summary.TotalInvoiceAmount)</strong></article>
+        <article class="device-card billing-kpi-card"><span>Paid Amount</span><strong>@Money(Model.Summary.PaidAmount)</strong></article>
+        <article class="device-card billing-kpi-card"><span>Pending Amount</span><strong>@Money(Model.Summary.PendingAmount)</strong></article>
+        <article class="device-card billing-kpi-card"><span>Total Margin</span><strong class="margin-@MarginClass(Model.Summary.TotalMargin)">@Money(Model.Summary.TotalMargin)</strong></article>
+        <article class="device-card billing-kpi-card"><span>Paid Invoices</span><strong>@Model.Summary.PaidInvoiceCount</strong></article>
+        <article class="device-card billing-kpi-card"><span>Pending Invoices</span><strong>@Model.Summary.PendingInvoiceCount</strong></article>
+      </section>
+
+      <section class="device-card billing-invoice-card">
+        <header class="device-card-head">
+          <div>
+            <h2>Invoice report</h2>
+            <p>Hien thi @Model.StartItem-@Model.EndItem / @Model.TotalItems invoice phu hop filter.</p>
+          </div>
+        </header>
+
+        <form asp-controller="BillingInvoice" asp-action="Index" method="get" class="billing-filter-grid">
+          <label>
+            <span>Page size</span>
+            <select name="pageSize">
+              @foreach (var size in new[] { 10, 20, 50, 100 })
+              {
+                <option value="@size" selected="@(Model.PageSize == size)">@size</option>
+              }
+            </select>
+          </label>
+          <label>
+            <span>Date From</span>
+            <input type="date" name="dateFrom" value="@Model.Filter.DateFrom?.ToString("yyyy-MM-dd")" />
+          </label>
+          <label>
+            <span>Date To</span>
+            <input type="date" name="dateTo" value="@Model.Filter.DateTo?.ToString("yyyy-MM-dd")" />
+          </label>
+          <label>
+            <span>Billing Cycle</span>
+            <input type="month" name="billingCycle" value="@Model.Filter.BillingCycle" />
+          </label>
+          @if (!Model.IsTenantScoped)
+          {
+            <label>
+              <span>Tenant</span>
+              <select name="tenantId">
+                <option value="">All tenants</option>
+                @foreach (var tenant in Model.Tenants)
+                {
+                  <option value="@tenant.Id" selected="@(Model.Filter.TenantId == tenant.Id)">@tenant.TenantName</option>
+                }
+              </select>
+            </label>
+          }
+          @if (!Model.IsDeviceScoped)
+          {
+            <label>
+              <span>Vessel / Device</span>
+              <select name="deviceId">
+                <option value="">All vessels</option>
+                @foreach (var device in Model.Devices)
+                {
+                  <option value="@device.Id" selected="@(Model.Filter.DeviceId == device.Id)">@device.DisplayName (@device.KitId)</option>
+                }
+              </select>
+            </label>
+          }
+          <label>
+            <span>KIT Number</span>
+            <input name="kitId" value="@Model.Filter.KitId" placeholder="KIT..." />
+          </label>
+          <label>
+            <span>Vessel keyword</span>
+            <input name="vessel" value="@Model.Filter.Vessel" placeholder="Vessel name" />
+          </label>
+          <label>
+            <span>Pricing Plan</span>
+            <select name="pricingPlanId">
+              <option value="">All plans</option>
+              @foreach (var plan in Model.Plans)
+              {
+                <option value="@plan.Id" selected="@(Model.Filter.PricingPlanId == plan.Id)">@plan.PlanName</option>
+              }
+            </select>
+          </label>
+          <label>
+            <span>Invoice Type</span>
+            <select name="invoiceType">
+              <option value="">All types</option>
+              @foreach (var type in Model.InvoiceTypes)
+              {
+                <option value="@type" selected="@(Model.Filter.InvoiceType == type)">@type</option>
+              }
+            </select>
+          </label>
+          <label>
+            <span>Invoice Status</span>
+            <select name="invoiceStatus">
+              <option value="">All statuses</option>
+              @foreach (var status in Model.InvoiceStatuses)
+              {
+                <option value="@status" selected="@(Model.Filter.InvoiceStatus == status)">@status</option>
+              }
+            </select>
+          </label>
+          <label>
+            <span>Payment Status</span>
+            <select name="paymentStatus">
+              <option value="">All payments</option>
+              <option value="paid" selected="@(Model.Filter.PaymentStatus == "paid")">Paid</option>
+              <option value="partial" selected="@(Model.Filter.PaymentStatus == "partial")">Partial</option>
+              <option value="pending" selected="@(Model.Filter.PaymentStatus == "pending")">Pending</option>
+              <option value="refunded" selected="@(Model.Filter.PaymentStatus == "refunded")">Refunded</option>
+              <option value="void" selected="@(Model.Filter.PaymentStatus == "void")">Void</option>
+            </select>
+          </label>
+          <label>
+            <span>Invoice Number</span>
+            <input name="invoiceNumber" value="@Model.Filter.InvoiceNumber" placeholder="INV..." />
+          </label>
+          <label>
+            <span>Keyword Search</span>
+            <input type="search" name="search" value="@Model.Filter.Search" placeholder="Invoice, KIT, tenant, vessel, device, plan" />
+          </label>
+          <label>
+            <span>Sort</span>
+            <select name="sortBy">
+              <option value="createdAt" selected="@(Model.Filter.SortBy == "createdAt")">Invoice Created Date</option>
+              <option value="invoiceNumber" selected="@(Model.Filter.SortBy == "invoiceNumber")">Invoice Number</option>
+              <option value="billingCycle" selected="@(Model.Filter.SortBy == "billingCycle")">Billing Cycle</option>
+              <option value="tenant" selected="@(Model.Filter.SortBy == "tenant")">Tenant</option>
+              <option value="vessel" selected="@(Model.Filter.SortBy == "vessel")">Vessel</option>
+              <option value="invoiceAmount" selected="@(Model.Filter.SortBy == "invoiceAmount")">Invoice Amount</option>
+              <option value="paidAmount" selected="@(Model.Filter.SortBy == "paidAmount")">Paid Amount</option>
+              <option value="margin" selected="@(Model.Filter.SortBy == "margin")">Margin</option>
+              <option value="status" selected="@(Model.Filter.SortBy == "status")">Status</option>
+            </select>
+          </label>
+          <label>
+            <span>Direction</span>
+            <select name="sortDirection">
+              <option value="desc" selected="@(Model.Filter.SortDirection == "desc")">Descending</option>
+              <option value="asc" selected="@(Model.Filter.SortDirection == "asc")">Ascending</option>
+            </select>
+          </label>
+          <div class="billing-filter-actions">
+            <a class="btn-secondary" asp-controller="BillingInvoice" asp-action="Index">Reset</a>
+            <button type="submit" class="btn-primary">Filter</button>
+          </div>
+        </form>
+
+        <div class="device-table-wrap billing-invoice-table-wrap">
+          <table class="device-table subscription-table billing-invoice-table">
+            <thead>
+              <tr>
+                <th>KIT ID</th>
+                <th><a asp-action="Index" asp-all-route-data="@CurrentRoutes("invoiceNumber", SortDirectionFor("invoiceNumber"), 1)">Invoice</a></th>
+                <th><a asp-action="Index" asp-all-route-data="@CurrentRoutes("tenant", SortDirectionFor("tenant"), 1)">Tenant</a></th>
+                <th><a asp-action="Index" asp-all-route-data="@CurrentRoutes("vessel", SortDirectionFor("vessel"), 1)">Vessel</a></th>
+                <th>Device</th>
+                <th>Plan Name</th>
+                <th><a asp-action="Index" asp-all-route-data="@CurrentRoutes("billingCycle", SortDirectionFor("billingCycle"), 1)">Billing Cycle</a></th>
+                <th>Period Start</th>
+                <th>Period End</th>
+                <th>Buy Price</th>
+                <th>Sale Price</th>
+                <th><a asp-action="Index" asp-all-route-data="@CurrentRoutes("margin", SortDirectionFor("margin"), 1)">Margin</a></th>
+                <th>Margin %</th>
+                <th><a asp-action="Index" asp-all-route-data="@CurrentRoutes("invoiceAmount", SortDirectionFor("invoiceAmount"), 1)">Invoice Amount</a></th>
+                <th><a asp-action="Index" asp-all-route-data="@CurrentRoutes("paidAmount", SortDirectionFor("paidAmount"), 1)">Paid Amount</a></th>
+                <th>Outstanding</th>
+                <th>Payment Method</th>
+                <th>Payment Time</th>
+                <th><a asp-action="Index" asp-all-route-data="@CurrentRoutes("status", SortDirectionFor("status"), 1)">Invoice Status</a></th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+            @if (Model.Items.Count == 0)
+            {
+              <tr><td colspan="20" class="tenant-empty">No invoice matched the current filter.</td></tr>
+            }
+            @foreach (var item in Model.Items)
+            {
+              <tr>
+                <td><strong>@(string.IsNullOrWhiteSpace(item.KitId) ? "-" : item.KitId)</strong></td>
+                <td>
+                  <strong>@item.InvoiceNumber</strong>
+                  <div class="muted">#@item.InvoiceId - @item.InvoiceType</div>
+                </td>
+                <td>@item.TenantName</td>
+                <td>@(string.IsNullOrWhiteSpace(item.VesselName) ? "-" : item.VesselName)</td>
+                <td>
+                  <strong>@(string.IsNullOrWhiteSpace(item.DeviceName) ? "-" : item.DeviceName)</strong>
+                  <div class="muted">@item.DeviceCode</div>
+                </td>
+                <td>@item.PlanName</td>
+                <td>@item.BillingCycleDisplay</td>
+                <td>@DateText(item.StartDate)</td>
+                <td>@DateText(item.EndDate)</td>
+                <td>@Money(item.BuyPrice)</td>
+                <td>@Money(item.SalePrice)</td>
+                <td class="margin-@MarginClass(item.MarginAmount)">@Money(item.MarginAmount)</td>
+                <td class="margin-@MarginClass(item.MarginAmount)">@Money(item.MarginPercent)%</td>
+                <td>@Money(item.InvoiceAmount)</td>
+                <td>@Money(item.PaidAmount)</td>
+                <td>@Money(item.OutstandingAmount)</td>
+                <td>
+                  @(string.IsNullOrWhiteSpace(item.PaymentMethod) ? "-" : item.PaymentMethod)
+                  <div class="muted">@item.TransactionCode</div>
+                </td>
+                <td>@DateTimeText(item.PaymentTime)</td>
+                <td><span class="subscription-status @StatusClass(item.Status, item.PaidAmount, item.InvoiceAmount, item.RefundAmount)">@item.Status</span></td>
+                <td><a class="table-action-btn" asp-controller="MonthlySubscription" asp-action="Details" asp-route-id="@item.SubscriptionId">View</a></td>
+              </tr>
+            }
+            </tbody>
+          </table>
+        </div>
+
+        <footer class="device-pagination transaction-pagination">
+          <div class="device-pagination-meta">
+            <span>Page @Model.CurrentPage / @Model.TotalPages</span>
+            <span>Showing @Model.StartItem-@Model.EndItem of @Model.TotalItems</span>
+          </div>
+          <div class="device-pagination-actions">
+            <a class="pagination-btn @(Model.HasPreviousPage ? string.Empty : "is-disabled")" asp-action="Index" asp-all-route-data="@CurrentRoutes(page: previousPage)">Prev</a>
+            @for (var pageNumber = pageWindowStart; pageNumber <= pageWindowEnd; pageNumber++)
+            {
+              if (pageNumber == Model.CurrentPage)
+              {
+                <span class="pagination-btn is-active" aria-current="page">@pageNumber</span>
+              }
+              else
+              {
+                <a class="pagination-btn" asp-action="Index" asp-all-route-data="@CurrentRoutes(page: pageNumber)">@pageNumber</a>
+              }
+            }
+            <a class="pagination-btn @(Model.HasNextPage ? string.Empty : "is-disabled")" asp-action="Index" asp-all-route-data="@CurrentRoutes(page: nextPage)">Next</a>
+          </div>
+        </footer>
+      </section>
+    </div>
+  </div>
+</div>

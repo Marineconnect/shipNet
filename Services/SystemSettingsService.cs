@@ -6,6 +6,8 @@ namespace StarlinkDeviceManager.Services;
 
 public class SystemSettingsService(IConfiguration configuration) : ISystemSettingsService
 {
+    public const string KvhAutoResumeEnabledSettingCode = "kvh_auto_resume_enabled";
+
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")
         ?? throw new InvalidOperationException("Missing connection string: DefaultConnection");
 
@@ -17,7 +19,8 @@ public class SystemSettingsService(IConfiguration configuration) : ISystemSettin
         new("9Pay", "ninepay_transaction_fee_vnd", "9Pay transaction fee (VND)", "4400", false, "Transaction fee added to the QR payment total."),
         new("9Pay", "ninepay_qr_expire_hours", "9Pay QR expiry hours", "72", false, "Number of hours a generated 9Pay QR remains valid."),
         new("Invoice", "invoice_po_number", "Invoice PO number", "", false, "Optional PO number included in invoice messages sent to RabbitMQ."),
-        new("Invoice", "invoice_sequence_start", "Invoice sequence start", "00236", false, "Starting number for invoice codes. The sequence is padded to 5 digits.")
+        new("Invoice", "invoice_sequence_start", "Invoice sequence start", "00236", false, "Starting number for invoice codes. The sequence is padded to 5 digits."),
+        new("KVH", KvhAutoResumeEnabledSettingCode, "KVH auto resume enabled", "true", false, "Enable or disable automatic KVH resume when an invoice becomes paid.")
     ];
 
     public async Task<List<SystemSettingViewModel>> GetSettingsAsync(CancellationToken cancellationToken = default)
@@ -25,7 +28,7 @@ public class SystemSettingsService(IConfiguration configuration) : ISystemSettin
         const string query = """
             SELECT [ID], [Category], [SettingCode], [DisplayName], [SettingValue], [IsSecret], [Description], [Updated_Date], [Updated_By]
             FROM [dbo].[TblSystemSetting]
-            WHERE [SettingCode] IN (N'ninepay_transaction_fee_vnd', N'system_default_currency', N'ninepay_qr_expire_hours', N'invoice_po_number', N'invoice_sequence_start')
+            WHERE [SettingCode] IN (N'ninepay_transaction_fee_vnd', N'system_default_currency', N'ninepay_qr_expire_hours', N'invoice_po_number', N'invoice_sequence_start', N'kvh_auto_resume_enabled')
             ORDER BY [Category] ASC, [DisplayOrder] ASC, [ID] ASC
             """;
 
@@ -50,7 +53,7 @@ public class SystemSettingsService(IConfiguration configuration) : ISystemSettin
             SELECT TOP 1 [ID], [Category], [SettingCode], [DisplayName], [SettingValue], [IsSecret]
             FROM [dbo].[TblSystemSetting]
             WHERE [ID] = @id
-              AND [SettingCode] IN (N'ninepay_transaction_fee_vnd', N'system_default_currency', N'ninepay_qr_expire_hours', N'invoice_po_number', N'invoice_sequence_start')
+              AND [SettingCode] IN (N'ninepay_transaction_fee_vnd', N'system_default_currency', N'ninepay_qr_expire_hours', N'invoice_po_number', N'invoice_sequence_start', N'kvh_auto_resume_enabled')
             """;
 
         await using var connection = new SqlConnection(_connectionString);
@@ -84,7 +87,7 @@ public class SystemSettingsService(IConfiguration configuration) : ISystemSettin
                 [Updated_Date] = GETDATE(),
                 [Updated_By] = @updatedBy
             WHERE [ID] = @id
-              AND [SettingCode] IN (N'ninepay_transaction_fee_vnd', N'system_default_currency', N'ninepay_qr_expire_hours', N'invoice_po_number', N'invoice_sequence_start')
+              AND [SettingCode] IN (N'ninepay_transaction_fee_vnd', N'system_default_currency', N'ninepay_qr_expire_hours', N'invoice_po_number', N'invoice_sequence_start', N'kvh_auto_resume_enabled')
             """;
 
         await using var connection = new SqlConnection(_connectionString);

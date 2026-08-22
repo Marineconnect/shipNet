@@ -20,21 +20,23 @@ public class SystemSettingsController(
     [HttpGet]
     public async Task<IActionResult> Index()
     {
-        if (!await IsSystemAdminAsync())
+        var currentUser = await GetCurrentUserAsync();
+        if (!IsSystemAdmin(currentUser))
         {
             return Forbid();
         }
 
         return View(IndexViewPath, new SystemSettingsIndexViewModel
         {
-            Settings = await systemSettingsService.GetSettingsAsync(HttpContext.RequestAborted)
+            Settings = ApplySettingPermissions(await systemSettingsService.GetSettingsAsync(HttpContext.RequestAborted), currentUser)
         });
     }
 
     [HttpGet]
     public async Task<IActionResult> Edit(int id)
     {
-        if (!await IsSystemAdminAsync())
+        var currentUser = await GetCurrentUserAsync();
+        if (!IsSystemAdmin(currentUser))
         {
             return Forbid();
         }
@@ -44,10 +46,14 @@ public class SystemSettingsController(
         {
             return NotFound();
         }
+        if (IsKvhAutoResumeSetting(model.SettingCode) && !IsExactAdmin(currentUser))
+        {
+            return Forbid();
+        }
 
         return View(IndexViewPath, new SystemSettingsIndexViewModel
         {
-            Settings = await systemSettingsService.GetSettingsAsync(HttpContext.RequestAborted),
+            Settings = ApplySettingPermissions(await systemSettingsService.GetSettingsAsync(HttpContext.RequestAborted), currentUser),
             EditForm = model,
             OpenEditModal = true
         });
@@ -57,7 +63,8 @@ public class SystemSettingsController(
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Edit(SystemSettingsIndexViewModel requestModel)
     {
-        if (!await IsSystemAdminAsync())
+        var currentUser = await GetCurrentUserAsync();
+        if (!IsSystemAdmin(currentUser))
         {
             return Forbid();
         }
@@ -67,11 +74,25 @@ public class SystemSettingsController(
         {
             return View(IndexViewPath, new SystemSettingsIndexViewModel
             {
-                Settings = await systemSettingsService.GetSettingsAsync(HttpContext.RequestAborted),
+                Settings = ApplySettingPermissions(await systemSettingsService.GetSettingsAsync(HttpContext.RequestAborted), currentUser),
                 EditForm = model,
                 OpenEditModal = true
             });
         }
+
+        var existing = await systemSettingsService.GetSettingByIdAsync(model.Id, HttpContext.RequestAborted);
+        if (existing is null)
+        {
+            return NotFound();
+        }
+        if (IsKvhAutoResumeSetting(existing.SettingCode) && !IsExactAdmin(currentUser))
+        {
+            return Forbid();
+        }
+        model.Category = existing.Category;
+        model.SettingCode = existing.SettingCode;
+        model.DisplayName = existing.DisplayName;
+        model.IsSecret = existing.IsSecret;
 
         var (userId, username) = GetCurrentAuditContext();
         try
@@ -86,7 +107,7 @@ public class SystemSettingsController(
             ModelState.AddModelError(string.Empty, $"Không thể cập nhật cài đặt. Chi tiết: {exception.GetBaseException().Message}");
             return View(IndexViewPath, new SystemSettingsIndexViewModel
             {
-                Settings = await systemSettingsService.GetSettingsAsync(HttpContext.RequestAborted),
+                Settings = ApplySettingPermissions(await systemSettingsService.GetSettingsAsync(HttpContext.RequestAborted), currentUser),
                 EditForm = model,
                 OpenEditModal = true
             });
@@ -96,7 +117,8 @@ public class SystemSettingsController(
     [HttpGet]
     public async Task<IActionResult> DownloadSlkTemplate()
     {
-        if (!await IsSystemAdminAsync())
+        var currentUser = await GetCurrentUserAsync();
+        if (!IsSystemAdmin(currentUser))
         {
             return Forbid();
         }
@@ -116,7 +138,8 @@ public class SystemSettingsController(
     [RequestSizeLimit(50_000_000)]
     public async Task<IActionResult> ImportSlkTemplate(IFormFile? importFile)
     {
-        if (!await IsSystemAdminAsync())
+        var currentUser = await GetCurrentUserAsync();
+        if (!IsSystemAdmin(currentUser))
         {
             return Forbid();
         }
@@ -158,20 +181,39 @@ public class SystemSettingsController(
         }
     }
 
-    private async Task<bool> IsSystemAdminAsync()
+    private async Task<AuthUserRecord?> GetCurrentUserAsync()
     {
         var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (!int.TryParse(userIdValue, out var userId))
         {
-            return false;
+            return null;
         }
 
-        var currentUser = await authService.GetUserByIdAsync(userId, HttpContext.RequestAborted);
-        return currentUser is not null &&
+        return await authService.GetUserByIdAsync(userId, HttpContext.RequestAborted);
+    }
+
+    private static bool IsSystemAdmin(AuthUserRecord? currentUser) =>
+        currentUser is not null &&
             !currentUser.IsViewOnly &&
             !currentUser.IsTenantUser &&
             !currentUser.IsShipAdmin &&
             !currentUser.IsCrew;
+
+    private static bool IsExactAdmin(AuthUserRecord? currentUser) =>
+        string.Equals(currentUser?.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsKvhAutoResumeSetting(string? settingCode) =>
+        string.Equals(settingCode?.Trim(), SystemSettingsService.KvhAutoResumeEnabledSettingCode, StringComparison.OrdinalIgnoreCase);
+
+    private static List<SystemSettingViewModel> ApplySettingPermissions(List<SystemSettingViewModel> settings, AuthUserRecord? currentUser)
+    {
+        var isExactAdmin = IsExactAdmin(currentUser);
+        foreach (var setting in settings)
+        {
+            setting.CanEdit = !IsKvhAutoResumeSetting(setting.SettingCode) || isExactAdmin;
+        }
+
+        return settings;
     }
 
     private (int? UserId, string Username) GetCurrentAuditContext()

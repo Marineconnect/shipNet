@@ -71,6 +71,7 @@
   <div class="portal-nav-panel" id="portalNavPanel">
     <nav class="portal-nav-links portal-nav-tree" aria-label="Primary">
       <a asp-controller="Dashboard" asp-action="Index" class="portal-nav-link@(ActiveClass("dashboard"))">Tổng quan / Dashboard</a>
+      <a asp-controller="BillingInvoice" asp-action="Index" class="portal-nav-link@(ActiveClass("billing-invoice"))">Billing &amp; Invoice</a>
       @if (canAccessTenant)
       {
         <details class="portal-nav-group">

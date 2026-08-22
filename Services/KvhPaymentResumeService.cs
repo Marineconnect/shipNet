@@ -7,6 +7,7 @@ namespace StarlinkDeviceManager.Services;
 public sealed class KvhPaymentResumeService(
     IConfiguration configuration,
     IKvhSubscriptionService kvhSubscriptionService,
+    ISystemSettingsService systemSettingsService,
     IDeviceActivityLogService activityLogService,
     ILogger<KvhPaymentResumeService> logger) : IKvhPaymentResumeService
 {
@@ -35,6 +36,18 @@ public sealed class KvhPaymentResumeService(
 
     public async Task<KvhPaymentResumeResult> HandlePaidSubscriptionAsync(KvhPaymentResumeRequest request, CancellationToken cancellationToken = default)
     {
+        if (!await IsAutoResumeEnabledAsync(cancellationToken))
+        {
+            return new KvhPaymentResumeResult
+            {
+                Success = true,
+                Skipped = true,
+                SubscriptionId = request.SubscriptionId,
+                ErrorCode = "kvh_auto_resume_disabled",
+                Message = "KVH auto resume is disabled in system settings."
+            };
+        }
+
         var context = await GetSubscriptionContextAsync(request.SubscriptionId, request.AllowedTenantId, request.AllowedDeviceId, cancellationToken);
         if (context is null)
         {
@@ -208,6 +221,16 @@ public sealed class KvhPaymentResumeService(
 
     public async Task<KvhPaymentResumePrecheckResult> PrecheckAsync(int invoiceId, int subscriptionId, int? allowedTenantId = null, int? allowedDeviceId = null, CancellationToken cancellationToken = default)
     {
+        if (!await IsAutoResumeEnabledAsync(cancellationToken))
+        {
+            return new KvhPaymentResumePrecheckResult
+            {
+                Success = true,
+                Message = "KVH auto resume is disabled in system settings.",
+                CanResume = false
+            };
+        }
+
         var context = await GetSubscriptionContextAsync(subscriptionId, allowedTenantId, allowedDeviceId, cancellationToken);
         if (context is null || !await InvoiceBelongsToSubscriptionAsync(invoiceId, subscriptionId, cancellationToken))
         {
@@ -377,6 +400,24 @@ public sealed class KvhPaymentResumeService(
         command.Parameters.Add("@invoiceId", SqlDbType.Int).Value = invoiceId;
         command.Parameters.Add("@subscriptionId", SqlDbType.Int).Value = subscriptionId;
         return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken) ?? 0) > 0;
+    }
+
+    private async Task<bool> IsAutoResumeEnabledAsync(CancellationToken cancellationToken)
+    {
+        var settings = await systemSettingsService.GetSettingsByCodesAsync([SystemSettingsService.KvhAutoResumeEnabledSettingCode], cancellationToken);
+        return !settings.TryGetValue(SystemSettingsService.KvhAutoResumeEnabledSettingCode, out var configuredValue) ||
+            IsEnabledValue(configuredValue);
+    }
+
+    private static bool IsEnabledValue(string? value)
+    {
+        var normalized = value?.Trim();
+        return string.IsNullOrWhiteSpace(normalized) ||
+            normalized.Equals("true", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Equals("1", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Equals("yes", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Equals("on", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Equals("enabled", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsPaused(string status) =>

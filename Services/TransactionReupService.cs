@@ -1208,9 +1208,9 @@ public sealed class TransactionReupService(
             IF COL_LENGTH(N'dbo.TblTransactionReupImportBatch', N'SourceType') IS NULL
                 ALTER TABLE [dbo].[TblTransactionReupImportBatch] ADD [SourceType] nvarchar(40) NOT NULL CONSTRAINT [DF_TblTransactionReupImportBatch_SourceType_Add] DEFAULT(N'EXCEL_IMPORT');
 
-            UPDATE [dbo].[TblTransactionReupImportBatch]
-            SET [SourceType] = N'EXCEL_IMPORT'
-            WHERE NULLIF([SourceType], N'') IS NULL;
+            EXEC(N'UPDATE [dbo].[TblTransactionReupImportBatch]
+            SET [SourceType] = N''EXCEL_IMPORT''
+            WHERE NULLIF([SourceType], N'''') IS NULL;');
 
             IF EXISTS (SELECT 1 FROM sys.columns WHERE [object_id] = OBJECT_ID(N'dbo.TblTransactionReupImportBatch') AND [name] = N'OriginalFileName' AND [is_nullable] = 0)
                 ALTER TABLE [dbo].[TblTransactionReupImportBatch] ALTER COLUMN [OriginalFileName] nvarchar(260) NULL;
@@ -1260,7 +1260,7 @@ public sealed class TransactionReupService(
                 CREATE INDEX [IX_TblTransactionReupImportItem_BatchId_PublishStatus] ON [dbo].[TblTransactionReupImportItem]([BatchId], [PublishStatus], [ID]);
 
             IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'IX_TblTransactionReupImportItem_SourceInvoiceId' AND [object_id] = OBJECT_ID(N'[dbo].[TblTransactionReupImportItem]'))
-                CREATE INDEX [IX_TblTransactionReupImportItem_SourceInvoiceId] ON [dbo].[TblTransactionReupImportItem]([SourceInvoiceId]) WHERE [SourceInvoiceId] IS NOT NULL;
+                EXEC(N'CREATE INDEX [IX_TblTransactionReupImportItem_SourceInvoiceId] ON [dbo].[TblTransactionReupImportItem]([SourceInvoiceId]) WHERE [SourceInvoiceId] IS NOT NULL;');
             """;
 
         await using var command = new SqlCommand(sql, connection);

@@ -80,6 +80,7 @@ builder.Services.AddHostedService<DeviceRefreshHostedService>();
 builder.Services.AddScoped<ITenantService, TenantService>();
 builder.Services.AddScoped<IPricingPlanService, PricingPlanService>();
 builder.Services.AddScoped<IMonthlySubscriptionService, MonthlySubscriptionService>();
+builder.Services.AddScoped<IBillingInvoiceReportService, BillingInvoiceReportService>();
 builder.Services.AddScoped<ICurrencyExchangeService, CurrencyExchangeService>();
 builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
 builder.Services.AddScoped<IPaymentTransactionService, PaymentTransactionService>();

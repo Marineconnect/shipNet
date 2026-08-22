@@ -81,6 +81,58 @@ public sealed class DeviceActivityAuditHardeningTests
         Assert.Contains("public bool AuditWriteSuccess { get; set; } = true;", model);
     }
 
+    [Fact]
+    public void KvhAutoResumeIsControlledBySystemSettingAndOnlyAdminCanEditIt()
+    {
+        var settingsService = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "SystemSettingsService.cs"));
+        var settingsController = File.ReadAllText(Path.Combine(ProjectRoot, "Controllers", "SystemSettingsController.cs"));
+        var resumeService = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "KvhPaymentResumeService.cs"));
+        var settingsView = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "SystemSettings", "Index.cshtml"));
+        var handleBody = ExtractMethodBody(resumeService, "public async Task<KvhPaymentResumeResult> HandlePaidSubscriptionAsync(KvhPaymentResumeRequest");
+        var precheckBody = ExtractMethodBody(resumeService, "public async Task<KvhPaymentResumePrecheckResult> PrecheckAsync");
+
+        Assert.Contains("KvhAutoResumeEnabledSettingCode = \"kvh_auto_resume_enabled\"", settingsService);
+        Assert.Contains("Enable or disable automatic KVH resume", settingsService);
+        Assert.Contains("IsKvhAutoResumeSetting(existing.SettingCode) && !IsExactAdmin(currentUser)", settingsController);
+        Assert.Contains("string.Equals(currentUser?.Username?.Trim(), \"admin\", StringComparison.OrdinalIgnoreCase)", settingsController);
+        Assert.Contains("setting.CanEdit", settingsView);
+        Assert.Contains("StarlinkDeviceManager.Services.SystemSettingsService.KvhAutoResumeEnabledSettingCode", settingsView);
+        Assert.Contains("<option value=\"true\">", settingsView);
+        Assert.Contains("<option value=\"false\">", settingsView);
+        Assert.Contains("IsAutoResumeEnabledAsync", resumeService);
+        Assert.True(
+            handleBody.IndexOf("IsAutoResumeEnabledAsync", StringComparison.Ordinal) <
+            handleBody.IndexOf("GetSubscriptionContextAsync", StringComparison.Ordinal));
+        Assert.True(
+            precheckBody.IndexOf("IsAutoResumeEnabledAsync", StringComparison.Ordinal) <
+            precheckBody.IndexOf("GetSubscriptionContextAsync", StringComparison.Ordinal));
+        Assert.Contains("kvh_auto_resume_disabled", handleBody);
+        Assert.Contains("CanResume = false", precheckBody);
+    }
+
+    [Fact]
+    public void BillingInvoiceModuleUsesExistingInvoiceDataWithScopedReadOnlyAccess()
+    {
+        var controller = File.ReadAllText(Path.Combine(ProjectRoot, "Controllers", "BillingInvoiceController.cs"));
+        var service = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "BillingInvoiceReportService.cs"));
+        var program = File.ReadAllText(Path.Combine(ProjectRoot, "Program.cs"));
+        var nav = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "Shared", "_PortalNav.cshtml"));
+        var view = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "BillingInvoice", "Index.cshtml"));
+
+        Assert.Contains("[Authorize]", controller);
+        Assert.Contains("IBillingInvoiceReportService", program);
+        Assert.Contains("asp-controller=\"BillingInvoice\"", nav);
+        Assert.Contains("TblSubscriptionInvoice", service);
+        Assert.Contains("TblMonthlySubscription", service);
+        Assert.DoesNotContain("CREATE TABLE", service, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("TblBilling", service, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("GetAllowedTenantId", controller);
+        Assert.Contains("GetAllowedDeviceId", controller);
+        Assert.Contains("ExportCsvAsync", service);
+        Assert.Contains("TotalInvoiceAmount", view);
+        Assert.Contains("asp-all-route-data=\"@CurrentRoutes", view);
+    }
+
     private static string FindProjectRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

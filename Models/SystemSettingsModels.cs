@@ -20,6 +20,7 @@ public class SystemSettingViewModel
     public string Description { get; set; } = string.Empty;
     public DateTime? UpdatedDate { get; set; }
     public string? UpdatedBy { get; set; }
+    public bool CanEdit { get; set; } = true;
     public string DisplayValue => IsSecret && !string.IsNullOrWhiteSpace(SettingValue) ? "********" : SettingValue ?? string.Empty;
     public string UpdatedDateDisplay => UpdatedDate.HasValue ? UpdatedDate.Value.ToString("dd/MM/yyyy HH:mm") : "-";
 }

@@ -93,7 +93,14 @@
                     <div class="tenant-meta">@(string.IsNullOrWhiteSpace(setting.UpdatedBy) ? "-" : setting.UpdatedBy)</div>
                   </td>
                   <td>
-                    <a asp-controller="SystemSettings" asp-action="Edit" asp-route-id="@setting.Id" class="table-action-btn">Sửa / Edit</a>
+                    @if (setting.CanEdit)
+                    {
+                      <a asp-controller="SystemSettings" asp-action="Edit" asp-route-id="@setting.Id" class="table-action-btn">Sua / Edit</a>
+                    }
+                    else
+                    {
+                      <span class="table-action-btn is-disabled" aria-disabled="true" title="Only the admin account can edit this setting.">Locked</span>
+                    }
                   </td>
                 </tr>
               }
@@ -123,7 +130,17 @@
       <input asp-for="EditForm.IsSecret" type="hidden" />
       <div class="form-group">
         <label asp-for="EditForm.SettingValue">Giá trị / Value</label>
-        <input asp-for="EditForm.SettingValue" class="input" type="@(Model.EditForm.IsSecret ? "password" : "text")" autocomplete="off" placeholder="@(Model.EditForm.SettingCode == "invoice_po_number" ? "Leave blank to omit PO number" : string.Empty)" />
+        @if (string.Equals(Model.EditForm.SettingCode, StarlinkDeviceManager.Services.SystemSettingsService.KvhAutoResumeEnabledSettingCode, StringComparison.OrdinalIgnoreCase))
+        {
+          <select asp-for="EditForm.SettingValue" class="input">
+            <option value="true">Enable / Enabled</option>
+            <option value="false">Disable / Disabled</option>
+          </select>
+        }
+        else
+        {
+          <input asp-for="EditForm.SettingValue" class="input" type="@(Model.EditForm.IsSecret ? "password" : "text")" autocomplete="off" placeholder="@(Model.EditForm.SettingCode == "invoice_po_number" ? "Leave blank to omit PO number" : string.Empty)" />
+        }
         <span asp-validation-for="EditForm.SettingValue" class="field-error"></span>
       </div>
       <div class="device-modal-actions">
