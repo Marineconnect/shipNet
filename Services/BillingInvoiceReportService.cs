@@ -222,11 +222,6 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
             clauses.Add("LOWER(i.[Status]) IN (N'void', N'cancelled', N'canceled')");
         }
 
-        if (string.Equals(filter.MetricFilter, "margin", StringComparison.OrdinalIgnoreCase))
-        {
-            clauses.Add("COALESCE(NULLIF(i.[MarginAmount], 0), i.[SalePrice] - i.[BuyPrice]) <> 0");
-        }
-
         if (string.Equals(filter.InvoiceValidity, "valid", StringComparison.OrdinalIgnoreCase))
         {
             clauses.Add(ValidInvoiceStatusSql);

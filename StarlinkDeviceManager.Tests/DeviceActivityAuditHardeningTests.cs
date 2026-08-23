@@ -172,6 +172,8 @@ public sealed class DeviceActivityAuditHardeningTests
         Assert.Contains("private const string InvalidInvoiceStatusSql", billingService);
         Assert.Contains("string.Equals(filter.InvoiceValidity, \"valid\"", billingService);
         Assert.Contains("string.Equals(filter.InvoiceValidity, \"invalid\"", billingService);
+        Assert.DoesNotContain("filter.MetricFilter, \"margin\"", billingService);
+        Assert.DoesNotContain("COALESCE(NULLIF(i.[MarginAmount], 0), i.[SalePrice] - i.[BuyPrice]) <> 0", billingService);
         Assert.DoesNotContain("IsDashboardDrillDown", billingService);
         Assert.Contains("dashboard-commission", billingService);
         Assert.Contains("dashboard-revenue", billingService);
