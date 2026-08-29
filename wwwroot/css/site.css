@@ -581,13 +581,28 @@
 
 .transaction-qr-modal{
   width:min(620px, calc(100vw - 32px));
+  max-height:calc(100vh - 32px);
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+  padding:0;
+}
+
+.transaction-qr-modal .device-modal-head{
+  flex:0 0 auto;
+  padding:18px 20px 12px;
+  margin:0;
+  border-bottom:1px solid rgba(88,130,199,.16);
 }
 
 .transaction-qr-body{
   display:grid;
   justify-items:center;
   gap:16px;
-  padding:0 24px 24px;
+  flex:1 1 auto;
+  min-height:0;
+  overflow:auto;
+  padding:16px 20px 18px;
 }
 
 .transaction-qr-body img{
@@ -597,6 +612,32 @@
   padding:12px;
   border-radius:12px;
   background:#fff;
+}
+
+.qr-modal-actions{
+  flex:0 0 auto;
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+  gap:10px;
+  margin:0;
+  padding:12px 20px 16px;
+  border-top:1px solid rgba(88,130,199,.16);
+  background:rgba(8,19,39,.98);
+}
+
+.qr-modal-actions .btn-primary,
+.qr-modal-actions .btn-secondary{
+  flex:0 1 auto;
+  min-width:128px;
+  max-width:100%;
+  min-height:42px;
+  white-space:normal;
+}
+
+.qr-modal-actions [aria-disabled="true"]{
+  pointer-events:none;
+  opacity:.55;
 }
 
 @media (max-width:720px){
@@ -610,6 +651,31 @@
 
   .transaction-detail-grid{
     grid-template-columns:repeat(2, minmax(0, 1fr));
+  }
+
+  .transaction-qr-modal{
+    width:calc(100vw - 16px);
+    max-height:calc(100dvh - 24px);
+  }
+
+  .transaction-qr-body{
+    padding:12px 14px 14px;
+  }
+
+  .transaction-qr-body img{
+    width:min(100%, 320px);
+  }
+
+  .qr-modal-actions{
+    flex-direction:row;
+    justify-content:stretch;
+    padding:10px 14px 14px;
+  }
+
+  .qr-modal-actions .btn-primary,
+  .qr-modal-actions .btn-secondary{
+    flex:1 1 130px;
+    min-width:0;
   }
 }
 
@@ -6026,6 +6092,9 @@ body.is-map-fullscreen{
   gap:10px;
   margin-top:8px;
 }
+.ninepay-qr-modal .ninepay-qr-footer{
+  margin-top:0;
+}
 .ninepay-qr-modal .device-modal-actions .btn-primary,
 .ninepay-qr-modal .device-modal-actions .btn-secondary{
   min-width:120px;
@@ -6034,6 +6103,34 @@ body.is-map-fullscreen{
 }
 .ninepay-qr-modal .tenant-feedback{
   overflow-wrap:anywhere;
+}
+@media (max-width:720px){
+  .qr-modal-actions{
+    flex-direction:row;
+    justify-content:stretch;
+  }
+  .qr-modal-actions .btn-primary,
+  .qr-modal-actions .btn-secondary{
+    flex:1 1 130px;
+    min-width:0;
+  }
+  .ninepay-qr-modal{
+    width:calc(100vw - 16px);
+    max-height:calc(100dvh - 24px);
+  }
+  .ninepay-qr-modal .device-modal-head{
+    padding:14px 16px 10px;
+  }
+  .ninepay-qr-body{
+    padding:12px 14px 14px;
+  }
+  .ninepay-qr-frame{
+    max-width:min(100%, 320px);
+    padding:10px;
+  }
+  .ninepay-qr-footer{
+    padding:10px 14px 14px;
+  }
 }
 .invoice-qr-history{
   margin-top:16px;

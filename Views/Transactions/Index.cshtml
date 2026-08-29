@@ -292,6 +292,10 @@
         </tbody>
       </table>
     </div>
+    <div class="device-modal-actions qr-modal-actions transaction-qr-actions">
+      <a class="btn-secondary" data-qr-download href="#" target="_blank" rel="noopener" download>Tải xuống</a>
+      <button type="button" class="btn-primary" data-close-qr-modal>Đóng</button>
+    </div>
   </div>
 </div>
 
@@ -360,6 +364,7 @@
   const transactionContent = document.querySelector("[data-transaction-content]");
   const transactionSubtitle = document.querySelector("[data-transaction-subtitle]");
   const qrModal = document.querySelector("[data-qr-modal]");
+  const qrDownload = document.querySelector("[data-qr-download]");
   const reupForm = document.querySelector("[data-reup-pdf-form]");
   const reupOpenReview = document.querySelector("[data-reup-open-review]");
   const reupHiddenInputs = document.querySelector("[data-reup-hidden-inputs]");
@@ -385,6 +390,17 @@
 
   const esc = (value) => `${value ?? ""}`.replace(/[&<>"']/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[char]));
   const close = (modal) => { if (modal) modal.hidden = true; };
+  const setQrDownload = ({ qrUrl = "", bankName = "-", accountNo = "-", accountName = "-", amount = "-", remark = "-" }) => {
+    if (!qrDownload) return;
+    if (!qrUrl) {
+      qrDownload.href = "#";
+      qrDownload.setAttribute("aria-disabled", "true");
+      return;
+    }
+    const params = new URLSearchParams({ qrUrl, bankName, accountNo, accountName, amount, remark });
+    qrDownload.href = `/Payments/DownloadNinePayQrCard?${params.toString()}`;
+    qrDownload.removeAttribute("aria-disabled");
+  };
   const loadSelection = () => {
     try { return JSON.parse(sessionStorage.getItem(selectionKey) || "{}") || {}; }
     catch { return {}; }
@@ -619,11 +635,16 @@
 
   document.querySelectorAll("[data-qr-url]").forEach((button) => {
     button.addEventListener("click", () => {
-      qrModal.querySelector("[data-qr-image]").src = button.dataset.qrUrl || "";
+      const qrUrl = button.dataset.qrUrl || "";
+      const amount = button.dataset.qrAmount || "-";
+      const accountNo = button.dataset.qrAccount || "-";
+      const remark = button.dataset.qrContent || "-";
+      qrModal.querySelector("[data-qr-image]").src = qrUrl;
       qrModal.querySelector("[data-qr-subtitle]").textContent = button.dataset.qrInvoice || "-";
-      qrModal.querySelector("[data-qr-amount]").textContent = button.dataset.qrAmount || "-";
-      qrModal.querySelector("[data-qr-account]").textContent = button.dataset.qrAccount || "-";
-      qrModal.querySelector("[data-qr-content]").textContent = button.dataset.qrContent || "-";
+      qrModal.querySelector("[data-qr-amount]").textContent = amount;
+      qrModal.querySelector("[data-qr-account]").textContent = accountNo;
+      qrModal.querySelector("[data-qr-content]").textContent = remark;
+      setQrDownload({ qrUrl, accountNo, amount, remark });
       qrModal.hidden = false;
     });
   });
@@ -645,11 +666,16 @@
         if (!qrUrl) {
           throw new Error("9Pay không trả về ảnh QR.");
         }
+        const amount = payment.TotalToPayVnd ? `${payment.TotalToPayVnd} VND` : "-";
+        const accountNo = bank.BankAccountNo || bank.bankAccountNo || "-";
+        const accountName = bank.BankAccountName || bank.bankAccountName || "-";
+        const remark = bank.Content || bank.content || bank.Remark || bank.remark || "-";
         qrModal.querySelector("[data-qr-image]").src = qrUrl;
         qrModal.querySelector("[data-qr-subtitle]").textContent = payment.InvoiceNumber || "-";
-        qrModal.querySelector("[data-qr-amount]").textContent = payment.TotalToPayVnd ? `${payment.TotalToPayVnd} VND` : "-";
-        qrModal.querySelector("[data-qr-account]").textContent = bank.BankAccountNo || bank.bankAccountNo || "-";
-        qrModal.querySelector("[data-qr-content]").textContent = bank.Content || bank.content || bank.Remark || bank.remark || "-";
+        qrModal.querySelector("[data-qr-amount]").textContent = amount;
+        qrModal.querySelector("[data-qr-account]").textContent = accountNo;
+        qrModal.querySelector("[data-qr-content]").textContent = remark;
+        setQrDownload({ qrUrl, bankName: bank.BankName || bank.bankName || "-", accountNo, accountName, amount, remark });
         qrModal.hidden = false;
       } catch (error) {
         alert(error.message || "Không thể tạo QR.");

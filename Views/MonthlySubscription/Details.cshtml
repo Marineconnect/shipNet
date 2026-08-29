@@ -604,7 +604,6 @@
       <div class="device-modal-actions" id="ninePayBankActions" hidden>
         <button type="button" class="btn-secondary" id="copyNinePayRemark">Sao chép nội dung / Copy Remark</button>
         <button type="button" class="btn-secondary" id="copyNinePayAccountNo">Sao chép STK / Copy Account No</button>
-        <a class="btn-secondary" id="downloadNinePayQr" href="#" target="_blank" rel="noopener" download>Tải QR / Download QR</a>
       </div>
       <div class="tenant-meta" id="ninePayProviderInfo" hidden></div>
       <div class="tenant-feedback is-error" id="ninePayQrError" hidden></div>
@@ -619,10 +618,11 @@
         </div>
         <pre id="invoiceRabbitMqPayload">-</pre>
       </details>
-      <div class="device-modal-actions">
-        <a class="btn-secondary" id="openNinePayPayment" href="#" target="_blank" rel="noopener">Chọn ngân hàng trên 9Pay / Choose bank on 9Pay</a>
-        <button type="button" class="btn-primary" id="closeNinePayQrAction">Hoàn tất / Done</button>
-      </div>
+    </div>
+    <div class="device-modal-actions qr-modal-actions ninepay-qr-footer">
+      <a class="btn-secondary" id="downloadNinePayQr" href="#" target="_blank" rel="noopener" download>Tải xuống / Download</a>
+      <a class="btn-secondary" id="openNinePayPayment" href="#" target="_blank" rel="noopener">Chọn ngân hàng trên 9Pay</a>
+      <button type="button" class="btn-primary" id="closeNinePayQrAction">Đóng / Close</button>
     </div>
   </div>
 </div>
@@ -1097,8 +1097,10 @@
           remark: bank.remark || bank.content || bank.plaintext || "-"
         });
         qrFields.downloadQr.href = `/Payments/DownloadNinePayQrCard?${params.toString()}`;
+        qrFields.downloadQr.removeAttribute("aria-disabled");
       } else {
         qrFields.downloadQr.href = "#";
+        qrFields.downloadQr.setAttribute("aria-disabled", "true");
       }
     }
   }
