@@ -4068,6 +4068,11 @@ body.is-map-fullscreen{
 .detail-map-canvas .leaflet-tile-pane{
   z-index:200;
 }
+.detail-map-canvas .leaflet-basemap-pane,
+.detail-map-canvas .leaflet-baseMap-pane,
+.detail-map-canvas .leaflet-basemappane-pane{
+  z-index:200;
+}
 .detail-map-canvas .leaflet-overlay-pane{
   z-index:520;
 }
@@ -4098,6 +4103,20 @@ body.is-map-fullscreen{
   max-height:none !important;
   user-select:none;
   -webkit-user-drag:none;
+}
+.detail-map-canvas .leaflet-gl-layer,
+.detail-map-canvas .maplibregl-map,
+.detail-map-canvas .maplibregl-canvas-container,
+.detail-map-canvas .maplibregl-canvas{
+  position:absolute;
+  left:0;
+  top:0;
+  overflow:hidden;
+  max-width:none;
+  max-height:none;
+}
+.detail-map-canvas .maplibregl-canvas{
+  outline:none;
 }
 .detail-map-canvas .leaflet-control-container .leaflet-top,
 .detail-map-canvas .leaflet-control-container .leaflet-bottom{

@@ -39,6 +39,9 @@
         ? $"background-image:url('{accountAvatarUrl}')"
         : null;
     var defaultCurrency = (Configuration["System:DefaultCurrency"] ?? "VND").Trim().ToUpperInvariant();
+    var mapProvider = Configuration["Map:Provider"] ?? "OpenFreeMap";
+    var mapStyleUrl = Configuration["Map:StyleUrl"] ?? "https://tiles.openfreemap.org/styles/liberty";
+    var mapFallbackTileUrl = Configuration["Map:FallbackTileUrl"] ?? "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
     var moneyDecimals = string.Equals(defaultCurrency, "VND", StringComparison.OrdinalIgnoreCase) ? "0" : "2";
     string FormatDashboardMoney(decimal value) => string.Equals(defaultCurrency, "VND", StringComparison.OrdinalIgnoreCase)
         ? string.Create(CultureInfo.GetCultureInfo("vi-VN"), $"{value:N0} ₫")
@@ -59,6 +62,7 @@
 }
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQkQfQ52JfCc0QfVIJ7VPF2uu5mBgwI=" crossorigin="" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" crossorigin="anonymous" />
 
 <div class="device-page">
   <div class="device-shell">
@@ -733,6 +737,8 @@
 </script>
 @section Scripts {
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js" crossorigin="anonymous"></script>
 <script>
 (() => {
   const dictionary = {
@@ -1173,6 +1179,12 @@
   const canCreateSubscriptions = @Json.Serialize(Model.CanCreateSubscriptions);
   const canViewMap = @Json.Serialize(Model.CanViewMap);
   const canManageDataOptIn = @Json.Serialize(Model.CanManageDataOptIn);
+  const detailMapConfig = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(new
+  {
+    provider = mapProvider,
+    styleUrl = mapStyleUrl,
+    fallbackTileUrl = mapFallbackTileUrl
+  }));
   const pageCache = new Map();
   const pageCacheScopeKey = initialPageData.scopeKey || "global";
   const pageCacheKey = `shipnet-device-pages:${pageCacheScopeKey}`;
@@ -1273,6 +1285,8 @@
   let currentDetailRequestId = 0;
   let detailLeafletMap = null;
   let detailLeafletMarker = null;
+  let detailBaseMapLayer = null;
+  let detailBaseMapFallbackActive = false;
   let detailBaselineLayers = null;
   let detailMapLatLng = null;
   let detailMapFullscreen = false;
@@ -1764,6 +1778,79 @@
     });
   }
 
+  function addOsmFallbackBaseMap(reason, error = null) {
+    if (!detailLeafletMap || detailBaseMapFallbackActive) {
+      return;
+    }
+
+    if (detailBaseMapLayer && detailLeafletMap.hasLayer(detailBaseMapLayer)) {
+      detailLeafletMap.removeLayer(detailBaseMapLayer);
+    }
+
+    detailBaseMapFallbackActive = true;
+    if (error) {
+      console.warn("[ShipNet Map] OpenFreeMap failed, fallback to OSM", { reason, error });
+    } else {
+      console.warn("[ShipNet Map] OpenFreeMap failed, fallback to OSM", { reason });
+    }
+
+    detailBaseMapLayer = L.tileLayer(detailMapConfig.fallbackTileUrl, {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap contributors",
+      pane: "tilePane"
+    }).addTo(detailLeafletMap);
+  }
+
+  function addDetailBaseMapLayer() {
+    console.info(`[ShipNet Map] provider=${detailMapConfig.provider || "OpenFreeMap"}`);
+
+    if (typeof maplibregl === "undefined" || typeof L.maplibreGL !== "function") {
+      addOsmFallbackBaseMap("MapLibre dependencies are not available");
+      return;
+    }
+
+    try {
+      if (!detailLeafletMap.getPane("baseMapPane")) {
+        detailLeafletMap.createPane("baseMapPane");
+      }
+      detailLeafletMap.getPane("baseMapPane").style.zIndex = 200;
+
+      detailBaseMapLayer = L.maplibreGL({
+        style: detailMapConfig.styleUrl,
+        pane: "baseMapPane"
+      }).addTo(detailLeafletMap);
+
+      const maplibreMap = detailBaseMapLayer.getMaplibreMap?.();
+      if (!maplibreMap) {
+        addOsmFallbackBaseMap("MapLibre map instance is not available");
+        return;
+      }
+
+      let openFreeMapLoaded = false;
+      maplibreMap.once("load", () => {
+        openFreeMapLoaded = true;
+        console.info("[ShipNet Map] OpenFreeMap loaded");
+      });
+      maplibreMap.once("error", (event) => {
+        if (openFreeMapLoaded) {
+          console.warn("[ShipNet Map] OpenFreeMap runtime error", event?.error || event);
+          return;
+        }
+
+        addOsmFallbackBaseMap("MapLibre style load error", event?.error || event);
+      });
+    } catch (error) {
+      addOsmFallbackBaseMap("MapLibre layer initialization failed", error);
+    }
+  }
+
+  function resizeDetailBaseMapLayer() {
+    const maplibreMap = detailBaseMapLayer?.getMaplibreMap?.();
+    if (maplibreMap && typeof maplibreMap.resize === "function") {
+      maplibreMap.resize();
+    }
+  }
+
   function ensureDetailMap() {
     if (detailLeafletMap || typeof L === "undefined") {
       return Boolean(detailLeafletMap);
@@ -1773,10 +1860,7 @@
       zoomControl: true,
       attributionControl: true
     });
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "&copy; OpenStreetMap contributors"
-    }).addTo(detailLeafletMap);
+    addDetailBaseMapLayer();
     addVietnamBaselineLayers();
     detailLeafletMarker = L.marker([0, 0], { icon: buildShipMarkerIcon(false), title: "Vessel" }).addTo(detailLeafletMap);
     return true;
@@ -1789,6 +1873,7 @@
 
     window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
       detailLeafletMap.invalidateSize();
+      resizeDetailBaseMapLayer();
       if (detailMapLatLng) {
         detailLeafletMap.setView(detailMapLatLng, zoom ?? detailLeafletMap.getZoom() ?? 7, { animate: false });
       }
@@ -3657,6 +3742,7 @@
   });
   window.addEventListener("scroll", closeActionMenu, true);
   window.addEventListener("resize", closeActionMenu);
+  window.addEventListener("resize", () => refreshDetailMapSize());
   window.addEventListener("popstate", async (event) => {
     const state = event.state;
     if (state?.detailId) {
