@@ -103,6 +103,29 @@ public sealed class TenantCommissionPaymentTests
     }
 
     [Fact]
+    public void CommissionPaymentReportUsesScopedLayoutFixes()
+    {
+        var view = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "TenantCommissionPayment", "Index.cshtml"));
+        var css = File.ReadAllText(Path.Combine(ProjectRoot, "wwwroot", "css", "site.css"));
+
+        Assert.Contains("commission-create-btn", view);
+        Assert.Contains("commission-filter-grid", view);
+        Assert.Contains("commission-filter-keyword", view);
+        Assert.Contains("device-table subscription-table billing-table commission-payment-table", view);
+        Assert.Contains("device-pagination transaction-pagination billing-pagination", view);
+        Assert.Contains("[hidden].modal-backdrop", css);
+        Assert.Contains(".commission-create-btn", css);
+        Assert.Contains("white-space:nowrap", ExtractCssRule(css, ".commission-create-btn"));
+        Assert.Contains(".commission-filter-grid", css);
+        Assert.Contains(".billing-table th a", css);
+        Assert.Contains("text-decoration:none", ExtractCssRule(css, ".billing-table th a"));
+        Assert.Contains(".commission-payment-table", css);
+        Assert.Contains("min-width:1500px", ExtractCssRule(css, ".commission-payment-table{"));
+        Assert.Contains(".billing-pagination .pagination-btn.is-disabled", css);
+        Assert.Contains("pointer-events:none", ExtractCssRule(css, ".billing-pagination .pagination-btn.is-disabled"));
+    }
+
+    [Fact]
     public void BillingAndDashboardUseGrossCommissionAndPeriodLedgerAllocation()
     {
         var billingModel = File.ReadAllText(Path.Combine(ProjectRoot, "Models", "BillingInvoiceModels.cs"));
@@ -125,7 +148,10 @@ public sealed class TenantCommissionPaymentTests
         Assert.Contains("ResolveReportRange", billingService);
         Assert.DoesNotContain("TblTenantCommissionPaymentItem", dashboardService);
         Assert.Contains("AS [TotalCommission]", dashboardService);
-        Assert.Contains("Hoa hồng còn lại", billingView);
+        Assert.Contains("Tổng hoa hồng", billingView);
+        Assert.DoesNotContain("Hoa hồng còn lại", billingView);
+        Assert.DoesNotContain("Hoa hồng phát sinh", billingView);
+        Assert.DoesNotContain("Đã thanh toán hoa hồng", billingView);
     }
 
     [Fact]
@@ -220,5 +246,23 @@ public sealed class TenantCommissionPaymentTests
         }
 
         return source[braceStart..];
+    }
+
+    private static string ExtractCssRule(string source, string selector)
+    {
+        var start = source.IndexOf(selector, StringComparison.Ordinal);
+        if (start < 0)
+        {
+            return string.Empty;
+        }
+
+        var brace = source.IndexOf('{', start);
+        if (brace < 0)
+        {
+            return string.Empty;
+        }
+
+        var end = source.IndexOf('}', brace);
+        return end < 0 ? source[brace..] : source[brace..(end + 1)];
     }
 }

@@ -53,7 +53,7 @@
         <span>Thanh toán hoa hồng</span>
       </nav>
 
-      <section class="device-hero">
+      <section class="device-hero commission-hero">
         <div>
           <div class="device-brand">BÁO CÁO DOANH THU</div>
           <h1>Báo cáo doanh thu</h1>
@@ -61,7 +61,7 @@
         </div>
         @if (Model.CanCreatePayment)
         {
-          <button type="button" class="btn-primary" data-open-commission-create>
+          <button type="button" class="btn-primary commission-create-btn" data-open-commission-create>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z" fill="currentColor"/></svg>
             Ghi nhận thanh toán
           </button>
@@ -114,7 +114,7 @@
           </div>
         </header>
 
-        <form asp-controller="TenantCommissionPayment" asp-action="Index" method="get" class="billing-filter-grid">
+        <form asp-controller="TenantCommissionPayment" asp-action="Index" method="get" class="billing-filter-grid commission-filter-grid">
           <label>
             <span>Số dòng</span>
             <select name="pageSize">
@@ -161,7 +161,7 @@
               <option value="@TenantCommissionPaymentSourceModes.BillingCycles" selected="@(Model.Filter.SourceMode == TenantCommissionPaymentSourceModes.BillingCycles)">Theo Billing Cycle</option>
             </select>
           </label>
-          <label>
+          <label class="commission-filter-keyword">
             <span>Keyword</span>
             <input type="search" name="keyword" value="@Model.Filter.Keyword" placeholder="Payment, tenant, invoice, transaction, KIT, vessel" />
           </label>
@@ -171,8 +171,8 @@
           </div>
         </form>
 
-        <div class="billing-table-wrap">
-          <table class="billing-table">
+        <div class="device-table-wrap billing-table-wrap commission-payment-table-wrap">
+          <table class="device-table subscription-table billing-table commission-payment-table">
             <thead>
               <tr>
                 <th><a asp-controller="TenantCommissionPayment" asp-action="Index" asp-all-route-data="@Routes("createdAt", SortDirectionFor("createdAt"), 1)">Payment ID</a></th>
@@ -213,11 +213,16 @@
           </table>
         </div>
 
-        <div class="billing-pagination">
-          <a class="btn-secondary @(Model.HasPreviousPage ? string.Empty : "is-disabled")" asp-controller="TenantCommissionPayment" asp-action="Index" asp-all-route-data="@Routes(page: previousPage)">Trước</a>
-          <span>Trang @Model.CurrentPage / @Model.TotalPages</span>
-          <a class="btn-secondary @(Model.HasNextPage ? string.Empty : "is-disabled")" asp-controller="TenantCommissionPayment" asp-action="Index" asp-all-route-data="@Routes(page: nextPage)">Sau</a>
-        </div>
+        <footer class="device-pagination transaction-pagination billing-pagination">
+          <div class="device-pagination-meta">
+            <span>Trang @Model.CurrentPage / @Model.TotalPages</span>
+            <span>Hiển thị @Model.StartItem-@Model.EndItem / @Model.TotalItems</span>
+          </div>
+          <div class="device-pagination-actions">
+            <a class="pagination-btn @(Model.HasPreviousPage ? string.Empty : "is-disabled")" asp-controller="TenantCommissionPayment" asp-action="Index" asp-all-route-data="@Routes(page: previousPage)">Trước</a>
+            <a class="pagination-btn @(Model.HasNextPage ? string.Empty : "is-disabled")" asp-controller="TenantCommissionPayment" asp-action="Index" asp-all-route-data="@Routes(page: nextPage)">Sau</a>
+          </div>
+        </footer>
       </section>
     </div>
   </div>
@@ -459,7 +464,7 @@
           <dt>Người tạo</dt><dd>${item.createdBy || "-"}</dd>
           <dt>Ngày tạo</dt><dd>${formatDate(item.createdAt)}</dd>
         </dl>
-        ${rows ? `<div class="billing-table-wrap"><table class="billing-table"><thead><tr><th>Billing Cycle</th><th>Subscription ID</th><th>Vessel</th><th>Device</th><th>KIT</th><th>Plan</th><th>Start</th><th>End</th><th>Invoice Number(s)</th><th>Transaction Reference(s)</th><th>Commission</th></tr></thead><tbody>${rows}</tbody></table></div>` : ""}
+        ${rows ? `<div class="device-table-wrap billing-table-wrap commission-detail-table-wrap"><table class="device-table subscription-table billing-table commission-detail-table"><thead><tr><th>Billing Cycle</th><th>Subscription ID</th><th>Vessel</th><th>Device</th><th>KIT</th><th>Plan</th><th>Start</th><th>End</th><th>Invoice Number(s)</th><th>Transaction Reference(s)</th><th>Commission</th></tr></thead><tbody>${rows}</tbody></table></div>` : ""}
       `;
       if (detailModal) detailModal.hidden = false;
     });

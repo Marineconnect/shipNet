@@ -4390,7 +4390,8 @@ body.is-map-fullscreen{
   background:rgba(2,7,18,.72);
   backdrop-filter:blur(6px);
 }
-.modal-backdrop[hidden]{
+.modal-backdrop[hidden],
+[hidden].modal-backdrop{
   display:none !important;
 }
 .device-plan-editor-backdrop{
@@ -6582,6 +6583,12 @@ body.is-map-fullscreen{
   justify-content:space-between;
   gap:18px;
 }
+.commission-hero{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:18px;
+}
 .billing-export-btn{
   width:auto;
   min-width:150px;
@@ -6595,6 +6602,23 @@ body.is-map-fullscreen{
   text-decoration:none;
 }
 .billing-export-btn svg{
+  width:18px;
+  height:18px;
+  flex:0 0 18px;
+}
+.commission-create-btn{
+  width:auto;
+  min-width:max-content;
+  height:46px;
+  padding:0 22px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  flex:0 0 auto;
+  white-space:nowrap;
+}
+.commission-create-btn svg{
   width:18px;
   height:18px;
   flex:0 0 18px;
@@ -6810,12 +6834,66 @@ body.is-map-fullscreen{
 .billing-invoice-table-wrap{
   overflow:auto;
 }
+.billing-table-wrap{
+  width:100%;
+  overflow-x:auto;
+  overflow-y:hidden;
+  scrollbar-width:thin;
+  scrollbar-color:rgba(103,146,219,.55) rgba(8,18,37,.22);
+}
+.billing-table{
+  width:100%;
+  min-width:1500px;
+  border-collapse:collapse;
+}
+.billing-table th a{
+  color:inherit;
+  text-decoration:none;
+}
+.billing-table th,
+.billing-table td{
+  vertical-align:top;
+}
+.billing-table th:first-child,
+.billing-table td:first-child,
+.billing-table th:nth-child(2),
+.billing-table td:nth-child(2),
+.billing-table th:nth-child(6),
+.billing-table td:nth-child(6),
+.billing-table th:nth-child(7),
+.billing-table td:nth-child(7),
+.billing-table th:nth-child(10),
+.billing-table td:nth-child(10),
+.billing-table th:last-child,
+.billing-table td:last-child{
+  white-space:nowrap;
+}
+.commission-payment-table td:nth-child(3),
+.commission-payment-table td:nth-child(8){
+  white-space:normal;
+  min-width:180px;
+}
 .billing-invoice-table{
   min-width:2100px;
 }
 .billing-invoice-table th a{
   color:inherit;
   text-decoration:none;
+}
+.commission-payment-table{
+  min-width:1500px;
+}
+.commission-detail-table{
+  min-width:1600px;
+}
+.billing-pagination{
+  margin-top:18px;
+}
+.billing-pagination .pagination-btn{
+  text-decoration:none;
+}
+.billing-pagination .pagination-btn.is-disabled{
+  pointer-events:none;
 }
 .margin-positive{color:#58e6a0}
 .margin-neutral{color:#a9b8d0}
@@ -6886,6 +6964,15 @@ body.is-map-fullscreen{
   display:block;
 }
 .billing-filter-grid .span-2{
+  grid-column:span 2;
+}
+.commission-filter-grid{
+  grid-template-columns:repeat(6, minmax(140px, 1fr));
+}
+.commission-filter-grid .commission-filter-keyword{
+  grid-column:span 3;
+}
+.commission-filter-grid .billing-filter-actions{
   grid-column:span 2;
 }
 .billing-filter-grid textarea{
@@ -6983,6 +7070,21 @@ body.is-map-fullscreen{
   color:#fff;
 }
 @media (max-width: 860px){
+  .commission-hero{
+    align-items:stretch;
+    flex-direction:column;
+  }
+  .commission-create-btn{
+    width:100%;
+    min-width:0;
+  }
+  .commission-filter-grid{
+    grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
+  }
+  .commission-filter-grid .commission-filter-keyword,
+  .commission-filter-grid .billing-filter-actions{
+    grid-column:auto;
+  }
   .commission-dual-list{
     grid-template-columns:1fr;
   }
