@@ -109,6 +109,7 @@ public sealed class BillingInvoiceController(
 
         try
         {
+            var canViewCostPrice = CanViewCostPrice(currentUser);
             var bytes = await billingInvoiceReportService.ExportCsvAsync(new BillingInvoiceFilterViewModel
             {
                 DateFrom = dateFrom,
@@ -130,7 +131,7 @@ public sealed class BillingInvoiceController(
                 Search = search,
                 SortBy = sortBy,
                 SortDirection = sortDirection
-            }, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            }, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), canViewCostPrice, HttpContext.RequestAborted);
 
             return File(bytes, "text/csv; charset=utf-8", $"billing-invoices-{DateTime.Now:yyyyMMddHHmmss}.csv");
         }
@@ -158,6 +159,14 @@ public sealed class BillingInvoiceController(
     {
         return user is not null &&
             (user.IsAdmin || string.Equals(user.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool CanViewCostPrice(AuthUserRecord? user)
+    {
+        return user is not null &&
+            (user.IsAdmin ||
+             string.Equals(user.UserType?.Trim(), ManagedUserType.Admin, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(user.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase));
     }
 
     private static int? GetAllowedTenantId(AuthUserRecord? user)

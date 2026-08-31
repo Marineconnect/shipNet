@@ -22,5 +22,6 @@ public interface IBillingInvoiceReportService
         BillingInvoiceFilterViewModel filter,
         int? allowedTenantId = null,
         int? allowedDeviceId = null,
+        bool canViewCostPrice = false,
         CancellationToken cancellationToken = default);
 }

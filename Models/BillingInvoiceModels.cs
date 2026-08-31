@@ -91,6 +91,7 @@ public sealed class BillingInvoiceListItemViewModel
     public DateTime StartDate { get; set; }
     public DateTime EndDate { get; set; }
     public decimal DataGb { get; set; }
+    public decimal CostPrice { get; set; }
     public decimal BuyPrice { get; set; }
     public decimal SalePrice { get; set; }
     public decimal MarginAmount { get; set; }

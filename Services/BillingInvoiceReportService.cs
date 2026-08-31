@@ -20,7 +20,7 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
         ["createdAt"] = "i.[CreatedAt]",
         ["invoiceNumber"] = "i.[InvoiceNumber]",
         ["billingCycle"] = "s.[UsageMonth]",
-        ["tenant"] = "s.[TenantName]",
+        ["tenant"] = "COALESCE(NULLIF(t.[TenantName], N''), NULLIF(s.[TenantName], N''), N'')",
         ["vessel"] = "s.[VesselName]",
         ["invoiceAmount"] = "i.[Amount]",
         ["paidAmount"] = "i.[PaidAmount]",
@@ -65,7 +65,7 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
         };
     }
 
-    public async Task<byte[]> ExportCsvAsync(BillingInvoiceFilterViewModel filter, int? allowedTenantId = null, int? allowedDeviceId = null, CancellationToken cancellationToken = default)
+    public async Task<byte[]> ExportCsvAsync(BillingInvoiceFilterViewModel filter, int? allowedTenantId = null, int? allowedDeviceId = null, bool canViewCostPrice = false, CancellationToken cancellationToken = default)
     {
         NormalizeFilter(filter, allowedTenantId, allowedDeviceId);
         await using var connection = new SqlConnection(_connectionString);
@@ -77,11 +77,21 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
         AddFilterParameters(command, filter);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
 
+        var header = new List<string>
+        {
+            "Invoice Number", "Invoice Type", "Tenant", "Vessel", "Device", "KIT", "Plan", "Billing Cycle", "Period Start", "Period End"
+        };
+        if (canViewCostPrice)
+        {
+            header.Add("Cost Price");
+        }
+        header.AddRange(["Buy Price", "Sale Price", "Margin", "Margin %", "Invoice Amount", "Paid Amount", "Outstanding Amount", "Status", "Payment Method", "Payment Time"]);
+
         var csv = new StringBuilder();
-        csv.AppendLine("Invoice Number,Invoice Type,Tenant,Vessel,Device,KIT,Plan,Billing Cycle,Period Start,Period End,Buy Price,Sale Price,Margin,Margin %,Invoice Amount,Paid Amount,Outstanding Amount,Status,Payment Method,Payment Time");
+        csv.AppendLine(string.Join(",", header.Select(Csv)));
         while (await reader.ReadAsync(cancellationToken))
         {
-            csv.AppendLine(string.Join(",", new[]
+            var fields = new List<string>
             {
                 Csv(ReadText(reader, "InvoiceNumber")),
                 Csv(ReadText(reader, "InvoiceType")),
@@ -92,7 +102,13 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
                 Csv(ReadText(reader, "PlanName")),
                 Csv(ReadDate(reader, "UsageMonth")?.ToString("MM/yyyy") ?? string.Empty),
                 Csv(ReadDate(reader, "StartDate")?.ToString("yyyy-MM-dd") ?? string.Empty),
-                Csv(ReadDate(reader, "EndDate")?.ToString("yyyy-MM-dd") ?? string.Empty),
+                Csv(ReadDate(reader, "EndDate")?.ToString("yyyy-MM-dd") ?? string.Empty)
+            };
+            if (canViewCostPrice)
+            {
+                fields.Add(Csv(ReadDecimal(reader, "CostPrice").ToString("0.##", CultureInfo.InvariantCulture)));
+            }
+            fields.AddRange([
                 Csv(ReadDecimal(reader, "BuyPrice").ToString("0.##", CultureInfo.InvariantCulture)),
                 Csv(ReadDecimal(reader, "SalePrice").ToString("0.##", CultureInfo.InvariantCulture)),
                 Csv(ReadDecimal(reader, "MarginAmount").ToString("0.##", CultureInfo.InvariantCulture)),
@@ -103,15 +119,26 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
                 Csv(ReadText(reader, "Status")),
                 Csv(ReadText(reader, "PaymentMethod")),
                 Csv(ReadDate(reader, "PaymentTime")?.ToString("yyyy-MM-dd HH:mm:ss") ?? string.Empty)
-            }));
+            ]);
+            csv.AppendLine(string.Join(",", fields));
         }
 
-        return new UTF8Encoding(encoderShouldEmitUTF8Identifier: true).GetBytes(csv.ToString());
+        return EncodeCsvForExcel(csv.ToString());
+    }
+
+    public static byte[] EncodeCsvForExcel(string csv)
+    {
+        var text = csv.StartsWith('\uFEFF') ? csv[1..] : csv;
+        var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
+        var preamble = utf8.GetPreamble();
+        var body = utf8.GetBytes(text);
+        return [.. preamble, .. body];
     }
 
     private static string BaseFromSql() => """
         FROM [dbo].[TblSubscriptionInvoice] i
         INNER JOIN [dbo].[TblMonthlySubscription] s ON s.[ID] = i.[SubscriptionId]
+        LEFT JOIN [dbo].[TblTenant] t ON t.[ID] = s.[TenantId]
         LEFT JOIN [dbo].[TblDevices] d ON d.[ID] = s.[DeviceId]
         OUTER APPLY (
             SELECT TOP 1 *
@@ -130,13 +157,13 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
 
     private static string CommonSelectSql() => """
         i.[ID] AS [InvoiceId], i.[InvoiceNumber], i.[ReceiptNumber], i.[PoNumber], i.[InvoiceType],
-        i.[SubscriptionId], s.[TenantId], s.[TenantName], s.[DeviceId],
+        i.[SubscriptionId], s.[TenantId], COALESCE(NULLIF(t.[TenantName], N''), NULLIF(s.[TenantName], N''), N'') AS [TenantName], s.[DeviceId],
         COALESCE(NULLIF(d.[DeviceName], N''), d.[DeviceCode], N'') AS [DeviceName],
         d.[DeviceCode],
         COALESCE(NULLIF(s.[VesselName], N''), NULLIF(d.[VesselName], N''), N'') AS [VesselName],
         COALESCE(NULLIF(d.[KITNumber], N''), NULLIF(s.[KitId], N''), NULLIF(d.[KITID], N''), N'') AS [KitId],
         s.[PricingPlanId], s.[PlanName], s.[UsageMonth], s.[StartDate], s.[EndDate],
-        i.[DataGb], i.[BuyPrice], i.[SalePrice],
+        i.[DataGb], i.[CostPrice], i.[BuyPrice], i.[SalePrice],
         COALESCE(NULLIF(i.[MarginAmount], 0), i.[SalePrice] - i.[BuyPrice]) AS [MarginAmount],
         CASE WHEN i.[SalePrice] = 0 THEN 0 ELSE COALESCE(NULLIF(i.[MarginAmount], 0), i.[SalePrice] - i.[BuyPrice]) / i.[SalePrice] * 100 END AS [MarginPercent],
         i.[Amount] AS [InvoiceAmount], i.[PaidAmount], i.[RefundAmount],
@@ -238,7 +265,7 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
 
         if (!string.IsNullOrWhiteSpace(filter.Search))
         {
-            clauses.Add("(i.[InvoiceNumber] LIKE @search OR COALESCE(NULLIF(d.[KITNumber], N''), NULLIF(s.[KitId], N''), NULLIF(d.[KITID], N''), N'') LIKE @search OR s.[TenantName] LIKE @search OR s.[VesselName] LIKE @search OR d.[DeviceName] LIKE @search OR d.[DeviceCode] LIKE @search OR s.[PlanName] LIKE @search)");
+            clauses.Add("(i.[InvoiceNumber] LIKE @search OR COALESCE(NULLIF(d.[KITNumber], N''), NULLIF(s.[KitId], N''), NULLIF(d.[KITID], N''), N'') LIKE @search OR COALESCE(NULLIF(t.[TenantName], N''), NULLIF(s.[TenantName], N''), N'') LIKE @search OR s.[VesselName] LIKE @search OR d.[DeviceName] LIKE @search OR d.[DeviceCode] LIKE @search OR s.[PlanName] LIKE @search)");
         }
 
         if (string.Equals(filter.PaymentStatus, "paid", StringComparison.OrdinalIgnoreCase))
@@ -454,6 +481,7 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
                 StartDate = ReadDate(reader, "StartDate") ?? default,
                 EndDate = ReadDate(reader, "EndDate") ?? default,
                 DataGb = ReadDecimal(reader, "DataGb"),
+                CostPrice = ReadDecimal(reader, "CostPrice"),
                 BuyPrice = ReadDecimal(reader, "BuyPrice"),
                 SalePrice = ReadDecimal(reader, "SalePrice"),
                 MarginAmount = ReadDecimal(reader, "MarginAmount"),
@@ -477,11 +505,12 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
     private static async Task<List<DeviceTenantOptionViewModel>> GetTenantOptionsAsync(SqlConnection connection, int? allowedTenantId, int? allowedDeviceId, CancellationToken cancellationToken)
     {
         const string query = """
-            SELECT DISTINCT s.[TenantId] AS [ID], s.[TenantName]
+            SELECT DISTINCT s.[TenantId] AS [ID], COALESCE(NULLIF(t.[TenantName], N''), NULLIF(s.[TenantName], N''), N'') AS [TenantName]
             FROM [dbo].[TblMonthlySubscription] s
+            LEFT JOIN [dbo].[TblTenant] t ON t.[ID] = s.[TenantId]
             WHERE (@allowedTenantId IS NULL OR s.[TenantId] = @allowedTenantId)
               AND (@allowedDeviceId IS NULL OR s.[DeviceId] = @allowedDeviceId)
-            ORDER BY s.[TenantName]
+            ORDER BY [TenantName]
             """;
         await using var command = new SqlCommand(query, connection);
         command.Parameters.Add("@allowedTenantId", SqlDbType.Int).Value = (object?)allowedTenantId ?? DBNull.Value;

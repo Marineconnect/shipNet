@@ -41,6 +41,12 @@
   </div>
 
   <div class="form-group">
+    <label for="@(prefix)_CostPrice">Giá Cost KVH (@defaultCurrency) / KVH Cost Price (@defaultCurrency)</label>
+    <input id="@(prefix)_CostPrice" name="@(prefix).CostPrice" value="@MoneyInput(form.CostPrice)" class="input" type="text" inputmode="decimal" data-money-input data-money-decimals="@moneyDecimals" />
+    <span data-valmsg-for="@(prefix).CostPrice" data-valmsg-replace="true" class="field-error"></span>
+  </div>
+
+  <div class="form-group">
     <label for="@(prefix)_ResellerPrice">Đơn giá đại lý (@defaultCurrency) / Reseller Price (@defaultCurrency)</label>
     <input id="@(prefix)_ResellerPrice" name="@(prefix).ResellerPrice" value="@MoneyInput(form.ResellerPrice)" class="input" type="text" inputmode="decimal" data-money-input data-money-decimals="@moneyDecimals" />
     <span data-valmsg-for="@(prefix).ResellerPrice" data-valmsg-replace="true" class="field-error"></span>
@@ -50,6 +56,12 @@
     <label for="@(prefix)_FinalPrice">Đơn giá bán ra (@defaultCurrency) / Sale Price (@defaultCurrency)</label>
     <input id="@(prefix)_FinalPrice" name="@(prefix).FinalPrice" value="@MoneyInput(form.FinalPrice)" class="input" type="text" inputmode="decimal" data-money-input data-money-decimals="@moneyDecimals" />
     <span data-valmsg-for="@(prefix).FinalPrice" data-valmsg-replace="true" class="field-error"></span>
+  </div>
+
+  <div class="form-group">
+    <label for="@(prefix)_CostOverChargePrice">Giá Cost Overcharge KVH (@defaultCurrency) / KVH Overcharge Cost (@defaultCurrency)</label>
+    <input id="@(prefix)_CostOverChargePrice" name="@(prefix).CostOverChargePrice" value="@MoneyInput(form.CostOverChargePrice)" class="input" type="text" inputmode="decimal" data-money-input data-money-decimals="@moneyDecimals" />
+    <span data-valmsg-for="@(prefix).CostOverChargePrice" data-valmsg-replace="true" class="field-error"></span>
   </div>
 
   <div class="form-group">

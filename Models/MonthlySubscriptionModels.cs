@@ -120,6 +120,7 @@ public class SubscriptionInvoiceViewModel
     public string InvoiceType { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public decimal DataGb { get; set; }
+    public decimal CostPrice { get; set; }
     public decimal BuyPrice { get; set; }
     public decimal SalePrice { get; set; }
     public decimal MarginAmount { get; set; }

@@ -33,9 +33,11 @@ public class PricingPlanService(
                 [ID],
                 [PlanName],
                 [PlanCode],
+                [CostPrice],
                 [ResellerPrice],
                 [FinalPrice],
                 [BaseData],
+                [CostOverChargePrice],
                 [ResellerOverChargePrice],
                 [FinalOverChargePrice],
                 [Status],
@@ -95,9 +97,11 @@ public class PricingPlanService(
                 [ID],
                 [PlanName],
                 [PlanCode],
+                [CostPrice],
                 [ResellerPrice],
                 [FinalPrice],
                 [BaseData],
+                [CostOverChargePrice],
                 [ResellerOverChargePrice],
                 [FinalOverChargePrice],
                 [Status]
@@ -130,9 +134,11 @@ public class PricingPlanService(
                 [ID],
                 [PlanName],
                 [PlanCode],
+                [CostPrice],
                 [ResellerPrice],
                 [FinalPrice],
                 [BaseData],
+                [CostOverChargePrice],
                 [ResellerOverChargePrice],
                 [FinalOverChargePrice]
             FROM [TblPricingPlan]
@@ -155,9 +161,11 @@ public class PricingPlanService(
                 Id = reader["ID"] is int id ? id : 0,
                 PlanName = reader["PlanName"]?.ToString() ?? string.Empty,
                 PlanCode = reader["PlanCode"]?.ToString() ?? string.Empty,
+                CostPrice = ReadDecimal(reader, "CostPrice"),
                 ResellerPrice = ReadDecimal(reader, "ResellerPrice"),
                 FinalPrice = ReadDecimal(reader, "FinalPrice"),
                 BaseData = ReadDecimal(reader, "BaseData"),
+                CostOverChargePrice = ReadDecimal(reader, "CostOverChargePrice"),
                 ResellerOverChargePrice = ReadDecimal(reader, "ResellerOverChargePrice"),
                 FinalOverChargePrice = ReadDecimal(reader, "FinalOverChargePrice")
             };
@@ -175,9 +183,11 @@ public class PricingPlanService(
                 [ID],
                 [PlanName],
                 [PlanCode],
+                [CostPrice],
                 [ResellerPrice],
                 [FinalPrice],
                 [BaseData],
+                [CostOverChargePrice],
                 [ResellerOverChargePrice],
                 [FinalOverChargePrice],
                 [Status]
@@ -233,10 +243,10 @@ public class PricingPlanService(
     {
         const string query = """
             INSERT INTO [TblPricingPlan]
-                ([PlanName], [PlanCode], [ResellerPrice], [FinalPrice], [BaseData], [ResellerOverChargePrice], [FinalOverChargePrice], [Status], [Created_Date], [Created_By], [Updated_Date], [Updated_By])
+                ([PlanName], [PlanCode], [CostPrice], [ResellerPrice], [FinalPrice], [BaseData], [CostOverChargePrice], [ResellerOverChargePrice], [FinalOverChargePrice], [Status], [Created_Date], [Created_By], [Updated_Date], [Updated_By])
             OUTPUT INSERTED.[ID]
             VALUES
-                (@planName, @planCode, @resellerPrice, @finalPrice, @baseData, @resellerOverChargePrice, @finalOverChargePrice, @status, GETDATE(), @createdBy, GETDATE(), @updatedBy)
+                (@planName, @planCode, @costPrice, @resellerPrice, @finalPrice, @baseData, @costOverChargePrice, @resellerOverChargePrice, @finalOverChargePrice, @status, GETDATE(), @createdBy, GETDATE(), @updatedBy)
             """;
 
         await using var connection = new SqlConnection(_connectionString);
@@ -269,9 +279,11 @@ public class PricingPlanService(
                 [ID],
                 [PlanName],
                 [PlanCode],
+                [CostPrice],
                 [ResellerPrice],
                 [FinalPrice],
                 [BaseData],
+                [CostOverChargePrice],
                 [ResellerOverChargePrice],
                 [FinalOverChargePrice],
                 [Status]
@@ -284,9 +296,11 @@ public class PricingPlanService(
             SET
                 [PlanName] = @planName,
                 [PlanCode] = @planCode,
+                [CostPrice] = @costPrice,
                 [ResellerPrice] = @resellerPrice,
                 [FinalPrice] = @finalPrice,
                 [BaseData] = @baseData,
+                [CostOverChargePrice] = @costOverChargePrice,
                 [ResellerOverChargePrice] = @resellerOverChargePrice,
                 [FinalOverChargePrice] = @finalOverChargePrice,
                 [Status] = @status,
@@ -381,18 +395,20 @@ public class PricingPlanService(
 
         const string insertQuery = """
             INSERT INTO [TblPricingPlan]
-                ([PlanName], [PlanCode], [ResellerPrice], [FinalPrice], [BaseData], [ResellerOverChargePrice], [FinalOverChargePrice], [Status], [Created_Date], [Created_By], [Updated_Date], [Updated_By])
+                ([PlanName], [PlanCode], [CostPrice], [ResellerPrice], [FinalPrice], [BaseData], [CostOverChargePrice], [ResellerOverChargePrice], [FinalOverChargePrice], [Status], [Created_Date], [Created_By], [Updated_Date], [Updated_By])
             VALUES
-                (@planName, @planCode, @resellerPrice, @finalPrice, @baseData, @resellerOverChargePrice, @finalOverChargePrice, @status, GETDATE(), @createdBy, GETDATE(), @updatedBy)
+                (@planName, @planCode, @costPrice, @resellerPrice, @finalPrice, @baseData, @costOverChargePrice, @resellerOverChargePrice, @finalOverChargePrice, @status, GETDATE(), @createdBy, GETDATE(), @updatedBy)
             """;
 
         const string updateQuery = """
             UPDATE [TblPricingPlan]
             SET
                 [PlanName] = @planName,
+                [CostPrice] = @costPrice,
                 [ResellerPrice] = @resellerPrice,
                 [FinalPrice] = @finalPrice,
                 [BaseData] = @baseData,
+                [CostOverChargePrice] = @costOverChargePrice,
                 [ResellerOverChargePrice] = @resellerOverChargePrice,
                 [FinalOverChargePrice] = @finalOverChargePrice,
                 [Status] = @status,
@@ -1103,9 +1119,11 @@ public class PricingPlanService(
             Id = reader["ID"] is int id ? id : 0,
             PlanName = reader["PlanName"]?.ToString() ?? string.Empty,
             PlanCode = reader["PlanCode"]?.ToString() ?? string.Empty,
+            CostPrice = ReadDecimal(reader, "CostPrice"),
             ResellerPrice = ReadDecimal(reader, "ResellerPrice"),
             FinalPrice = ReadDecimal(reader, "FinalPrice"),
             BaseData = ReadDecimal(reader, "BaseData"),
+            CostOverChargePrice = ReadDecimal(reader, "CostOverChargePrice"),
             ResellerOverChargePrice = ReadDecimal(reader, "ResellerOverChargePrice"),
             FinalOverChargePrice = ReadDecimal(reader, "FinalOverChargePrice"),
             Status = reader["Status"]?.ToString() ?? "active",
@@ -1121,9 +1139,11 @@ public class PricingPlanService(
             Id = reader["ID"] is int id ? id : 0,
             PlanName = reader["PlanName"]?.ToString() ?? string.Empty,
             PlanCode = reader["PlanCode"]?.ToString() ?? string.Empty,
+            CostPrice = ReadDecimal(reader, "CostPrice"),
             ResellerPrice = ReadDecimal(reader, "ResellerPrice"),
             FinalPrice = ReadDecimal(reader, "FinalPrice"),
             BaseData = ReadDecimal(reader, "BaseData"),
+            CostOverChargePrice = ReadDecimal(reader, "CostOverChargePrice"),
             ResellerOverChargePrice = ReadDecimal(reader, "ResellerOverChargePrice"),
             FinalOverChargePrice = ReadDecimal(reader, "FinalOverChargePrice"),
             Status = reader["Status"]?.ToString() ?? "active"
@@ -1220,16 +1240,20 @@ public class PricingPlanService(
 
     private static void ConvertPlanToDefaultCurrency(PricingPlanListItemViewModel model, PricingCurrencyConversion conversion)
     {
+        model.CostPrice = ToDefaultCurrency(model.CostPrice, conversion);
         model.ResellerPrice = ToDefaultCurrency(model.ResellerPrice, conversion);
         model.FinalPrice = ToDefaultCurrency(model.FinalPrice, conversion);
+        model.CostOverChargePrice = ToDefaultCurrency(model.CostOverChargePrice, conversion);
         model.ResellerOverChargePrice = ToDefaultCurrency(model.ResellerOverChargePrice, conversion);
         model.FinalOverChargePrice = ToDefaultCurrency(model.FinalOverChargePrice, conversion);
     }
 
     private static void ConvertPlanToDefaultCurrency(PricingPlanFormViewModel model, PricingCurrencyConversion conversion)
     {
+        model.CostPrice = ToDefaultCurrency(model.CostPrice, conversion);
         model.ResellerPrice = ToDefaultCurrency(model.ResellerPrice, conversion);
         model.FinalPrice = ToDefaultCurrency(model.FinalPrice, conversion);
+        model.CostOverChargePrice = ToDefaultCurrency(model.CostOverChargePrice, conversion);
         model.ResellerOverChargePrice = ToDefaultCurrency(model.ResellerOverChargePrice, conversion);
         model.FinalOverChargePrice = ToDefaultCurrency(model.FinalOverChargePrice, conversion);
     }
@@ -1245,8 +1269,10 @@ public class PricingPlanService(
             PlanCode = model.PlanCode,
             BaseData = model.BaseData,
             Status = model.Status,
+            CostPrice = ToPricingCurrency(model.CostPrice, conversion),
             ResellerPrice = ToPricingCurrency(model.ResellerPrice, conversion),
             FinalPrice = ToPricingCurrency(model.FinalPrice, conversion),
+            CostOverChargePrice = ToPricingCurrency(model.CostOverChargePrice, conversion),
             ResellerOverChargePrice = ToPricingCurrency(model.ResellerOverChargePrice, conversion),
             FinalOverChargePrice = ToPricingCurrency(model.FinalOverChargePrice, conversion)
         };
@@ -1254,8 +1280,10 @@ public class PricingPlanService(
 
     private static void ConvertPlanOptionToDefaultCurrency(PricingPlanOptionViewModel model, PricingCurrencyConversion conversion)
     {
+        model.CostPrice = ToDefaultCurrency(model.CostPrice, conversion);
         model.ResellerPrice = ToDefaultCurrency(model.ResellerPrice, conversion);
         model.FinalPrice = ToDefaultCurrency(model.FinalPrice, conversion);
+        model.CostOverChargePrice = ToDefaultCurrency(model.CostOverChargePrice, conversion);
         model.ResellerOverChargePrice = ToDefaultCurrency(model.ResellerOverChargePrice, conversion);
         model.FinalOverChargePrice = ToDefaultCurrency(model.FinalOverChargePrice, conversion);
     }
@@ -1312,6 +1340,9 @@ public class PricingPlanService(
     {
         command.Parameters.Add("@planName", SqlDbType.NVarChar, 250).Value = model.PlanName;
         command.Parameters.Add("@planCode", SqlDbType.NVarChar, 100).Value = model.PlanCode;
+        command.Parameters.Add("@costPrice", SqlDbType.Decimal).Value = model.CostPrice;
+        command.Parameters["@costPrice"].Precision = 18;
+        command.Parameters["@costPrice"].Scale = 2;
         command.Parameters.Add("@resellerPrice", SqlDbType.Decimal).Value = model.ResellerPrice;
         command.Parameters["@resellerPrice"].Precision = 18;
         command.Parameters["@resellerPrice"].Scale = 2;
@@ -1321,6 +1352,9 @@ public class PricingPlanService(
         command.Parameters.Add("@baseData", SqlDbType.Decimal).Value = model.BaseData;
         command.Parameters["@baseData"].Precision = 18;
         command.Parameters["@baseData"].Scale = 2;
+        command.Parameters.Add("@costOverChargePrice", SqlDbType.Decimal).Value = model.CostOverChargePrice;
+        command.Parameters["@costOverChargePrice"].Precision = 18;
+        command.Parameters["@costOverChargePrice"].Scale = 2;
         command.Parameters.Add("@resellerOverChargePrice", SqlDbType.Decimal).Value = model.ResellerOverChargePrice;
         command.Parameters["@resellerOverChargePrice"].Precision = 18;
         command.Parameters["@resellerOverChargePrice"].Scale = 2;
@@ -1415,9 +1449,11 @@ public class PricingPlanService(
                     [ID] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_TblPricingPlan] PRIMARY KEY,
                     [PlanName] nvarchar(250) NOT NULL,
                     [PlanCode] nvarchar(100) NOT NULL,
+                    [CostPrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblPricingPlan_CostPrice] DEFAULT(0),
                     [ResellerPrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblPricingPlan_ResellerPrice] DEFAULT(0),
                     [FinalPrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblPricingPlan_FinalPrice] DEFAULT(0),
                     [BaseData] decimal(18,2) NOT NULL CONSTRAINT [DF_TblPricingPlan_BaseData] DEFAULT(0),
+                    [CostOverChargePrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblPricingPlan_CostOverChargePrice] DEFAULT(0),
                     [ResellerOverChargePrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblPricingPlan_ResellerOverChargePrice] DEFAULT(0),
                     [FinalOverChargePrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblPricingPlan_FinalOverChargePrice] DEFAULT(0),
                     [Status] nvarchar(50) NOT NULL CONSTRAINT [DF_TblPricingPlan_Status] DEFAULT('active'),
@@ -1437,6 +1473,20 @@ public class PricingPlanService(
             BEGIN
                 CREATE UNIQUE INDEX [UX_TblPricingPlan_PlanCode]
                     ON [dbo].[TblPricingPlan]([PlanCode]);
+            END;
+
+            IF COL_LENGTH(N'[dbo].[TblPricingPlan]', N'CostPrice') IS NULL
+            BEGIN
+                ALTER TABLE [dbo].[TblPricingPlan]
+                ADD [CostPrice] decimal(18,2) NOT NULL
+                    CONSTRAINT [DF_TblPricingPlan_CostPrice_Existing] DEFAULT(0) WITH VALUES;
+            END;
+
+            IF COL_LENGTH(N'[dbo].[TblPricingPlan]', N'CostOverChargePrice') IS NULL
+            BEGIN
+                ALTER TABLE [dbo].[TblPricingPlan]
+                ADD [CostOverChargePrice] decimal(18,2) NOT NULL
+                    CONSTRAINT [DF_TblPricingPlan_CostOverChargePrice_Existing] DEFAULT(0) WITH VALUES;
             END;
 
             IF OBJECT_ID(N'[dbo].[TblTenantPricing]', N'U') IS NULL
@@ -1588,6 +1638,11 @@ public class PricingPlanService(
             changedFields.Add("ResellerPrice");
         }
 
+        if (existingPlan.CostPrice != updatedPlan.CostPrice)
+        {
+            changedFields.Add("CostPrice");
+        }
+
         if (existingPlan.FinalPrice != updatedPlan.FinalPrice)
         {
             changedFields.Add("FinalPrice");
@@ -1601,6 +1656,11 @@ public class PricingPlanService(
         if (existingPlan.ResellerOverChargePrice != updatedPlan.ResellerOverChargePrice)
         {
             changedFields.Add("ResellerOverChargePrice");
+        }
+
+        if (existingPlan.CostOverChargePrice != updatedPlan.CostOverChargePrice)
+        {
+            changedFields.Add("CostOverChargePrice");
         }
 
         if (existingPlan.FinalOverChargePrice != updatedPlan.FinalOverChargePrice)

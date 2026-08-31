@@ -14,8 +14,10 @@ public static class PricingPlanExcelTemplate
         "Tên gói",
         "Mã gói",
         "Dung lượng (GB)",
+        "Giá Cost KVH",
         "Đơn giá đại lý",
         "Đơn giá bán ra",
+        "Giá Cost Overcharge KVH",
         "Giá mua thêm đại lý",
         "Giá mua thêm bán ra",
         "Trạng thái"
@@ -166,8 +168,10 @@ public static class PricingPlanExcelTemplate
                 plan.PlanName,
                 plan.PlanCode,
                 FormatDecimal(plan.BaseData),
+                FormatDecimal(plan.CostPrice),
                 FormatDecimal(plan.ResellerPrice),
                 FormatDecimal(plan.FinalPrice),
+                FormatDecimal(plan.CostOverChargePrice),
                 FormatDecimal(plan.ResellerOverChargePrice),
                 FormatDecimal(plan.FinalOverChargePrice),
                 NormalizeStatus(plan.Status)
@@ -178,12 +182,12 @@ public static class PricingPlanExcelTemplate
         return $$"""
             <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
             <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-              <dimension ref="A1:H{{lastRow}}"/>
+              <dimension ref="A1:J{{lastRow}}"/>
               <sheetViews><sheetView workbookViewId="0"/></sheetViews>
               <sheetFormatPr defaultRowHeight="15"/>
               <cols>
                 <col min="1" max="2" width="24" customWidth="1"/>
-                <col min="3" max="8" width="20" customWidth="1"/>
+                <col min="3" max="10" width="22" customWidth="1"/>
               </cols>
               <sheetData>
                 {{string.Join(Environment.NewLine, rows)}}
@@ -309,7 +313,14 @@ public static class PricingPlanExcelTemplate
     {
         var planName = Get(values, 0).Trim();
         var planCode = Get(values, 1).Trim();
-        var status = NormalizeStatus(Get(values, 7));
+        var isLegacyRow = IsLegacyPricingRow(values);
+        var costPriceIndex = isLegacyRow ? -1 : 3;
+        var resellerPriceIndex = isLegacyRow ? 3 : 4;
+        var finalPriceIndex = isLegacyRow ? 4 : 5;
+        var costOverChargePriceIndex = isLegacyRow ? -1 : 6;
+        var resellerOverChargePriceIndex = isLegacyRow ? 5 : 7;
+        var finalOverChargePriceIndex = isLegacyRow ? 6 : 8;
+        var status = NormalizeStatus(Get(values, isLegacyRow ? 7 : 9));
 
         if (string.IsNullOrWhiteSpace(planName))
         {
@@ -336,10 +347,12 @@ public static class PricingPlanExcelTemplate
         }
 
         if (!TryParseDecimal(Get(values, 2), out var baseData) ||
-            !TryParseDecimal(Get(values, 3), out var resellerPrice) ||
-            !TryParseDecimal(Get(values, 4), out var finalPrice) ||
-            !TryParseDecimal(Get(values, 5), out var resellerOverChargePrice) ||
-            !TryParseDecimal(Get(values, 6), out var finalOverChargePrice))
+            !TryParseOptionalDecimal(Get(values, costPriceIndex), out var costPrice) ||
+            !TryParseDecimal(Get(values, resellerPriceIndex), out var resellerPrice) ||
+            !TryParseDecimal(Get(values, finalPriceIndex), out var finalPrice) ||
+            !TryParseOptionalDecimal(Get(values, costOverChargePriceIndex), out var costOverChargePrice) ||
+            !TryParseDecimal(Get(values, resellerOverChargePriceIndex), out var resellerOverChargePrice) ||
+            !TryParseDecimal(Get(values, finalOverChargePriceIndex), out var finalOverChargePrice))
         {
             result.Errors.Add($"DÃ²ng {rowIndex}: cÃ¡c cá»™t dung lÆ°á»£ng vÃ  Ä‘Æ¡n giÃ¡ pháº£i lÃ  sá»‘ há»£p lá»‡.");
             return;
@@ -350,8 +363,10 @@ public static class PricingPlanExcelTemplate
             PlanName = planName,
             PlanCode = planCode,
             BaseData = baseData,
+            CostPrice = costPrice,
             ResellerPrice = resellerPrice,
             FinalPrice = finalPrice,
+            CostOverChargePrice = costOverChargePrice,
             ResellerOverChargePrice = resellerOverChargePrice,
             FinalOverChargePrice = finalOverChargePrice,
             Status = status
@@ -583,6 +598,29 @@ public static class PricingPlanExcelTemplate
         return decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out parsed) && parsed >= 0;
     }
 
+    private static bool TryParseOptionalDecimal(string value, out decimal parsed)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            parsed = 0;
+            return true;
+        }
+
+        return TryParseDecimal(value, out parsed);
+    }
+
+    private static bool IsLegacyPricingRow(IReadOnlyList<string> values)
+    {
+        return values.Count <= 8 || (string.IsNullOrWhiteSpace(Get(values, 9)) && IsStatusValue(Get(values, 7)));
+    }
+
+    private static bool IsStatusValue(string value)
+    {
+        value = value.Trim();
+        return string.Equals(value, "active", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "inactive", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string NormalizeStatus(string value)
     {
         value = value.Trim();
@@ -598,7 +636,7 @@ public static class PricingPlanExcelTemplate
 
     private static string Get(IReadOnlyList<string> values, int index)
     {
-        return index < values.Count ? values[index] ?? string.Empty : string.Empty;
+        return index >= 0 && index < values.Count ? values[index] ?? string.Empty : string.Empty;
     }
 
     private static List<string> SplitCsvLine(string line)

@@ -251,6 +251,8 @@ public class MonthlySubscriptionService(
                 pp.[PlanName],
                 pp.[PlanCode],
                 pp.[BaseData],
+                pp.[CostPrice],
+                pp.[CostOverChargePrice],
                 dp.[ResellerPrice],
                 dp.[FinalPrice],
                 dp.[ResellerOverChargePrice],
@@ -332,13 +334,13 @@ public class MonthlySubscriptionService(
             INSERT INTO [dbo].[TblMonthlySubscription]
                 ([TenantId], [DeviceId], [PricingPlanId], [TenantName], [VesselName], [KitId], [PlanName], [PlanCode],
                  [SubscriptionType], [UsageMonth], [PurchasedDate], [StartDate], [EndDate], [NextBillingDate],
-                 [DataLimitGb], [BasePlanPrice], [SubscriptionDays], [SubscriptionPrice], [OverChargePrice],
+                 [DataLimitGb], [BasePlanPrice], [CostPrice], [SubscriptionDays], [SubscriptionPrice], [CostOverChargePrice], [OverChargePrice],
                  [TotalTopUpGb], [TotalInvoiceAmount], [TotalPaid], [Status], [Created_Date], [Created_By], [Updated_Date], [Updated_By])
             OUTPUT INSERTED.[ID]
             VALUES
                 (@tenantId, @deviceId, @pricingPlanId, @tenantName, @vesselName, @kitId, @planName, @planCode,
                  @subscriptionType, @usageMonth, GETDATE(), @startDate, @endDate, @nextBillingDate,
-                 @dataLimitGb, @basePlanPrice, @subscriptionDays, @subscriptionPrice, @overChargePrice,
+                 @dataLimitGb, @basePlanPrice, @costPrice, @subscriptionDays, @subscriptionPrice, @costOverChargePrice, @overChargePrice,
                  0, @subscriptionPrice, 0, N'pending_payment', GETDATE(), @createdBy, GETDATE(), @updatedBy)
             """;
 
@@ -351,6 +353,7 @@ public class MonthlySubscriptionService(
             var resellerPrice = context.ResellerPrice;
             var finalOverChargePrice = context.FinalOverChargePrice;
             var subscriptionPrice = CalculateSubscriptionPrice(finalPrice, segment.StartDate, segment.EndDate);
+            var subscriptionCostPrice = CalculateSubscriptionPrice(context.CostPrice, segment.StartDate, segment.EndDate);
             var buyPrice = CalculateSubscriptionPrice(resellerPrice, segment.StartDate, segment.EndDate);
             var invoiceNumber = await BuildInvoiceNumberAsync(connection, transaction, cancellationToken);
 
@@ -372,15 +375,17 @@ public class MonthlySubscriptionService(
                 command.Parameters.Add("@nextBillingDate", SqlDbType.Date).Value = segment.NextBillingDate;
                 AddDecimal(command, "@dataLimitGb", context.DataLimitGb);
                 AddDecimal(command, "@basePlanPrice", finalPrice);
+                AddDecimal(command, "@costPrice", subscriptionCostPrice);
                 command.Parameters.Add("@subscriptionDays", SqlDbType.Int).Value = days;
                 AddDecimal(command, "@subscriptionPrice", subscriptionPrice);
+                AddDecimal(command, "@costOverChargePrice", context.CostOverChargePrice);
                 AddDecimal(command, "@overChargePrice", finalOverChargePrice);
                 command.Parameters.Add("@createdBy", SqlDbType.NVarChar, 50).Value = username;
                 command.Parameters.Add("@updatedBy", SqlDbType.NVarChar, 50).Value = username;
                 subscriptionId = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
             }
 
-            await InsertInvoiceAsync(connection, transaction, subscriptionId, invoiceNumber, "SUBSCRIPTION", "Monthly subscription", context.DataLimitGb, buyPrice, subscriptionPrice, subscriptionPrice, username, cancellationToken);
+            await InsertInvoiceAsync(connection, transaction, subscriptionId, invoiceNumber, "SUBSCRIPTION", "Monthly subscription", context.DataLimitGb, subscriptionCostPrice, buyPrice, subscriptionPrice, subscriptionPrice, username, cancellationToken);
             await InsertAuditAsync(connection, transaction, userId, subscriptionId, $"Created monthly subscription #{subscriptionId} for {segment.StartDate:yyyy-MM-dd} to {segment.EndDate:yyyy-MM-dd} by '{username}'.", cancellationToken);
             subscriptionIds.Add(subscriptionId);
         }
@@ -427,8 +432,11 @@ public class MonthlySubscriptionService(
         var buyPrice = invoiceType == "OVERCHARGE"
             ? Math.Round(dataGb * subscription.ResellerOverChargePrice, 2, MidpointRounding.AwayFromZero)
             : amount;
+        var costPrice = invoiceType == "OVERCHARGE"
+            ? Math.Round(dataGb * subscription.CostOverChargePrice, 2, MidpointRounding.AwayFromZero)
+            : 0;
         var invoiceNumber = await BuildInvoiceNumberAsync(connection, transaction, cancellationToken);
-        var invoiceId = await InsertInvoiceAsync(connection, transaction, model.SubscriptionId, invoiceNumber, invoiceType, model.Description, dataGb, buyPrice, amount, amount, username, cancellationToken);
+        var invoiceId = await InsertInvoiceAsync(connection, transaction, model.SubscriptionId, invoiceNumber, invoiceType, model.Description, dataGb, costPrice, buyPrice, amount, amount, username, cancellationToken);
         await RecalculateSubscriptionTotalsAsync(connection, transaction, model.SubscriptionId, cancellationToken);
         await InsertAuditAsync(connection, transaction, userId, model.SubscriptionId, $"Created invoice #{invoiceId} for subscription #{model.SubscriptionId} by '{username}'.", cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -960,7 +968,7 @@ public class MonthlySubscriptionService(
     {
         const string query = """
             SELECT [ID], [SubscriptionId], [InvoiceNumber], [ReceiptNumber], [PoNumber], [InvoiceType], [Description],
-                   [DataGb], [BuyPrice], [SalePrice], [MarginAmount], [Amount], [PaidAmount], [RefundAmount],
+                   [DataGb], [CostPrice], [BuyPrice], [SalePrice], [MarginAmount], [Amount], [PaidAmount], [RefundAmount],
                    [Status], [CreatedAt], [CompletedAt],
                    CASE WHEN EXISTS (
                        SELECT 1
@@ -998,6 +1006,7 @@ public class MonthlySubscriptionService(
                 InvoiceType = reader["InvoiceType"]?.ToString() ?? string.Empty,
                 Description = reader["Description"]?.ToString() ?? string.Empty,
                 DataGb = ReadDecimal(reader, "DataGb"),
+                CostPrice = ReadDecimal(reader, "CostPrice"),
                 BuyPrice = ReadDecimal(reader, "BuyPrice"),
                 SalePrice = ReadDecimal(reader, "SalePrice"),
                 MarginAmount = ReadDecimal(reader, "MarginAmount"),
@@ -1140,6 +1149,8 @@ public class MonthlySubscriptionService(
             reader["PlanName"]?.ToString() ?? string.Empty,
             reader["PlanCode"]?.ToString() ?? string.Empty,
             ReadDecimal(reader, "BaseData"),
+            ReadDecimal(reader, "CostPrice"),
+            ReadDecimal(reader, "CostOverChargePrice"),
             ReadDecimal(reader, "ResellerPrice"),
             ReadDecimal(reader, "FinalPrice"),
             ReadDecimal(reader, "ResellerOverChargePrice"),
@@ -1157,6 +1168,7 @@ public class MonthlySubscriptionService(
                 s.[VesselName],
                 COALESCE(NULLIF(d.[KITNumber], N''), NULLIF(s.[KitId], N''), d.[KITID], N'') AS [KitId],
                 s.[PlanName],
+                s.[CostOverChargePrice],
                 s.[OverChargePrice],
                 dp.[ResellerOverChargePrice],
                 dp.[FinalOverChargePrice]
@@ -1192,6 +1204,7 @@ public class MonthlySubscriptionService(
             ReadText(reader, "KitId"),
             ReadText(reader, "PlanName"),
             resellerOverChargePrice,
+            ReadDecimal(reader, "CostOverChargePrice"),
             finalOverChargePrice);
     }
 
@@ -1281,14 +1294,14 @@ public class MonthlySubscriptionService(
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
-    private async Task<int> InsertInvoiceAsync(SqlConnection connection, SqlTransaction transaction, int subscriptionId, string invoiceNumber, string invoiceType, string? description, decimal dataGb, decimal buyPrice, decimal salePrice, decimal amount, string username, CancellationToken cancellationToken)
+    private async Task<int> InsertInvoiceAsync(SqlConnection connection, SqlTransaction transaction, int subscriptionId, string invoiceNumber, string invoiceType, string? description, decimal dataGb, decimal costPrice, decimal buyPrice, decimal salePrice, decimal amount, string username, CancellationToken cancellationToken)
     {
         const string query = """
             INSERT INTO [dbo].[TblSubscriptionInvoice]
-                ([SubscriptionId], [InvoiceNumber], [InvoiceType], [Description], [DataGb], [BuyPrice], [SalePrice], [MarginAmount], [Amount], [PaidAmount], [RefundAmount], [Status], [CreatedAt], [Created_Date], [Created_By], [Updated_Date], [Updated_By])
+                ([SubscriptionId], [InvoiceNumber], [InvoiceType], [Description], [DataGb], [CostPrice], [BuyPrice], [SalePrice], [MarginAmount], [Amount], [PaidAmount], [RefundAmount], [Status], [CreatedAt], [Created_Date], [Created_By], [Updated_Date], [Updated_By])
             OUTPUT INSERTED.[ID]
             VALUES
-                (@subscriptionId, @invoiceNumber, @invoiceType, @description, @dataGb, @buyPrice, @salePrice, @marginAmount, @amount, 0, 0, N'pending', GETDATE(), GETDATE(), @createdBy, GETDATE(), @updatedBy)
+                (@subscriptionId, @invoiceNumber, @invoiceType, @description, @dataGb, @costPrice, @buyPrice, @salePrice, @marginAmount, @amount, 0, 0, N'pending', GETDATE(), GETDATE(), @createdBy, GETDATE(), @updatedBy)
             """;
         await using var command = new SqlCommand(query, connection, transaction);
         command.Parameters.Add("@subscriptionId", SqlDbType.Int).Value = subscriptionId;
@@ -1296,6 +1309,7 @@ public class MonthlySubscriptionService(
         command.Parameters.Add("@invoiceType", SqlDbType.NVarChar, 50).Value = invoiceType;
         command.Parameters.Add("@description", SqlDbType.NVarChar, 500).Value = string.IsNullOrWhiteSpace(description) ? DBNull.Value : (object)description.Trim();
         AddDecimal(command, "@dataGb", dataGb);
+        AddDecimal(command, "@costPrice", costPrice);
         AddDecimal(command, "@buyPrice", buyPrice);
         AddDecimal(command, "@salePrice", salePrice);
         AddDecimal(command, "@marginAmount", salePrice - buyPrice);
@@ -1778,8 +1792,10 @@ public class MonthlySubscriptionService(
                     [NextBillingDate] date NULL,
                     [DataLimitGb] decimal(18,2) NOT NULL CONSTRAINT [DF_TblMonthlySubscription_DataLimitGb] DEFAULT(0),
                     [BasePlanPrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblMonthlySubscription_BasePlanPrice] DEFAULT(0),
+                    [CostPrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblMonthlySubscription_CostPrice] DEFAULT(0),
                     [SubscriptionDays] int NOT NULL CONSTRAINT [DF_TblMonthlySubscription_SubscriptionDays] DEFAULT(0),
                     [SubscriptionPrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblMonthlySubscription_SubscriptionPrice] DEFAULT(0),
+                    [CostOverChargePrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblMonthlySubscription_CostOverChargePrice] DEFAULT(0),
                     [OverChargePrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblMonthlySubscription_OverChargePrice] DEFAULT(0),
                     [TotalTopUpGb] decimal(18,2) NOT NULL CONSTRAINT [DF_TblMonthlySubscription_TotalTopUpGb] DEFAULT(0),
                     [TotalInvoiceAmount] decimal(18,2) NOT NULL CONSTRAINT [DF_TblMonthlySubscription_TotalInvoiceAmount] DEFAULT(0),
@@ -1803,6 +1819,7 @@ public class MonthlySubscriptionService(
                     [InvoiceType] nvarchar(50) NOT NULL CONSTRAINT [DF_TblSubscriptionInvoice_InvoiceType] DEFAULT(N'SUBSCRIPTION'),
                     [Description] nvarchar(500) NULL,
                     [DataGb] decimal(18,2) NOT NULL CONSTRAINT [DF_TblSubscriptionInvoice_DataGb] DEFAULT(0),
+                    [CostPrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblSubscriptionInvoice_CostPrice] DEFAULT(0),
                     [BuyPrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblSubscriptionInvoice_BuyPrice] DEFAULT(0),
                     [SalePrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblSubscriptionInvoice_SalePrice] DEFAULT(0),
                     [MarginAmount] decimal(18,2) NOT NULL CONSTRAINT [DF_TblSubscriptionInvoice_MarginAmount] DEFAULT(0),
@@ -1821,12 +1838,18 @@ public class MonthlySubscriptionService(
 
             IF COL_LENGTH(N'[dbo].[TblMonthlySubscription]', N'BasePlanPrice') IS NULL
                 ALTER TABLE [dbo].[TblMonthlySubscription] ADD [BasePlanPrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblMonthlySubscription_BasePlanPrice_Existing] DEFAULT(0);
+            IF COL_LENGTH(N'[dbo].[TblMonthlySubscription]', N'CostPrice') IS NULL
+                ALTER TABLE [dbo].[TblMonthlySubscription] ADD [CostPrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblMonthlySubscription_CostPrice_Existing] DEFAULT(0);
             IF COL_LENGTH(N'[dbo].[TblMonthlySubscription]', N'SubscriptionDays') IS NULL
                 ALTER TABLE [dbo].[TblMonthlySubscription] ADD [SubscriptionDays] int NOT NULL CONSTRAINT [DF_TblMonthlySubscription_SubscriptionDays_Existing] DEFAULT(0);
             IF COL_LENGTH(N'[dbo].[TblMonthlySubscription]', N'SubscriptionPrice') IS NULL
                 ALTER TABLE [dbo].[TblMonthlySubscription] ADD [SubscriptionPrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblMonthlySubscription_SubscriptionPrice_Existing] DEFAULT(0);
+            IF COL_LENGTH(N'[dbo].[TblMonthlySubscription]', N'CostOverChargePrice') IS NULL
+                ALTER TABLE [dbo].[TblMonthlySubscription] ADD [CostOverChargePrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblMonthlySubscription_CostOverChargePrice_Existing] DEFAULT(0);
             IF COL_LENGTH(N'[dbo].[TblMonthlySubscription]', N'OverChargePrice') IS NULL
                 ALTER TABLE [dbo].[TblMonthlySubscription] ADD [OverChargePrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblMonthlySubscription_OverChargePrice_Existing] DEFAULT(0);
+            IF COL_LENGTH(N'[dbo].[TblSubscriptionInvoice]', N'CostPrice') IS NULL
+                ALTER TABLE [dbo].[TblSubscriptionInvoice] ADD [CostPrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblSubscriptionInvoice_CostPrice_Existing] DEFAULT(0);
             """;
         await using var command = new SqlCommand(query, connection, transaction);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -1839,6 +1862,8 @@ public class MonthlySubscriptionService(
         string PlanName,
         string PlanCode,
         decimal DataLimitGb,
+        decimal CostPrice,
+        decimal CostOverChargePrice,
         decimal ResellerPrice,
         decimal FinalPrice,
         decimal ResellerOverChargePrice,
@@ -1852,6 +1877,7 @@ public class MonthlySubscriptionService(
         string KitId,
         string PlanName,
         decimal ResellerOverChargePrice,
+        decimal CostOverChargePrice,
         decimal FinalOverChargePrice);
 
     private sealed record MonthlySubscriptionSegment(DateTime StartDate, DateTime EndDate, DateTime NextBillingDate);

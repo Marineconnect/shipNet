@@ -142,8 +142,10 @@
               <th>Tên gói / Plan Name</th>
               <th>Mã gói / Plan Code</th>
               <th>Dung lượng / Data Limit</th>
+              <th>Giá Cost KVH (@defaultCurrency) / KVH Cost Price (@defaultCurrency)</th>
               <th>Đơn giá đại lý (@defaultCurrency) / Reseller Price (@defaultCurrency)</th>
               <th>Đơn giá bán ra (@defaultCurrency) / Sale Price (@defaultCurrency)</th>
+              <th>Cost Overcharge KVH (@defaultCurrency) / KVH Overcharge Cost (@defaultCurrency)</th>
               <th>Mua thêm đại lý (@defaultCurrency) / Reseller Overcharge (@defaultCurrency)</th>
               <th>Mua thêm bán ra (@defaultCurrency) / Sale Overcharge (@defaultCurrency)</th>
               <th>Trạng thái / Status</th>
@@ -155,7 +157,7 @@
             @if (Model.Plans.Count == 0)
             {
               <tr>
-                <td colspan="10" class="tenant-empty">Chưa có gói cước nào.</td>
+                <td colspan="12" class="tenant-empty">Chưa có gói cước nào.</td>
               </tr>
             }
             else
@@ -173,8 +175,10 @@
                   </td>
                   <td><strong>@plan.PlanCode</strong></td>
                   <td>@Data(plan.BaseData)</td>
+                  <td>@Money(plan.CostPrice)</td>
                   <td>@Money(plan.ResellerPrice)</td>
                   <td>@Money(plan.FinalPrice)</td>
+                  <td>@Money(plan.CostOverChargePrice)</td>
                   <td>@Money(plan.ResellerOverChargePrice)</td>
                   <td>@Money(plan.FinalOverChargePrice)</td>
                   <td>

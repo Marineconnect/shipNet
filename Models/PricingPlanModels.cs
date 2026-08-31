@@ -112,8 +112,10 @@ public class PricingPlanOptionViewModel
     public string PlanName { get; set; } = string.Empty;
     public string PlanCode { get; set; } = string.Empty;
     public decimal BaseData { get; set; }
+    public decimal CostPrice { get; set; }
     public decimal ResellerPrice { get; set; }
     public decimal FinalPrice { get; set; }
+    public decimal CostOverChargePrice { get; set; }
     public decimal ResellerOverChargePrice { get; set; }
     public decimal FinalOverChargePrice { get; set; }
     public string DisplayName => $"{PlanName} ({PlanCode})";
@@ -124,9 +126,11 @@ public class PricingPlanListItemViewModel
     public int Id { get; set; }
     public string PlanName { get; set; } = string.Empty;
     public string PlanCode { get; set; } = string.Empty;
+    public decimal CostPrice { get; set; }
     public decimal ResellerPrice { get; set; }
     public decimal FinalPrice { get; set; }
     public decimal BaseData { get; set; }
+    public decimal CostOverChargePrice { get; set; }
     public decimal ResellerOverChargePrice { get; set; }
     public decimal FinalOverChargePrice { get; set; }
     public string Status { get; set; } = "active";
@@ -159,6 +163,10 @@ public class PricingPlanFormViewModel
     [Display(Name = "Mã gói")]
     public string PlanCode { get; set; } = string.Empty;
 
+    [Range(0, 999999999999, ErrorMessage = "Giá Cost KVH phải lớn hơn hoặc bằng 0.")]
+    [Display(Name = "Giá Cost KVH")]
+    public decimal CostPrice { get; set; }
+
     [Range(0, 999999999999, ErrorMessage = "Đơn giá đại lý phải lớn hơn hoặc bằng 0.")]
     [Display(Name = "Đơn giá đại lý ($)")]
     public decimal ResellerPrice { get; set; }
@@ -170,6 +178,10 @@ public class PricingPlanFormViewModel
     [Range(0, 999999999999, ErrorMessage = "Dung lượng phải lớn hơn hoặc bằng 0.")]
     [Display(Name = "Dung lượng")]
     public decimal BaseData { get; set; }
+
+    [Range(0, 999999999999, ErrorMessage = "Giá Cost Overcharge KVH phải lớn hơn hoặc bằng 0.")]
+    [Display(Name = "Giá Cost Overcharge KVH")]
+    public decimal CostOverChargePrice { get; set; }
 
     [Range(0, 999999999999, ErrorMessage = "Giá mua thêm cho đại lý phải lớn hơn hoặc bằng 0.")]
     [Display(Name = "Giá mua thêm đại lý ($)")]
