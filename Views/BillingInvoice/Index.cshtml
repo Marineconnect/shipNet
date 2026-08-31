@@ -144,6 +144,10 @@
         {
           <a asp-controller="TransactionReup" asp-action="Index">Reup Transaction</a>
         }
+        @if (!Model.IsDeviceScoped)
+        {
+          <a asp-controller="TenantCommissionPayment" asp-action="Index">Chi trả hoa hồng</a>
+        }
       </nav>
 
       <section class="billing-kpi-grid">

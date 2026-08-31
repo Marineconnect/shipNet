@@ -9,7 +9,7 @@
   </nav>
   <section class="device-hero"><div><div class="device-brand">BÁO CÁO DOANH THU</div><h1>Báo cáo doanh thu</h1><p>Import CSV/XLSX, assign invoice IDs and monitor RabbitMQ publishing.</p></div></section>
   <nav class="transaction-tabs" aria-label="Transaction views">
-    <a asp-controller="BillingInvoice" asp-action="Index">Billing &amp; Invoice</a><a asp-controller="Transactions" asp-action="Index" asp-route-tab="history">Lịch sử thanh toán</a><a class="is-active" asp-controller="TransactionReup" asp-action="Index">Reup Transaction</a>
+    <a asp-controller="BillingInvoice" asp-action="Index">Billing &amp; Invoice</a><a asp-controller="Transactions" asp-action="Index" asp-route-tab="history">Lịch sử thanh toán</a><a class="is-active" asp-controller="TransactionReup" asp-action="Index">Reup Transaction</a><a asp-controller="TenantCommissionPayment" asp-action="Index">Chi trả hoa hồng</a>
   </nav>
   @if (!string.IsNullOrWhiteSpace(Model.Message)) { <div class="tenant-alert @(Model.IsSuccess ? "success" : "danger")">@Model.Message</div> }
   <section class="device-card transaction-card">

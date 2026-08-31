@@ -217,12 +217,13 @@ public class TransactionsController(
             && !user.IsCrew
             && (user.CanManageTransactions
                 || string.Equals(user.UserType?.Trim(), ManagedUserType.Admin, StringComparison.OrdinalIgnoreCase)
+                || user.IsTenantUser
                 || string.Equals(user.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool CanManageTransactions(AuthUserRecord? user)
     {
-        return CanAccessTransactions(user) && user?.IsViewOnly != true;
+        return CanAccessTransactions(user) && user?.IsViewOnly != true && user?.IsTenantUser != true;
     }
 
     private static bool IsTransactionReupAdmin(AuthUserRecord? user)

@@ -14,6 +14,9 @@ public sealed class TenantCommissionPaymentTests
         Assert.Contains("CK_TblTenantCommissionPayment_Period", script);
         Assert.Contains("UX_TenantCommissionPaymentItem_SubscriptionId", script);
         Assert.Contains("FOREIGN KEY ([SubscriptionId]) REFERENCES [dbo].[TblMonthlySubscription]([ID])", script);
+        Assert.Contains("DROP CONSTRAINT [FK_TenantCommissionPaymentItem_Payment]", script);
+        Assert.Contains("FOREIGN KEY ([PaymentId]) REFERENCES [dbo].[TblTenantCommissionPayment]([ID]);", script);
+        Assert.DoesNotContain("REFERENCES [dbo].[TblTenantCommissionPayment]([ID]) ON DELETE CASCADE", script);
     }
 
     [Fact]
@@ -60,6 +63,7 @@ public sealed class TenantCommissionPaymentTests
         var service = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "TenantCommissionPaymentService.cs"));
 
         Assert.Contains("[Authorize]", controller);
+        Assert.Contains("CanAccessPayment(currentUser)", controller);
         Assert.Contains("GetAllowedTenantId(currentUser)", controller);
         Assert.Contains("EnsureTenantAccess(input.TenantId, allowedTenantId)", service);
         Assert.Contains("EnsureTenantAccess(tenantId, allowedTenantId)", service);
@@ -76,6 +80,7 @@ public sealed class TenantCommissionPaymentTests
         Assert.Contains("user.IsAdmin", controller);
         Assert.Contains("CreateManual", controller);
         Assert.Contains("CreateBillingCycles", controller);
+        Assert.Contains("!CanCreatePayment(currentUser)", ExtractMethodBody(controller, "EligibleCycles"));
         Assert.Contains("return Forbid();", ExtractMethodBody(controller, "CreateManual"));
         Assert.Contains("return Forbid();", ExtractMethodBody(controller, "CreateBillingCycles"));
     }
@@ -91,6 +96,8 @@ public sealed class TenantCommissionPaymentTests
         Assert.Contains("selectedCycles.set(id, cycle)", view);
         Assert.Contains("available.innerHTML = \"\"", view);
         Assert.Contains("input.name = \"SubscriptionIds\"", view);
+        Assert.Contains("Invoice Number(s)", view);
+        Assert.Contains("Transaction Reference(s)", view);
     }
 
     [Fact]
@@ -112,14 +119,52 @@ public sealed class TenantCommissionPaymentTests
     }
 
     [Fact]
-    public void ModuleIsRegisteredAndLinkedInCommercialMenu()
+    public void ModuleIsRegisteredAndLinkedAsRevenueReportTab()
     {
         var program = File.ReadAllText(Path.Combine(ProjectRoot, "Program.cs"));
         var nav = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "Shared", "_PortalNav.cshtml"));
+        var billingView = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "BillingInvoice", "Index.cshtml"));
+        var transactionView = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "Transactions", "Index.cshtml"));
+        var commissionView = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "TenantCommissionPayment", "Index.cshtml"));
 
         Assert.Contains("ITenantCommissionPaymentService, TenantCommissionPaymentService", program);
-        Assert.Contains("asp-controller=\"TenantCommissionPayment\"", nav);
         Assert.Contains("tenant-commission-payment", nav);
+        Assert.DoesNotContain("Thanh toán hoa hồng / Commission Payments", nav);
+        Assert.Contains("IsTransactionReupAdmin", commissionView);
+        Assert.Contains("asp-controller=\"TenantCommissionPayment\"", billingView);
+        Assert.Contains("asp-controller=\"TenantCommissionPayment\"", transactionView);
+        Assert.Contains("class=\"is-active\" asp-controller=\"TenantCommissionPayment\"", commissionView);
+        Assert.Contains("Chi trả hoa hồng", commissionView);
+    }
+
+    [Fact]
+    public void CommissionPaymentSearchCoversBillingInvoiceAndTransactionReferences()
+    {
+        var service = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "TenantCommissionPaymentService.cs"));
+
+        Assert.Contains("EXISTS (", service);
+        Assert.Contains("TblTenantCommissionPaymentItem", service);
+        Assert.Contains("TblSubscriptionInvoice", service);
+        Assert.Contains("TblPaymentTransaction", service);
+        Assert.Contains("TblNinePayQrSession", service);
+        Assert.Contains("ProviderPaymentNo", service);
+        Assert.Contains("BankAccountNo", service);
+        Assert.Contains("TransferContent", service);
+        Assert.Contains("InvoiceNumbers", service);
+        Assert.Contains("TransactionReferences", service);
+    }
+
+    [Fact]
+    public void TenantCanOpenTransactionHistoryWithServerSideScopeButCannotManage()
+    {
+        var controller = File.ReadAllText(Path.Combine(ProjectRoot, "Controllers", "TransactionsController.cs"));
+        var service = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "PaymentTransactionService.cs"));
+
+        Assert.Contains("|| user.IsTenantUser", controller);
+        Assert.Contains("user?.IsTenantUser != true", controller);
+        Assert.Contains("GetAllowedTenantId(currentUser)", controller);
+        Assert.Contains("filter.TenantId = allowedTenantId", service);
+        Assert.Contains("(@allowedTenantId IS NULL OR s.[TenantId] = @allowedTenantId)", service);
     }
 
     private static string ExtractMethodBody(string source, string methodName)

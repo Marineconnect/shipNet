@@ -55,11 +55,24 @@ BEGIN
 END;
 GO
 
+IF EXISTS (
+    SELECT 1
+    FROM sys.foreign_keys
+    WHERE [name] = N'FK_TenantCommissionPaymentItem_Payment'
+      AND [parent_object_id] = OBJECT_ID(N'[dbo].[TblTenantCommissionPaymentItem]')
+      AND [delete_referential_action_desc] = N'CASCADE'
+)
+BEGIN
+    ALTER TABLE [dbo].[TblTenantCommissionPaymentItem]
+    DROP CONSTRAINT [FK_TenantCommissionPaymentItem_Payment];
+END;
+GO
+
 IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE [name] = N'FK_TenantCommissionPaymentItem_Payment')
 BEGIN
     ALTER TABLE [dbo].[TblTenantCommissionPaymentItem]
     ADD CONSTRAINT [FK_TenantCommissionPaymentItem_Payment]
-        FOREIGN KEY ([PaymentId]) REFERENCES [dbo].[TblTenantCommissionPayment]([ID]) ON DELETE CASCADE;
+        FOREIGN KEY ([PaymentId]) REFERENCES [dbo].[TblTenantCommissionPayment]([ID]);
 END;
 GO
 

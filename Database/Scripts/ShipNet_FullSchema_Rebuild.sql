@@ -1025,6 +1025,20 @@ BEGIN
 END;
 GO
 
+IF OBJECT_ID(N'[dbo].[TblTenant]', N'U') IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE [name] = N'FK_TenantCommissionPayment_Tenant')
+    ALTER TABLE [dbo].[TblTenantCommissionPayment] WITH NOCHECK ADD CONSTRAINT [FK_TenantCommissionPayment_Tenant] FOREIGN KEY ([TenantId]) REFERENCES [dbo].[TblTenant]([ID]);
+GO
+
+IF OBJECT_ID(N'[dbo].[TblMonthlySubscription]', N'U') IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE [name] = N'FK_TenantCommissionPaymentItem_Subscription')
+    ALTER TABLE [dbo].[TblTenantCommissionPaymentItem] WITH NOCHECK ADD CONSTRAINT [FK_TenantCommissionPaymentItem_Subscription] FOREIGN KEY ([SubscriptionId]) REFERENCES [dbo].[TblMonthlySubscription]([ID]);
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE [name] = N'FK_TenantCommissionPaymentItem_Payment')
+    ALTER TABLE [dbo].[TblTenantCommissionPaymentItem] WITH NOCHECK ADD CONSTRAINT [FK_TenantCommissionPaymentItem_Payment] FOREIGN KEY ([PaymentId]) REFERENCES [dbo].[TblTenantCommissionPayment]([ID]);
+GO
+
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'UX_TenantCommissionPaymentItem_SubscriptionId' AND [object_id] = OBJECT_ID(N'[dbo].[TblTenantCommissionPaymentItem]'))
     CREATE UNIQUE INDEX [UX_TenantCommissionPaymentItem_SubscriptionId] ON [dbo].[TblTenantCommissionPaymentItem]([SubscriptionId]);
 GO

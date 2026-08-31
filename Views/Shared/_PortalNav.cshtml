@@ -110,8 +110,7 @@
             }
             @if (canAccessBillingInvoice)
             {
-              <a asp-controller="BillingInvoice" asp-action="Index" class="portal-nav-subitem@(ActiveClass("billing-invoice", "transactions"))">Báo cáo doanh thu / Billing &amp; Invoice</a>
-              <a asp-controller="TenantCommissionPayment" asp-action="Index" class="portal-nav-subitem@(ActiveClass("tenant-commission-payment"))">Thanh toán hoa hồng / Commission Payments</a>
+              <a asp-controller="BillingInvoice" asp-action="Index" class="portal-nav-subitem@(ActiveClass("billing-invoice", "transactions", "tenant-commission-payment"))">Báo cáo doanh thu / Billing &amp; Invoice</a>
             }
           </div>
         </details>

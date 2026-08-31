@@ -16,6 +16,7 @@ public sealed class TenantCommissionPaymentIndexViewModel
     public List<DeviceTenantOptionViewModel> Tenants { get; set; } = [];
     public bool IsTenantScoped { get; set; }
     public bool CanCreatePayment { get; set; }
+    public bool IsTransactionReupAdmin { get; set; }
     public int CurrentPage { get; set; } = 1;
     public int PageSize { get; set; } = 20;
     public int TotalItems { get; set; }
@@ -101,6 +102,8 @@ public sealed class TenantCommissionPaymentItemViewModel
     public string DeviceName { get; set; } = string.Empty;
     public string KitId { get; set; } = string.Empty;
     public string PlanName { get; set; } = string.Empty;
+    public string InvoiceNumbers { get; set; } = string.Empty;
+    public string TransactionReferences { get; set; } = string.Empty;
     public decimal CommissionAmount { get; set; }
 }
 

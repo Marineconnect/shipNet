@@ -27,7 +27,7 @@ public sealed class TenantCommissionPaymentController(
         string sortDirection = "desc")
     {
         var currentUser = await GetCurrentUserAsync();
-        if (currentUser is null)
+        if (!CanAccessPayment(currentUser))
         {
             return Forbid();
         }
@@ -51,6 +51,7 @@ public sealed class TenantCommissionPaymentController(
             allowedTenantId,
             CanCreatePayment(currentUser),
             HttpContext.RequestAborted);
+        model.IsTransactionReupAdmin = IsTransactionReupAdmin(currentUser);
 
         return View(model);
     }
@@ -59,7 +60,7 @@ public sealed class TenantCommissionPaymentController(
     public async Task<IActionResult> EligibleCycles(int tenantId, DateTime? dateFrom = null, DateTime? dateTo = null, string? search = null)
     {
         var currentUser = await GetCurrentUserAsync();
-        if (currentUser is null)
+        if (!CanCreatePayment(currentUser))
         {
             return Forbid();
         }
@@ -85,7 +86,7 @@ public sealed class TenantCommissionPaymentController(
     public async Task<IActionResult> Detail(long id)
     {
         var currentUser = await GetCurrentUserAsync();
-        if (currentUser is null)
+        if (!CanAccessPayment(currentUser))
         {
             return Forbid();
         }
@@ -173,6 +174,22 @@ public sealed class TenantCommissionPaymentController(
         return user is not null &&
             !user.IsViewOnly &&
             (user.IsAdmin || string.Equals(user.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsTransactionReupAdmin(AuthUserRecord? user)
+    {
+        return user is not null &&
+            (user.IsAdmin || string.Equals(user.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool CanAccessPayment(AuthUserRecord? user)
+    {
+        return user is not null
+            && !user.IsShipAdmin
+            && !user.IsCrew
+            && (user.IsAdmin
+                || user.IsTenantUser
+                || string.Equals(user.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase));
     }
 
     private static int? GetAllowedTenantId(AuthUserRecord? user)

@@ -338,6 +338,7 @@ public sealed class TenantCommissionPaymentService(IConfiguration configuration)
                     OR CONVERT(nvarchar(30), s.[ID]) LIKE @search
                     OR FORMAT(s.[UsageMonth], N'MM/yyyy') LIKE @search
                     OR i.[InvoiceNumber] LIKE @search
+                    OR i.[ReceiptNumber] LIKE @search
                     OR s.[VesselName] LIKE @search
                     OR d.[DeviceName] LIKE @search
                     OR d.[DeviceCode] LIKE @search
@@ -345,6 +346,30 @@ public sealed class TenantCommissionPaymentService(IConfiguration configuration)
                     OR s.[KitId] LIKE @search
                     OR d.[KITID] LIKE @search
                     OR s.[PlanName] LIKE @search
+                    OR EXISTS (
+                        SELECT 1
+                        FROM [dbo].[TblPaymentTransaction] pt
+                        WHERE (pt.[SubscriptionId] = s.[ID] OR pt.[InvoiceId] = i.[ID] OR pt.[InvoiceNumber] = i.[InvoiceNumber])
+                          AND (CONVERT(nvarchar(30), pt.[ID]) LIKE @search
+                               OR pt.[InvoiceNumber] LIKE @search
+                               OR pt.[ProviderPaymentNo] LIKE @search
+                               OR pt.[ProviderStatus] LIKE @search
+                               OR pt.[Method] LIKE @search)
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM [dbo].[TblNinePayQrSession] qs
+                        WHERE (qs.[SubscriptionId] = s.[ID]
+                               OR qs.[InvoiceId] = i.[ID]
+                               OR qs.[InvoiceNumber] = i.[InvoiceNumber]
+                               OR EXISTS (SELECT 1 FROM [dbo].[TblNinePayQrSessionInvoice] qi WHERE qi.[QrSessionId] = qs.[ID] AND qi.[InvoiceId] = i.[ID]))
+                          AND (CONVERT(nvarchar(30), qs.[ID]) LIKE @search
+                               OR qs.[InvoiceNumber] LIKE @search
+                               OR qs.[ProviderInvoiceNo] LIKE @search
+                               OR qs.[ProviderPaymentNo] LIKE @search
+                               OR qs.[BankAccountNo] LIKE @search
+                               OR qs.[TransferContent] LIKE @search)
+                    )
                   )
               {{extraWhere}}
             GROUP BY s.[ID], s.[UsageMonth], s.[StartDate], s.[EndDate], s.[VesselName], d.[VesselName], d.[DeviceName], d.[DeviceCode], d.[KITNumber], s.[KitId], d.[KITID], s.[PlanName]
@@ -442,6 +467,22 @@ public sealed class TenantCommissionPaymentService(IConfiguration configuration)
             END;
             IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'UX_TenantCommissionPaymentItem_SubscriptionId' AND [object_id] = OBJECT_ID(N'[dbo].[TblTenantCommissionPaymentItem]'))
                 CREATE UNIQUE INDEX [UX_TenantCommissionPaymentItem_SubscriptionId] ON [dbo].[TblTenantCommissionPaymentItem]([SubscriptionId]);
+            IF OBJECT_ID(N'[dbo].[TblTenant]', N'U') IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE [name] = N'FK_TenantCommissionPayment_Tenant')
+                ALTER TABLE [dbo].[TblTenantCommissionPayment] WITH NOCHECK ADD CONSTRAINT [FK_TenantCommissionPayment_Tenant] FOREIGN KEY ([TenantId]) REFERENCES [dbo].[TblTenant]([ID]);
+            IF OBJECT_ID(N'[dbo].[TblMonthlySubscription]', N'U') IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE [name] = N'FK_TenantCommissionPaymentItem_Subscription')
+                ALTER TABLE [dbo].[TblTenantCommissionPaymentItem] WITH NOCHECK ADD CONSTRAINT [FK_TenantCommissionPaymentItem_Subscription] FOREIGN KEY ([SubscriptionId]) REFERENCES [dbo].[TblMonthlySubscription]([ID]);
+            IF EXISTS (
+                SELECT 1
+                FROM sys.foreign_keys
+                WHERE [name] = N'FK_TenantCommissionPaymentItem_Payment'
+                  AND [parent_object_id] = OBJECT_ID(N'[dbo].[TblTenantCommissionPaymentItem]')
+                  AND [delete_referential_action_desc] = N'CASCADE'
+            )
+                ALTER TABLE [dbo].[TblTenantCommissionPaymentItem] DROP CONSTRAINT [FK_TenantCommissionPaymentItem_Payment];
+            IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE [name] = N'FK_TenantCommissionPaymentItem_Payment')
+                ALTER TABLE [dbo].[TblTenantCommissionPaymentItem] WITH NOCHECK ADD CONSTRAINT [FK_TenantCommissionPaymentItem_Payment] FOREIGN KEY ([PaymentId]) REFERENCES [dbo].[TblTenantCommissionPayment]([ID]);
             IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'IX_TenantCommissionPayment_Tenant_PaymentDate' AND [object_id] = OBJECT_ID(N'[dbo].[TblTenantCommissionPayment]'))
                 CREATE INDEX [IX_TenantCommissionPayment_Tenant_PaymentDate] ON [dbo].[TblTenantCommissionPayment]([TenantId], [PaymentDate] DESC, [ID] DESC);
             """;
@@ -508,10 +549,50 @@ public sealed class TenantCommissionPaymentService(IConfiguration configuration)
                    COALESCE(NULLIF(d.[DeviceName], N''), NULLIF(d.[DeviceCode], N''), N'') AS [DeviceName],
                    COALESCE(NULLIF(d.[KITNumber], N''), NULLIF(s.[KitId], N''), NULLIF(d.[KITID], N''), N'') AS [KitId],
                    s.[PlanName],
+                   COALESCE(inv.[InvoiceNumbers], N'') AS [InvoiceNumbers],
+                   COALESCE(tx.[TransactionReferences], N'') AS [TransactionReferences],
                    pi.[CommissionAmount]
             FROM [dbo].[TblTenantCommissionPaymentItem] pi
             INNER JOIN [dbo].[TblMonthlySubscription] s ON s.[ID] = pi.[SubscriptionId]
             LEFT JOIN [dbo].[TblDevices] d ON d.[ID] = s.[DeviceId]
+            OUTER APPLY (
+                SELECT STUFF((
+                    SELECT DISTINCT N', ' + i2.[InvoiceNumber]
+                    FROM [dbo].[TblSubscriptionInvoice] i2
+                    WHERE i2.[SubscriptionId] = s.[ID]
+                    FOR XML PATH(''), TYPE).value('.', 'nvarchar(max)'), 1, 2, N'') AS [InvoiceNumbers]
+            ) inv
+            OUTER APPLY (
+                SELECT STUFF((
+                    SELECT DISTINCT N', ' + refs.[Reference]
+                    FROM (
+                        SELECT NULLIF(pt.[ProviderPaymentNo], N'') AS [Reference]
+                        FROM [dbo].[TblPaymentTransaction] pt
+                        WHERE pt.[SubscriptionId] = s.[ID]
+                           OR pt.[InvoiceId] IN (SELECT i3.[ID] FROM [dbo].[TblSubscriptionInvoice] i3 WHERE i3.[SubscriptionId] = s.[ID])
+                           OR pt.[InvoiceNumber] IN (SELECT i4.[InvoiceNumber] FROM [dbo].[TblSubscriptionInvoice] i4 WHERE i4.[SubscriptionId] = s.[ID])
+                        UNION
+                        SELECT NULLIF(qs.[ProviderPaymentNo], N'')
+                        FROM [dbo].[TblNinePayQrSession] qs
+                        WHERE qs.[SubscriptionId] = s.[ID]
+                           OR qs.[InvoiceId] IN (SELECT i5.[ID] FROM [dbo].[TblSubscriptionInvoice] i5 WHERE i5.[SubscriptionId] = s.[ID])
+                           OR qs.[InvoiceNumber] IN (SELECT i6.[InvoiceNumber] FROM [dbo].[TblSubscriptionInvoice] i6 WHERE i6.[SubscriptionId] = s.[ID])
+                           OR EXISTS (
+                                SELECT 1
+                                FROM [dbo].[TblNinePayQrSessionInvoice] qi
+                                WHERE qi.[QrSessionId] = qs.[ID]
+                                  AND qi.[SubscriptionId] = s.[ID]
+                           )
+                        UNION
+                        SELECT NULLIF(qs.[ProviderInvoiceNo], N'')
+                        FROM [dbo].[TblNinePayQrSession] qs
+                        WHERE qs.[SubscriptionId] = s.[ID]
+                           OR qs.[InvoiceId] IN (SELECT i7.[ID] FROM [dbo].[TblSubscriptionInvoice] i7 WHERE i7.[SubscriptionId] = s.[ID])
+                           OR qs.[InvoiceNumber] IN (SELECT i8.[InvoiceNumber] FROM [dbo].[TblSubscriptionInvoice] i8 WHERE i8.[SubscriptionId] = s.[ID])
+                    ) refs
+                    WHERE refs.[Reference] IS NOT NULL
+                    FOR XML PATH(''), TYPE).value('.', 'nvarchar(max)'), 1, 2, N'') AS [TransactionReferences]
+            ) tx
             WHERE pi.[PaymentId] = @paymentId
             ORDER BY s.[UsageMonth], s.[ID];
             """;
@@ -534,6 +615,8 @@ public sealed class TenantCommissionPaymentService(IConfiguration configuration)
                 DeviceName = ReadText(reader, "DeviceName"),
                 KitId = ReadText(reader, "KitId"),
                 PlanName = ReadText(reader, "PlanName"),
+                InvoiceNumbers = ReadText(reader, "InvoiceNumbers"),
+                TransactionReferences = ReadText(reader, "TransactionReferences"),
                 CommissionAmount = ReadDecimal(reader, "CommissionAmount")
             });
         }
@@ -606,7 +689,69 @@ public sealed class TenantCommissionPaymentService(IConfiguration configuration)
 
         if (!string.IsNullOrWhiteSpace(filter.Keyword))
         {
-            clauses.Add("(t.[TenantName] LIKE @keyword OR p.[Note] LIKE @keyword OR CONVERT(nvarchar(30), p.[ID]) LIKE @keyword)");
+            clauses.Add("""
+                (
+                    t.[TenantName] LIKE @keyword
+                    OR CONVERT(nvarchar(30), t.[ID]) LIKE @keyword
+                    OR p.[Note] LIKE @keyword
+                    OR p.[CreatedBy] LIKE @keyword
+                    OR p.[SourceMode] LIKE @keyword
+                    OR CONVERT(nvarchar(30), p.[ID]) LIKE @keyword
+                    OR CONVERT(nvarchar(30), p.[Amount]) LIKE @keyword
+                    OR CONVERT(nvarchar(10), p.[PaymentDate], 120) LIKE @keyword
+                    OR CONVERT(nvarchar(10), p.[PeriodFrom], 120) LIKE @keyword
+                    OR CONVERT(nvarchar(10), p.[PeriodTo], 120) LIKE @keyword
+                    OR EXISTS (
+                        SELECT 1
+                        FROM [dbo].[TblTenantCommissionPaymentItem] pi
+                        INNER JOIN [dbo].[TblMonthlySubscription] s ON s.[ID] = pi.[SubscriptionId]
+                        LEFT JOIN [dbo].[TblDevices] d ON d.[ID] = s.[DeviceId]
+                        LEFT JOIN [dbo].[TblSubscriptionInvoice] i ON i.[SubscriptionId] = s.[ID]
+                        WHERE pi.[PaymentId] = p.[ID]
+                          AND (
+                            CONVERT(nvarchar(30), s.[ID]) LIKE @keyword
+                            OR FORMAT(s.[UsageMonth], N'MM/yyyy') LIKE @keyword
+                            OR CONVERT(nvarchar(10), s.[StartDate], 120) LIKE @keyword
+                            OR CONVERT(nvarchar(10), s.[EndDate], 120) LIKE @keyword
+                            OR s.[PlanName] LIKE @keyword
+                            OR s.[VesselName] LIKE @keyword
+                            OR s.[KitId] LIKE @keyword
+                            OR d.[VesselName] LIKE @keyword
+                            OR d.[DeviceName] LIKE @keyword
+                            OR d.[DeviceCode] LIKE @keyword
+                            OR d.[KITNumber] LIKE @keyword
+                            OR d.[KITID] LIKE @keyword
+                            OR CONVERT(nvarchar(30), i.[ID]) LIKE @keyword
+                            OR i.[InvoiceNumber] LIKE @keyword
+                            OR i.[ReceiptNumber] LIKE @keyword
+                            OR EXISTS (
+                                SELECT 1
+                                FROM [dbo].[TblPaymentTransaction] pt
+                                WHERE (pt.[SubscriptionId] = s.[ID] OR pt.[InvoiceId] = i.[ID] OR pt.[InvoiceNumber] = i.[InvoiceNumber])
+                                  AND (CONVERT(nvarchar(30), pt.[ID]) LIKE @keyword
+                                       OR pt.[InvoiceNumber] LIKE @keyword
+                                       OR pt.[ProviderPaymentNo] LIKE @keyword
+                                       OR pt.[ProviderStatus] LIKE @keyword
+                                       OR pt.[Method] LIKE @keyword)
+                            )
+                            OR EXISTS (
+                                SELECT 1
+                                FROM [dbo].[TblNinePayQrSession] qs
+                                WHERE (qs.[SubscriptionId] = s.[ID]
+                                       OR qs.[InvoiceId] = i.[ID]
+                                       OR qs.[InvoiceNumber] = i.[InvoiceNumber]
+                                       OR EXISTS (SELECT 1 FROM [dbo].[TblNinePayQrSessionInvoice] qi WHERE qi.[QrSessionId] = qs.[ID] AND qi.[InvoiceId] = i.[ID]))
+                                  AND (CONVERT(nvarchar(30), qs.[ID]) LIKE @keyword
+                                       OR qs.[InvoiceNumber] LIKE @keyword
+                                       OR qs.[ProviderInvoiceNo] LIKE @keyword
+                                       OR qs.[ProviderPaymentNo] LIKE @keyword
+                                       OR qs.[BankAccountNo] LIKE @keyword
+                                       OR qs.[TransferContent] LIKE @keyword)
+                            )
+                          )
+                    )
+                )
+                """);
         }
 
         return string.Join(" AND ", clauses);

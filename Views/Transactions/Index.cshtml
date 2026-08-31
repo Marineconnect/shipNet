@@ -45,6 +45,10 @@
       {
         <a class="@(Context.Request.Query["tab"] == "reup" ? "is-active" : "")" asp-controller="TransactionReup" asp-action="Index">Reup Transaction</a>
       }
+      @if (!Model.IsTenantScoped || User.HasClaim("UserType", ManagedUserType.Tenant))
+      {
+        <a asp-controller="TenantCommissionPayment" asp-action="Index">Chi trả hoa hồng</a>
+      }
     </nav>
     @if (!string.IsNullOrWhiteSpace(Model.Message))
     {

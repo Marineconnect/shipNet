@@ -2,7 +2,7 @@
 @inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 @{
     ViewData["ActiveNav"] = "tenant-commission-payment";
-    ViewData["Title"] = "Thanh toán hoa hồng";
+    ViewData["Title"] = "Báo cáo doanh thu";
 
     var previousPage = Math.Max(1, Model.CurrentPage - 1);
     var nextPage = Math.Min(Model.TotalPages, Model.CurrentPage + 1);
@@ -55,8 +55,8 @@
 
       <section class="device-hero">
         <div>
-          <div class="device-brand">THANH TOÁN HOA HỒNG</div>
-          <h1>Thanh toán hoa hồng</h1>
+          <div class="device-brand">BÁO CÁO DOANH THU</div>
+          <h1>Báo cáo doanh thu</h1>
           <p>Quản lý lịch sử chi trả hoa hồng Tenant</p>
         </div>
         @if (Model.CanCreatePayment)
@@ -76,6 +76,16 @@
       {
         <div class="alert-danger">@error</div>
       }
+
+      <nav class="transaction-tabs" aria-label="Revenue report views">
+        <a asp-controller="BillingInvoice" asp-action="Index">Billing &amp; Invoice</a>
+        <a asp-controller="Transactions" asp-action="Index" asp-route-tab="history">Lịch sử thanh toán</a>
+        @if (Model.IsTransactionReupAdmin)
+        {
+          <a asp-controller="TransactionReup" asp-action="Index">Reup Transaction</a>
+        }
+        <a class="is-active" asp-controller="TenantCommissionPayment" asp-action="Index">Chi trả hoa hồng</a>
+      </nav>
 
       <section class="billing-kpi-grid">
         <div class="device-card billing-kpi-card kpi-total">
@@ -153,7 +163,7 @@
           </label>
           <label>
             <span>Keyword</span>
-            <input type="search" name="keyword" value="@Model.Filter.Keyword" placeholder="Tenant, note, payment ID" />
+            <input type="search" name="keyword" value="@Model.Filter.Keyword" placeholder="Payment, tenant, invoice, transaction, KIT, vessel" />
           </label>
           <div class="billing-filter-actions">
             <button type="submit" class="btn-primary">Lọc</button>
@@ -437,7 +447,7 @@
       if (!payload?.success) return;
       const item = payload.data;
       document.querySelector("[data-detail-title]").textContent = `Thanh toán #${item.id}`;
-      const rows = (item.items || []).map((cycle) => `<tr><td>${cycle.billingCycle}</td><td>#${cycle.subscriptionId}</td><td>${cycle.vesselName || "-"}</td><td>${cycle.kitId || "-"}</td><td>${cycle.planName || "-"}</td><td>${formatDate(cycle.startDate)}</td><td>${formatDate(cycle.endDate)}</td><td>${formatMoney(cycle.commissionAmount)}</td></tr>`).join("");
+      const rows = (item.items || []).map((cycle) => `<tr><td>${cycle.billingCycle}</td><td>#${cycle.subscriptionId}</td><td>${cycle.vesselName || "-"}</td><td>${cycle.deviceName || "-"}</td><td>${cycle.kitId || "-"}</td><td>${cycle.planName || "-"}</td><td>${formatDate(cycle.startDate)}</td><td>${formatDate(cycle.endDate)}</td><td>${cycle.invoiceNumbers || "-"}</td><td>${cycle.transactionReferences || "-"}</td><td>${formatMoney(cycle.commissionAmount)}</td></tr>`).join("");
       document.querySelector("[data-detail-body]").innerHTML = `
         <dl class="commission-detail-grid">
           <dt>Tenant</dt><dd>${item.tenantName}</dd>
@@ -449,7 +459,7 @@
           <dt>Người tạo</dt><dd>${item.createdBy || "-"}</dd>
           <dt>Ngày tạo</dt><dd>${formatDate(item.createdAt)}</dd>
         </dl>
-        ${rows ? `<div class="billing-table-wrap"><table class="billing-table"><thead><tr><th>Billing Cycle</th><th>Subscription ID</th><th>Vessel</th><th>KIT</th><th>Plan</th><th>Start</th><th>End</th><th>Commission</th></tr></thead><tbody>${rows}</tbody></table></div>` : ""}
+        ${rows ? `<div class="billing-table-wrap"><table class="billing-table"><thead><tr><th>Billing Cycle</th><th>Subscription ID</th><th>Vessel</th><th>Device</th><th>KIT</th><th>Plan</th><th>Start</th><th>End</th><th>Invoice Number(s)</th><th>Transaction Reference(s)</th><th>Commission</th></tr></thead><tbody>${rows}</tbody></table></div>` : ""}
       `;
       if (detailModal) detailModal.hidden = false;
     });
