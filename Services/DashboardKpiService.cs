@@ -56,7 +56,21 @@ public sealed class DashboardKpiService(IConfiguration configuration) : IDashboa
             )
             SELECT
                 COALESCE(SUM(v.[Amount]), 0) AS [TotalRevenue],
-                COALESCE(SUM(COALESCE(NULLIF(v.[MarginAmount], 0), v.[SalePrice] - v.[BuyPrice])), 0) AS [TotalCommission],
+                COALESCE(SUM(COALESCE(NULLIF(v.[MarginAmount], 0), v.[SalePrice] - v.[BuyPrice])), 0)
+                - COALESCE((
+                    SELECT SUM(pi.[CommissionAmount])
+                    FROM [dbo].[TblTenantCommissionPaymentItem] pi
+                    INNER JOIN ScopedSubscriptions ps ON ps.[ID] = pi.[SubscriptionId]
+                ), 0)
+                - COALESCE((
+                    SELECT SUM(p.[Amount])
+                    FROM [dbo].[TblTenantCommissionPayment] p
+                    WHERE p.[SourceMode] = N'manual'
+                      AND (@allowedTenantId IS NULL OR p.[TenantId] = @allowedTenantId)
+                      AND EXISTS (SELECT 1 FROM ScopedSubscriptions ps WHERE ps.[TenantId] = p.[TenantId])
+                      AND (p.[PeriodFrom] IS NULL OR p.[PeriodFrom] < @periodEndExclusive)
+                      AND (p.[PeriodTo] IS NULL OR p.[PeriodTo] >= @periodStart)
+                ), 0) AS [TotalCommission],
                 COUNT(DISTINCT CASE
                     WHEN LOWER(COALESCE(s.[Status], N'')) NOT IN (N'void', N'cancelled', N'canceled', N'inactive')
                     THEN s.[DeviceId]
@@ -73,7 +87,7 @@ public sealed class DashboardKpiService(IConfiguration configuration) : IDashboa
             if (await reader.ReadAsync(cancellationToken))
             {
                 model.TotalRevenue = ReadDecimal(reader, "TotalRevenue");
-                model.TotalCommission = ReadDecimal(reader, "TotalCommission");
+                model.TotalCommission = Math.Max(0, ReadDecimal(reader, "TotalCommission"));
                 model.ActiveKitCount = ReadInt(reader, "ActiveKitCount");
                 model.BilledKitCount = ReadInt(reader, "BilledKitCount");
             }

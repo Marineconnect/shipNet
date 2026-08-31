@@ -81,6 +81,7 @@ builder.Services.AddScoped<ITenantService, TenantService>();
 builder.Services.AddScoped<IPricingPlanService, PricingPlanService>();
 builder.Services.AddScoped<IMonthlySubscriptionService, MonthlySubscriptionService>();
 builder.Services.AddScoped<IBillingInvoiceReportService, BillingInvoiceReportService>();
+builder.Services.AddScoped<ITenantCommissionPaymentService, TenantCommissionPaymentService>();
 builder.Services.AddScoped<IDashboardKpiService, DashboardKpiService>();
 builder.Services.AddScoped<ICurrencyExchangeService, CurrencyExchangeService>();
 builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();

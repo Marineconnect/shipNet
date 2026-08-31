@@ -1,0 +1,458 @@
+@model TenantCommissionPaymentIndexViewModel
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+@{
+    ViewData["ActiveNav"] = "tenant-commission-payment";
+    ViewData["Title"] = "Thanh toán hoa hồng";
+
+    var previousPage = Math.Max(1, Model.CurrentPage - 1);
+    var nextPage = Math.Min(Model.TotalPages, Model.CurrentPage + 1);
+    var defaultCurrency = (Configuration["System:DefaultCurrency"] ?? "VND").Trim().ToUpperInvariant();
+    string Money(decimal value) => string.Equals(defaultCurrency, "VND", StringComparison.OrdinalIgnoreCase)
+        ? string.Create(System.Globalization.CultureInfo.GetCultureInfo("vi-VN"), $"{value:N0} ₫")
+        : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{value:N2} {defaultCurrency}");
+    string DateText(DateTime? value) => value.HasValue && value.Value != DateTime.MinValue ? value.Value.ToString("dd/MM/yyyy") : "-";
+    string DateTimeText(DateTime? value) => value.HasValue && value.Value != DateTime.MinValue ? value.Value.ToString("dd/MM/yyyy HH:mm") : "-";
+    string SourceModeText(string mode) => mode == TenantCommissionPaymentSourceModes.BillingCycles ? "Theo Billing Cycle" : "Nhập tổng";
+
+    Dictionary<string, string> Routes(string? sortBy = null, string? sortDirection = null, int? page = null)
+    {
+        var routes = new Dictionary<string, string>
+        {
+            ["page"] = (page ?? Model.CurrentPage).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["pageSize"] = Model.PageSize.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["sortBy"] = sortBy ?? Model.Filter.SortBy,
+            ["sortDirection"] = sortDirection ?? Model.Filter.SortDirection
+        };
+        void Add(string key, string? value)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                routes[key] = value;
+            }
+        }
+        Add("tenantId", Model.Filter.TenantId?.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Add("paymentDateFrom", Model.Filter.PaymentDateFrom?.ToString("yyyy-MM-dd"));
+        Add("paymentDateTo", Model.Filter.PaymentDateTo?.ToString("yyyy-MM-dd"));
+        Add("periodFrom", Model.Filter.PeriodFrom?.ToString("yyyy-MM-dd"));
+        Add("periodTo", Model.Filter.PeriodTo?.ToString("yyyy-MM-dd"));
+        Add("sourceMode", Model.Filter.SourceMode);
+        Add("keyword", Model.Filter.Keyword);
+        return routes;
+    }
+    string SortDirectionFor(string key) => string.Equals(Model.Filter.SortBy, key, StringComparison.OrdinalIgnoreCase) && Model.Filter.SortDirection == "asc" ? "desc" : "asc";
+}
+
+<div class="device-page commission-page">
+  <div class="device-shell">
+    <partial name="_PortalNav" />
+
+    <div class="device-dashboard">
+      <nav class="portal-breadcrumb" aria-label="Breadcrumb">
+        <a asp-controller="Dashboard" asp-action="Index">Tổng quan</a>
+        <span>Thương mại</span>
+        <span>Thanh toán hoa hồng</span>
+      </nav>
+
+      <section class="device-hero">
+        <div>
+          <div class="device-brand">THANH TOÁN HOA HỒNG</div>
+          <h1>Thanh toán hoa hồng</h1>
+          <p>Quản lý lịch sử chi trả hoa hồng Tenant</p>
+        </div>
+        @if (Model.CanCreatePayment)
+        {
+          <button type="button" class="btn-primary" data-open-commission-create>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z" fill="currentColor"/></svg>
+            Ghi nhận thanh toán
+          </button>
+        }
+      </section>
+
+      @if (TempData["CommissionPaymentSuccess"] is string success)
+      {
+        <div class="alert-success">@success</div>
+      }
+      @if (TempData["CommissionPaymentError"] is string error)
+      {
+        <div class="alert-danger">@error</div>
+      }
+
+      <section class="billing-kpi-grid">
+        <div class="device-card billing-kpi-card kpi-total">
+          <span>Tổng hoa hồng phát sinh</span>
+          <strong>@Money(Model.Balance.GrossCommission)</strong>
+        </div>
+        <div class="device-card billing-kpi-card kpi-paid">
+          <span>Đã thanh toán</span>
+          <strong>@Money(Model.Balance.PaidCommission)</strong>
+        </div>
+        <div class="device-card billing-kpi-card kpi-margin">
+          <span>Hoa hồng còn lại</span>
+          <strong>@Money(Model.Balance.RemainingCommission)</strong>
+        </div>
+        <div class="device-card billing-kpi-card kpi-count-paid">
+          <span>Số lần thanh toán</span>
+          <strong>@Model.Balance.PaymentCount</strong>
+        </div>
+      </section>
+
+      <section class="device-card billing-invoice-card">
+        <header class="device-card-head">
+          <div>
+            <h2>Lịch sử thanh toán</h2>
+            <p>Hiển thị @Model.StartItem-@Model.EndItem / @Model.TotalItems lần thanh toán hoa hồng.</p>
+          </div>
+        </header>
+
+        <form asp-controller="TenantCommissionPayment" asp-action="Index" method="get" class="billing-filter-grid">
+          <label>
+            <span>Số dòng</span>
+            <select name="pageSize">
+              @foreach (var size in new[] { 10, 20, 50, 100 })
+              {
+                <option value="@size" selected="@(Model.PageSize == size)">@size</option>
+              }
+            </select>
+          </label>
+          @if (!Model.IsTenantScoped)
+          {
+            <label>
+              <span>Tenant</span>
+              <select name="tenantId">
+                <option value="">Tất cả tenant</option>
+                @foreach (var tenant in Model.Tenants)
+                {
+                  <option value="@tenant.Id" selected="@(Model.Filter.TenantId == tenant.Id)">@tenant.TenantName</option>
+                }
+              </select>
+            </label>
+          }
+          <label>
+            <span>Payment từ ngày</span>
+            <input type="date" name="paymentDateFrom" value="@Model.Filter.PaymentDateFrom?.ToString("yyyy-MM-dd")" />
+          </label>
+          <label>
+            <span>Payment đến ngày</span>
+            <input type="date" name="paymentDateTo" value="@Model.Filter.PaymentDateTo?.ToString("yyyy-MM-dd")" />
+          </label>
+          <label>
+            <span>Period từ ngày</span>
+            <input type="date" name="periodFrom" value="@Model.Filter.PeriodFrom?.ToString("yyyy-MM-dd")" />
+          </label>
+          <label>
+            <span>Period đến ngày</span>
+            <input type="date" name="periodTo" value="@Model.Filter.PeriodTo?.ToString("yyyy-MM-dd")" />
+          </label>
+          <label>
+            <span>Phương thức</span>
+            <select name="sourceMode">
+              <option value="">Tất cả</option>
+              <option value="@TenantCommissionPaymentSourceModes.Manual" selected="@(Model.Filter.SourceMode == TenantCommissionPaymentSourceModes.Manual)">Nhập tổng</option>
+              <option value="@TenantCommissionPaymentSourceModes.BillingCycles" selected="@(Model.Filter.SourceMode == TenantCommissionPaymentSourceModes.BillingCycles)">Theo Billing Cycle</option>
+            </select>
+          </label>
+          <label>
+            <span>Keyword</span>
+            <input type="search" name="keyword" value="@Model.Filter.Keyword" placeholder="Tenant, note, payment ID" />
+          </label>
+          <div class="billing-filter-actions">
+            <button type="submit" class="btn-primary">Lọc</button>
+            <a asp-controller="TenantCommissionPayment" asp-action="Index" class="btn-secondary">Xóa lọc</a>
+          </div>
+        </form>
+
+        <div class="billing-table-wrap">
+          <table class="billing-table">
+            <thead>
+              <tr>
+                <th><a asp-controller="TenantCommissionPayment" asp-action="Index" asp-all-route-data="@Routes("createdAt", SortDirectionFor("createdAt"), 1)">Payment ID</a></th>
+                <th><a asp-controller="TenantCommissionPayment" asp-action="Index" asp-all-route-data="@Routes("paymentDate", SortDirectionFor("paymentDate"), 1)">Ngày thanh toán</a></th>
+                <th><a asp-controller="TenantCommissionPayment" asp-action="Index" asp-all-route-data="@Routes("tenant", SortDirectionFor("tenant"), 1)">Tenant</a></th>
+                <th>Chu kỳ áp dụng</th>
+                <th>Phương thức</th>
+                <th>Số Billing Cycle</th>
+                <th><a asp-controller="TenantCommissionPayment" asp-action="Index" asp-all-route-data="@Routes("amount", SortDirectionFor("amount"), 1)">Tổng tiền</a></th>
+                <th>Ghi chú</th>
+                <th>Người tạo</th>
+                <th>Ngày tạo</th>
+                <th>Chi tiết</th>
+              </tr>
+            </thead>
+            <tbody>
+              @if (Model.Payments.Count == 0)
+              {
+                <tr><td colspan="11" class="empty-cell">Chưa có lịch sử thanh toán hoa hồng.</td></tr>
+              }
+              @foreach (var item in Model.Payments)
+              {
+                <tr>
+                  <td>#@item.Id</td>
+                  <td>@DateText(item.PaymentDate)</td>
+                  <td>@item.TenantName</td>
+                  <td>@DateText(item.PeriodFrom) - @DateText(item.PeriodTo)</td>
+                  <td>@SourceModeText(item.SourceMode)</td>
+                  <td>@item.BillingCycleCount</td>
+                  <td>@Money(item.Amount)</td>
+                  <td>@(string.IsNullOrWhiteSpace(item.Note) ? "-" : item.Note)</td>
+                  <td>@(string.IsNullOrWhiteSpace(item.CreatedBy) ? "-" : item.CreatedBy)</td>
+                  <td>@DateTimeText(item.CreatedAt)</td>
+                  <td><button type="button" class="btn-secondary btn-compact" data-payment-detail="@item.Id">Xem</button></td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <div class="billing-pagination">
+          <a class="btn-secondary @(Model.HasPreviousPage ? string.Empty : "is-disabled")" asp-controller="TenantCommissionPayment" asp-action="Index" asp-all-route-data="@Routes(page: previousPage)">Trước</a>
+          <span>Trang @Model.CurrentPage / @Model.TotalPages</span>
+          <a class="btn-secondary @(Model.HasNextPage ? string.Empty : "is-disabled")" asp-controller="TenantCommissionPayment" asp-action="Index" asp-all-route-data="@Routes(page: nextPage)">Sau</a>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+@if (Model.CanCreatePayment)
+{
+  <div class="modal-backdrop" data-commission-create-modal hidden>
+    <div class="modal-card commission-modal">
+      <div class="modal-head">
+        <h2>Ghi nhận thanh toán hoa hồng</h2>
+        <button type="button" class="modal-close" data-close-commission-create aria-label="Close">×</button>
+      </div>
+      <div class="commission-mode-tabs">
+        <button type="button" class="is-active" data-commission-mode="manual">Nhập tổng tiền</button>
+        <button type="button" data-commission-mode="billing_cycles">Chọn Billing Cycle</button>
+      </div>
+
+      <form asp-controller="TenantCommissionPayment" asp-action="CreateManual" method="post" class="commission-create-panel is-active" data-commission-panel="manual">
+        @Html.AntiForgeryToken()
+        <div class="billing-filter-grid">
+          <label>
+            <span>Tenant *</span>
+            <select name="TenantId" required data-manual-tenant>
+              <option value="">Chọn Tenant</option>
+              @foreach (var tenant in Model.Tenants)
+              {
+                <option value="@tenant.Id" selected="@(Model.Filter.TenantId == tenant.Id)">@tenant.TenantName</option>
+              }
+            </select>
+          </label>
+          <label><span>Ngày thanh toán *</span><input type="date" name="PaymentDate" required value="@DateTime.Today.ToString("yyyy-MM-dd")" /></label>
+          <label><span>Từ ngày *</span><input type="date" name="PeriodFrom" required /></label>
+          <label><span>Đến ngày *</span><input type="date" name="PeriodTo" required /></label>
+          <label><span>Số tiền *</span><input type="number" name="Amount" min="1" step="1" required /></label>
+          <label class="span-2"><span>Ghi chú</span><textarea name="Note" rows="3" maxlength="1000"></textarea></label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" data-close-commission-create>Hủy</button>
+          <button type="submit" class="btn-primary">Lưu</button>
+        </div>
+      </form>
+
+      <form asp-controller="TenantCommissionPayment" asp-action="CreateBillingCycles" method="post" class="commission-create-panel" data-commission-panel="billing_cycles" data-cycle-form>
+        @Html.AntiForgeryToken()
+        <div class="billing-filter-grid">
+          <label>
+            <span>Tenant *</span>
+            <select name="TenantId" required data-cycle-tenant>
+              <option value="">Chọn Tenant</option>
+              @foreach (var tenant in Model.Tenants)
+              {
+                <option value="@tenant.Id" selected="@(Model.Filter.TenantId == tenant.Id)">@tenant.TenantName</option>
+              }
+            </select>
+          </label>
+          <label><span>Ngày thanh toán *</span><input type="date" name="PaymentDate" required value="@DateTime.Today.ToString("yyyy-MM-dd")" /></label>
+          <label><span>Từ ngày</span><input type="date" data-cycle-date-from /></label>
+          <label><span>Đến ngày</span><input type="date" data-cycle-date-to /></label>
+          <label class="span-2"><span>Tìm kiếm</span><input type="search" data-cycle-search placeholder="Subscription, cycle, invoice, vessel, device, KIT, plan" /></label>
+          <label class="span-2"><span>Ghi chú</span><textarea name="Note" rows="2" maxlength="1000"></textarea></label>
+        </div>
+        <div class="commission-dual-list">
+          <section>
+            <div class="commission-list-head">
+              <strong>Billing Cycle khả dụng</strong>
+              <button type="button" class="btn-secondary btn-compact" data-cycle-refresh>Tìm</button>
+            </div>
+            <div class="commission-list" data-cycle-available></div>
+          </section>
+          <section>
+            <div class="commission-list-head">
+              <strong>Billing Cycle đã chọn</strong>
+              <span data-cycle-count>0 cycle</span>
+            </div>
+            <div class="commission-list" data-cycle-selected></div>
+          </section>
+        </div>
+        <div data-cycle-hidden-inputs></div>
+        <div class="commission-total-line">
+          <span>Đã chọn: <strong data-cycle-total-count>0</strong> Billing Cycle</span>
+          <span>Tổng hoa hồng: <strong data-cycle-total>@Money(0)</strong></span>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" data-close-commission-create>Hủy</button>
+          <button type="submit" class="btn-primary">Lưu</button>
+        </div>
+      </form>
+    </div>
+  </div>
+}
+
+<div class="modal-backdrop" data-commission-detail-modal hidden>
+  <div class="modal-card commission-modal">
+    <div class="modal-head">
+      <h2 data-detail-title>Thanh toán hoa hồng</h2>
+      <button type="button" class="modal-close" data-close-commission-detail aria-label="Close">×</button>
+    </div>
+    <div data-detail-body></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const money = new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 });
+  const formatMoney = (value) => `${money.format(Number(value || 0))} ₫`;
+  const formatDate = (value) => value ? new Date(value).toLocaleDateString("vi-VN") : "-";
+  const createModal = document.querySelector("[data-commission-create-modal]");
+  const detailModal = document.querySelector("[data-commission-detail-modal]");
+  const selectedCycles = new Map();
+
+  document.querySelector("[data-open-commission-create]")?.addEventListener("click", () => {
+    if (createModal) createModal.hidden = false;
+  });
+  document.querySelectorAll("[data-close-commission-create]").forEach((button) => {
+    button.addEventListener("click", () => { if (createModal) createModal.hidden = true; });
+  });
+  document.querySelector("[data-close-commission-detail]")?.addEventListener("click", () => {
+    if (detailModal) detailModal.hidden = true;
+  });
+
+  document.querySelectorAll("[data-commission-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const mode = button.dataset.commissionMode;
+      document.querySelectorAll("[data-commission-mode]").forEach((item) => item.classList.toggle("is-active", item === button));
+      document.querySelectorAll("[data-commission-panel]").forEach((panel) => panel.classList.toggle("is-active", panel.dataset.commissionPanel === mode));
+    });
+  });
+
+  const available = document.querySelector("[data-cycle-available]");
+  const selected = document.querySelector("[data-cycle-selected]");
+  const hiddenInputs = document.querySelector("[data-cycle-hidden-inputs]");
+  const tenant = document.querySelector("[data-cycle-tenant]");
+  const dateFrom = document.querySelector("[data-cycle-date-from]");
+  const dateTo = document.querySelector("[data-cycle-date-to]");
+  const search = document.querySelector("[data-cycle-search]");
+
+  const renderSelected = () => {
+    if (!selected || !hiddenInputs) return;
+    selected.innerHTML = "";
+    hiddenInputs.innerHTML = "";
+    let total = 0;
+    selectedCycles.forEach((cycle, id) => {
+      total += Number(cycle.commissionAmount || 0);
+      const row = document.createElement("div");
+      row.className = "commission-cycle-row";
+      row.innerHTML = `<div><strong>${cycle.billingCycle}</strong><span>#${cycle.subscriptionId} • ${cycle.vesselName || "-"} • ${cycle.kitId || "-"}</span></div><b>${formatMoney(cycle.commissionAmount)}</b><button type="button" aria-label="Remove">×</button>`;
+      row.querySelector("button").addEventListener("click", () => {
+        selectedCycles.delete(id);
+        renderSelected();
+        renderAvailableSelectionState();
+      });
+      selected.appendChild(row);
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = "SubscriptionIds";
+      input.value = id;
+      hiddenInputs.appendChild(input);
+    });
+    document.querySelector("[data-cycle-total-count]").textContent = String(selectedCycles.size);
+    document.querySelector("[data-cycle-count]").textContent = `${selectedCycles.size} cycle`;
+    document.querySelector("[data-cycle-total]").textContent = formatMoney(total);
+  };
+
+  const renderAvailableSelectionState = () => {
+    available?.querySelectorAll("[data-cycle-add]").forEach((button) => {
+      button.disabled = selectedCycles.has(button.dataset.cycleAdd);
+      button.textContent = button.disabled ? "Đã chọn" : "Add";
+    });
+  };
+
+  const loadCycles = async () => {
+    if (!available || !tenant?.value) return;
+    available.innerHTML = "<div class=\"empty-cell\">Đang tải...</div>";
+    const url = new URL("@Url.Action("EligibleCycles", "TenantCommissionPayment")", window.location.origin);
+    url.searchParams.set("tenantId", tenant.value);
+    if (dateFrom?.value) url.searchParams.set("dateFrom", dateFrom.value);
+    if (dateTo?.value) url.searchParams.set("dateTo", dateTo.value);
+    if (search?.value) url.searchParams.set("search", search.value);
+    const response = await fetch(url.toString(), { headers: { "Accept": "application/json" } });
+    const cycles = response.ok ? await response.json() : [];
+    available.innerHTML = "";
+    if (!cycles.length) {
+      available.innerHTML = "<div class=\"empty-cell\">Không có Billing Cycle khả dụng.</div>";
+      return;
+    }
+    cycles.forEach((cycle) => {
+      const id = String(cycle.subscriptionId);
+      const row = document.createElement("div");
+      row.className = "commission-cycle-row";
+      row.innerHTML = `<div><strong>${cycle.billingCycle}</strong><span>#${cycle.subscriptionId} • ${cycle.vesselName || "-"} • ${cycle.kitId || "-"} • ${cycle.planName || "-"}</span></div><b>${formatMoney(cycle.commissionAmount)}</b><button type="button" data-cycle-add="${id}">Add</button>`;
+      row.querySelector("button").addEventListener("click", () => {
+        selectedCycles.set(id, cycle);
+        renderSelected();
+        renderAvailableSelectionState();
+      });
+      available.appendChild(row);
+    });
+    renderAvailableSelectionState();
+  };
+
+  document.querySelector("[data-cycle-refresh]")?.addEventListener("click", loadCycles);
+  tenant?.addEventListener("change", () => {
+    selectedCycles.clear();
+    renderSelected();
+    loadCycles();
+  });
+  search?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      loadCycles();
+    }
+  });
+  document.querySelector("[data-cycle-form]")?.addEventListener("submit", (event) => {
+    if (selectedCycles.size === 0) {
+      event.preventDefault();
+      alert("Vui lòng chọn ít nhất một Billing Cycle.");
+    }
+  });
+  renderSelected();
+
+  document.querySelectorAll("[data-payment-detail]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const id = button.dataset.paymentDetail;
+      const response = await fetch(`@Url.Action("Detail", "TenantCommissionPayment")/${id}`, { headers: { "Accept": "application/json" } });
+      const payload = response.ok ? await response.json() : null;
+      if (!payload?.success) return;
+      const item = payload.data;
+      document.querySelector("[data-detail-title]").textContent = `Thanh toán #${item.id}`;
+      const rows = (item.items || []).map((cycle) => `<tr><td>${cycle.billingCycle}</td><td>#${cycle.subscriptionId}</td><td>${cycle.vesselName || "-"}</td><td>${cycle.kitId || "-"}</td><td>${cycle.planName || "-"}</td><td>${formatDate(cycle.startDate)}</td><td>${formatDate(cycle.endDate)}</td><td>${formatMoney(cycle.commissionAmount)}</td></tr>`).join("");
+      document.querySelector("[data-detail-body]").innerHTML = `
+        <dl class="commission-detail-grid">
+          <dt>Tenant</dt><dd>${item.tenantName}</dd>
+          <dt>Ngày thanh toán</dt><dd>${formatDate(item.paymentDate)}</dd>
+          <dt>Chu kỳ</dt><dd>${formatDate(item.periodFrom)} - ${formatDate(item.periodTo)}</dd>
+          <dt>Phương thức</dt><dd>${item.sourceMode === "billing_cycles" ? "Theo Billing Cycle" : "Nhập tổng"}</dd>
+          <dt>Tổng tiền</dt><dd>${formatMoney(item.amount)}</dd>
+          <dt>Ghi chú</dt><dd>${item.note || "-"}</dd>
+          <dt>Người tạo</dt><dd>${item.createdBy || "-"}</dd>
+          <dt>Ngày tạo</dt><dd>${formatDate(item.createdAt)}</dd>
+        </dl>
+        ${rows ? `<div class="billing-table-wrap"><table class="billing-table"><thead><tr><th>Billing Cycle</th><th>Subscription ID</th><th>Vessel</th><th>KIT</th><th>Plan</th><th>Start</th><th>End</th><th>Commission</th></tr></thead><tbody>${rows}</tbody></table></div>` : ""}
+      `;
+      if (detailModal) detailModal.hidden = false;
+    });
+  });
+})();
+</script>

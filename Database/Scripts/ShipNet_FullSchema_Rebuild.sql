@@ -991,5 +991,43 @@ IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE [name] = N'FK_KvhSubOperatio
     ALTER TABLE [dbo].[TblKvhSubscriptionOperationItem] WITH NOCHECK ADD CONSTRAINT [FK_KvhSubOperationItem_Batch] FOREIGN KEY ([BatchId]) REFERENCES [dbo].[TblKvhSubscriptionOperationBatch]([ID]);
 GO
 
+IF OBJECT_ID(N'[dbo].[TblTenantCommissionPayment]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[TblTenantCommissionPayment](
+        [ID] bigint IDENTITY(1,1) NOT NULL CONSTRAINT [PK_TblTenantCommissionPayment] PRIMARY KEY,
+        [TenantId] int NOT NULL,
+        [PaymentDate] date NOT NULL,
+        [PeriodFrom] date NULL,
+        [PeriodTo] date NULL,
+        [Amount] decimal(18,2) NOT NULL,
+        [SourceMode] nvarchar(30) NOT NULL,
+        [Note] nvarchar(1000) NULL,
+        [CreatedAt] datetime2 NOT NULL CONSTRAINT [DF_TblTenantCommissionPayment_CreatedAt] DEFAULT(SYSUTCDATETIME()),
+        [CreatedByUserId] int NULL,
+        [CreatedBy] nvarchar(250) NULL,
+        CONSTRAINT [CK_TblTenantCommissionPayment_Amount] CHECK ([Amount] > 0),
+        CONSTRAINT [CK_TblTenantCommissionPayment_Period] CHECK ([PeriodFrom] IS NULL OR [PeriodTo] IS NULL OR [PeriodFrom] <= [PeriodTo]),
+        CONSTRAINT [CK_TblTenantCommissionPayment_SourceMode] CHECK ([SourceMode] IN (N'manual', N'billing_cycles'))
+    );
+END;
+GO
+
+IF OBJECT_ID(N'[dbo].[TblTenantCommissionPaymentItem]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[TblTenantCommissionPaymentItem](
+        [ID] bigint IDENTITY(1,1) NOT NULL CONSTRAINT [PK_TblTenantCommissionPaymentItem] PRIMARY KEY,
+        [PaymentId] bigint NOT NULL,
+        [SubscriptionId] int NOT NULL,
+        [CommissionAmount] decimal(18,2) NOT NULL,
+        [CreatedAt] datetime2 NOT NULL CONSTRAINT [DF_TblTenantCommissionPaymentItem_CreatedAt] DEFAULT(SYSUTCDATETIME()),
+        CONSTRAINT [CK_TblTenantCommissionPaymentItem_CommissionAmount] CHECK ([CommissionAmount] > 0)
+    );
+END;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = N'UX_TenantCommissionPaymentItem_SubscriptionId' AND [object_id] = OBJECT_ID(N'[dbo].[TblTenantCommissionPaymentItem]'))
+    CREATE UNIQUE INDEX [UX_TenantCommissionPaymentItem_SubscriptionId] ON [dbo].[TblTenantCommissionPaymentItem]([SubscriptionId]);
+GO
+
 PRINT N'ShipNet schema rebuild completed. Create users, tenants, devices, pricing plans, KVH credentials, and historical data separately.';
 GO

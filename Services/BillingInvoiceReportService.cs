@@ -154,6 +154,18 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
             COALESCE(SUM(i.[PaidAmount]), 0) AS [PaidAmount],
             COALESCE(SUM(CASE WHEN i.[Amount] - i.[PaidAmount] - i.[RefundAmount] > 0 THEN i.[Amount] - i.[PaidAmount] - i.[RefundAmount] ELSE 0 END), 0) AS [PendingAmount],
             COALESCE(SUM(COALESCE(NULLIF(i.[MarginAmount], 0), i.[SalePrice] - i.[BuyPrice])), 0) AS [TotalMargin],
+            COALESCE((
+                SELECT SUM(cp.[Amount])
+                FROM [dbo].[TblTenantCommissionPayment] cp
+                WHERE (@allowedTenantId IS NULL OR cp.[TenantId] = @allowedTenantId)
+                  AND (@tenantId IS NULL OR cp.[TenantId] = @tenantId)
+                  AND EXISTS (
+                      SELECT 1
+                      FROM [dbo].[TblMonthlySubscription] ps
+                      WHERE ps.[TenantId] = cp.[TenantId]
+                        AND (@allowedDeviceId IS NULL OR ps.[DeviceId] = @allowedDeviceId)
+                  )
+            ), 0) AS [PaidCommission],
             SUM(CASE WHEN LOWER(i.[Status]) = N'paid' OR (i.[PaidAmount] >= i.[Amount] AND i.[Amount] > 0) THEN 1 ELSE 0 END) AS [PaidInvoiceCount],
             SUM(CASE WHEN LOWER(i.[Status]) NOT IN (N'paid', N'void', N'cancelled', N'canceled', N'refunded')
                       AND (i.[Amount] - i.[PaidAmount] - i.[RefundAmount]) > 0 THEN 1 ELSE 0 END) AS [PendingInvoiceCount]
@@ -343,12 +355,16 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
         AddFilterParameters(command, filter);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken)) return new BillingInvoiceSummaryViewModel();
+        var grossCommission = ReadDecimal(reader, "TotalMargin");
+        var paidCommission = ReadDecimal(reader, "PaidCommission");
         return new BillingInvoiceSummaryViewModel
         {
             TotalInvoiceAmount = ReadDecimal(reader, "TotalInvoiceAmount"),
             PaidAmount = ReadDecimal(reader, "PaidAmount"),
             PendingAmount = ReadDecimal(reader, "PendingAmount"),
-            TotalMargin = ReadDecimal(reader, "TotalMargin"),
+            TotalMargin = filter.TenantIdScope.HasValue ? Math.Max(0, grossCommission - paidCommission) : grossCommission,
+            GrossCommission = grossCommission,
+            PaidCommission = paidCommission,
             PaidInvoiceCount = ReadInt(reader, "PaidInvoiceCount"),
             PendingInvoiceCount = ReadInt(reader, "PendingInvoiceCount")
         };

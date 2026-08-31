@@ -157,8 +157,14 @@
           <span>Còn phải thu</span><strong>@Money(Model.Summary.PendingAmount)</strong>
         </a>
         <a class="@KpiCardClass("margin") kpi-margin" asp-controller="BillingInvoice" asp-action="Index" asp-all-route-data="@KpiRoutes("margin")" title="Lọc invoice có hoa hồng">
-          <span>Tổng hoa hồng</span><strong class="margin-@MarginClass(Model.Summary.TotalMargin)">@Money(Model.Summary.TotalMargin)</strong>
+          <span>Hoa hồng còn lại</span><strong class="margin-@MarginClass(Model.Summary.RemainingCommission)">@Money(Model.Summary.RemainingCommission)</strong>
         </a>
+        <div class="device-card billing-kpi-card kpi-margin" title="Tổng hoa hồng phát sinh theo bộ lọc hiện tại">
+          <span>Hoa hồng phát sinh</span><strong class="margin-@MarginClass(Model.Summary.GrossCommission)">@Money(Model.Summary.GrossCommission)</strong>
+        </div>
+        <div class="device-card billing-kpi-card kpi-paid" title="Tổng hoa hồng đã ghi nhận thanh toán">
+          <span>Đã thanh toán hoa hồng</span><strong>@Money(Model.Summary.PaidCommission)</strong>
+        </div>
         <a class="@KpiCardClass("paid") kpi-count-paid" asp-controller="BillingInvoice" asp-action="Index" asp-all-route-data="@KpiRoutes("paid")" title="Lọc invoice đã thanh toán">
           <span>Invoice đã thanh toán</span><strong>@Model.Summary.PaidInvoiceCount</strong>
         </a>

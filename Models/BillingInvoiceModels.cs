@@ -38,6 +38,9 @@ public sealed class BillingInvoiceSummaryViewModel
     public decimal PaidAmount { get; set; }
     public decimal PendingAmount { get; set; }
     public decimal TotalMargin { get; set; }
+    public decimal GrossCommission { get; set; }
+    public decimal PaidCommission { get; set; }
+    public decimal RemainingCommission => Math.Max(0, GrossCommission - PaidCommission);
     public int PaidInvoiceCount { get; set; }
     public int PendingInvoiceCount { get; set; }
 }

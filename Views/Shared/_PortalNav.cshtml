@@ -98,7 +98,7 @@
       @if (canAccessBillingInvoice || canAccessCommercial || canAccessSubscription)
       {
         <details class="portal-nav-group">
-          <summary class="portal-nav-link portal-nav-summary@(ActiveClass("billing-invoice", "pricing", "subscription", "transactions"))">Thương mại / Commercial</summary>
+          <summary class="portal-nav-link portal-nav-summary@(ActiveClass("billing-invoice", "tenant-commission-payment", "pricing", "subscription", "transactions"))">Thương mại / Commercial</summary>
           <div class="portal-nav-submenu">
             @if (canAccessCommercial)
             {
@@ -111,6 +111,7 @@
             @if (canAccessBillingInvoice)
             {
               <a asp-controller="BillingInvoice" asp-action="Index" class="portal-nav-subitem@(ActiveClass("billing-invoice", "transactions"))">Báo cáo doanh thu / Billing &amp; Invoice</a>
+              <a asp-controller="TenantCommissionPayment" asp-action="Index" class="portal-nav-subitem@(ActiveClass("tenant-commission-payment"))">Thanh toán hoa hồng / Commission Payments</a>
             }
           </div>
         </details>
