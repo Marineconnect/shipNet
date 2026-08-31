@@ -4091,8 +4091,7 @@ body.is-map-fullscreen{
 .detail-map-canvas .leaflet-overlay-pane svg{
   z-index:450;
 }
-.detail-map-canvas .leaflet-tile-container,
-.detail-map-canvas .leaflet-layer{
+.detail-map-canvas .leaflet-tile-container{
   width:256px;
   height:256px;
 }
@@ -4114,6 +4113,12 @@ body.is-map-fullscreen{
   overflow:hidden;
   max-width:none;
   max-height:none;
+}
+.detail-map-canvas .leaflet-gl-layer,
+.detail-map-canvas .maplibregl-map,
+.detail-map-canvas .maplibregl-canvas-container{
+  width:100%;
+  height:100%;
 }
 .detail-map-canvas .maplibregl-canvas{
   outline:none;

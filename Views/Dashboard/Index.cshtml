@@ -1287,6 +1287,7 @@
   let detailLeafletMarker = null;
   let detailBaseMapLayer = null;
   let detailBaseMapFallbackActive = false;
+  let detailBaseMapEventsAttached = false;
   let detailBaselineLayers = null;
   let detailMapLatLng = null;
   let detailMapFullscreen = false;
@@ -1820,34 +1821,57 @@
         pane: "baseMapPane"
       }).addTo(detailLeafletMap);
 
-      const maplibreMap = detailBaseMapLayer.getMaplibreMap?.();
-      if (!maplibreMap) {
-        addOsmFallbackBaseMap("MapLibre map instance is not available");
-        return;
-      }
-
-      let openFreeMapLoaded = false;
-      maplibreMap.once("load", () => {
-        openFreeMapLoaded = true;
-        console.info("[ShipNet Map] OpenFreeMap loaded");
-      });
-      maplibreMap.once("error", (event) => {
-        if (openFreeMapLoaded) {
-          console.warn("[ShipNet Map] OpenFreeMap runtime error", event?.error || event);
-          return;
-        }
-
-        addOsmFallbackBaseMap("MapLibre style load error", event?.error || event);
-      });
+      attachDetailBaseMapEventsWhenReady();
     } catch (error) {
       addOsmFallbackBaseMap("MapLibre layer initialization failed", error);
     }
+  }
+
+  function attachDetailBaseMapEventsWhenReady(attempt = 0) {
+    if (detailBaseMapEventsAttached || detailBaseMapFallbackActive || !detailBaseMapLayer) {
+      return;
+    }
+
+    const maplibreMap = detailBaseMapLayer.getMaplibreMap?.();
+    if (!maplibreMap) {
+      if (attempt === 0) {
+        console.info("[ShipNet Map] waiting for MapLibre layer to attach");
+      }
+      if (attempt < 120) {
+        window.setTimeout(() => attachDetailBaseMapEventsWhenReady(attempt + 1), 100);
+      } else {
+        console.warn("[ShipNet Map] MapLibre layer is still not attached after waiting");
+      }
+      return;
+    }
+
+    detailBaseMapEventsAttached = true;
+    let openFreeMapLoaded = maplibreMap.loaded?.() === true;
+    if (openFreeMapLoaded) {
+      console.info("[ShipNet Map] OpenFreeMap loaded");
+      refreshDetailMapSize();
+    } else {
+      maplibreMap.once("load", () => {
+        openFreeMapLoaded = true;
+        console.info("[ShipNet Map] OpenFreeMap loaded");
+        refreshDetailMapSize();
+      });
+    }
+    maplibreMap.on("error", (event) => {
+      console.warn("[ShipNet Map] OpenFreeMap runtime error", {
+        loaded: openFreeMapLoaded,
+        error: event?.error || event
+      });
+    });
   }
 
   function resizeDetailBaseMapLayer() {
     const maplibreMap = detailBaseMapLayer?.getMaplibreMap?.();
     if (maplibreMap && typeof maplibreMap.resize === "function") {
       maplibreMap.resize();
+    }
+    if (detailBaseMapLayer && typeof detailBaseMapLayer._update === "function") {
+      detailBaseMapLayer._update();
     }
   }
 
@@ -1860,6 +1884,9 @@
       zoomControl: true,
       attributionControl: true
     });
+    if (detailMapLatLng) {
+      detailLeafletMap.setView(detailMapLatLng, 7, { animate: false });
+    }
     addDetailBaseMapLayer();
     addVietnamBaselineLayers();
     detailLeafletMarker = L.marker([0, 0], { icon: buildShipMarkerIcon(false), title: "Vessel" }).addTo(detailLeafletMap);
@@ -1873,10 +1900,10 @@
 
     window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
       detailLeafletMap.invalidateSize();
-      resizeDetailBaseMapLayer();
       if (detailMapLatLng) {
         detailLeafletMap.setView(detailMapLatLng, zoom ?? detailLeafletMap.getZoom() ?? 7, { animate: false });
       }
+      resizeDetailBaseMapLayer();
     }));
   }
 
