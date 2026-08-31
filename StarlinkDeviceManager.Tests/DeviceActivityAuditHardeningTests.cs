@@ -153,7 +153,7 @@ public sealed class DeviceActivityAuditHardeningTests
         Assert.Contains("s.[UsageMonth] < @periodEndExclusive", service);
         Assert.Contains("month is >= 0 and <= 12", service);
         Assert.Contains("periodStart.AddYears(1)", service);
-        Assert.Contains("LOWER(COALESCE(i.[Status], N'')) NOT IN (N'void', N'cancelled', N'canceled')", service);
+        Assert.Contains("LOWER(COALESCE(i.[Status], N'')) NOT IN (N'void', N'cancelled', N'canceled', N'refunded')", service);
         Assert.Contains("COALESCE(NULLIF(v.[MarginAmount], 0), v.[SalePrice] - v.[BuyPrice])", service);
         Assert.DoesNotContain("CREATE TABLE", service, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("dashboardKpiEndpoint", view);

@@ -30,6 +30,8 @@ public sealed class TenantCommissionPaymentTests
         Assert.Contains("Số tiền thanh toán vượt quá hoa hồng còn phải trả của Tenant.", service);
         Assert.Contains("input.Amount > balance.RemainingCommission", service);
         Assert.Contains("amount > balance.RemainingCommission", service);
+        Assert.Contains("AcquireTenantCommissionLockAsync(connection, transaction, input.TenantId, cancellationToken)", service);
+        Assert.Contains("WITH (UPDLOCK, HOLDLOCK)", service);
     }
 
     [Fact]
@@ -101,7 +103,7 @@ public sealed class TenantCommissionPaymentTests
     }
 
     [Fact]
-    public void BillingAndDashboardExposeRemainingCommission()
+    public void BillingAndDashboardUseGrossCommissionAndPeriodLedgerAllocation()
     {
         var billingModel = File.ReadAllText(Path.Combine(ProjectRoot, "Models", "BillingInvoiceModels.cs"));
         var billingService = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "BillingInvoiceReportService.cs"));
@@ -112,9 +114,17 @@ public sealed class TenantCommissionPaymentTests
         Assert.Contains("public decimal PaidCommission", billingModel);
         Assert.Contains("RemainingCommission", billingModel);
         Assert.Contains("TblTenantCommissionPayment", billingService);
-        Assert.Contains("filter.TenantIdScope.HasValue ? Math.Max(0, grossCommission - paidCommission) : grossCommission", billingService);
-        Assert.Contains("TblTenantCommissionPaymentItem", dashboardService);
-        Assert.Contains("Math.Max(0, ReadDecimal(reader, \"TotalCommission\"))", dashboardService);
+        Assert.Contains("TotalMargin = grossCommission", billingService);
+        Assert.DoesNotContain("TotalMargin = filter.TenantIdScope.HasValue ? Math.Max(0, grossCommission - paidCommission) : grossCommission", billingService);
+        Assert.Contains("cp.[SourceMode] = N'manual'", billingService);
+        Assert.Contains("cp.[PeriodFrom] >= @reportFrom", billingService);
+        Assert.Contains("cp.[PeriodTo] <= @reportTo", billingService);
+        Assert.Contains("pi.[CommissionAmount]", billingService);
+        Assert.Contains("ps.[StartDate] >= @reportFrom", billingService);
+        Assert.Contains("ps.[EndDate] <= @reportTo", billingService);
+        Assert.Contains("ResolveReportRange", billingService);
+        Assert.DoesNotContain("TblTenantCommissionPaymentItem", dashboardService);
+        Assert.Contains("AS [TotalCommission]", dashboardService);
         Assert.Contains("Hoa hồng còn lại", billingView);
     }
 
@@ -135,6 +145,17 @@ public sealed class TenantCommissionPaymentTests
         Assert.Contains("asp-controller=\"TenantCommissionPayment\"", transactionView);
         Assert.Contains("class=\"is-active\" asp-controller=\"TenantCommissionPayment\"", commissionView);
         Assert.Contains("Chi trả hoa hồng", commissionView);
+    }
+
+    [Fact]
+    public void GrossCommissionDoesNotRequireInvoicePaid()
+    {
+        var billingService = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "BillingInvoiceReportService.cs"));
+        var commissionService = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "TenantCommissionPaymentService.cs"));
+
+        Assert.Contains("LOWER(COALESCE(i.[Status], N'')) NOT IN (N'void', N'cancelled', N'canceled', N'refunded')", billingService);
+        Assert.Contains("SUM(COALESCE(NULLIF(i.[MarginAmount], 0), i.[SalePrice] - i.[BuyPrice])) AS [GrossCommission]", commissionService);
+        Assert.DoesNotContain("AND (LOWER(COALESCE(i.[Status], N'')) = N'paid' OR (i.[Amount] > 0 AND i.[PaidAmount] >= i.[Amount]))", ExtractMethodBody(commissionService, "QueryBalanceAsync"));
     }
 
     [Fact]

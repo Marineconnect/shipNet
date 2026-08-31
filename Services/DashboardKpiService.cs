@@ -52,25 +52,11 @@ public sealed class DashboardKpiService(IConfiguration configuration) : IDashboa
                 SELECT i.[ID], i.[SubscriptionId], i.[Amount], i.[SalePrice], i.[BuyPrice], i.[MarginAmount]
                 FROM [dbo].[TblSubscriptionInvoice] i
                 INNER JOIN ScopedSubscriptions s ON s.[ID] = i.[SubscriptionId]
-                WHERE LOWER(COALESCE(i.[Status], N'')) NOT IN (N'void', N'cancelled', N'canceled')
+                WHERE LOWER(COALESCE(i.[Status], N'')) NOT IN (N'void', N'cancelled', N'canceled', N'refunded')
             )
             SELECT
                 COALESCE(SUM(v.[Amount]), 0) AS [TotalRevenue],
-                COALESCE(SUM(COALESCE(NULLIF(v.[MarginAmount], 0), v.[SalePrice] - v.[BuyPrice])), 0)
-                - COALESCE((
-                    SELECT SUM(pi.[CommissionAmount])
-                    FROM [dbo].[TblTenantCommissionPaymentItem] pi
-                    INNER JOIN ScopedSubscriptions ps ON ps.[ID] = pi.[SubscriptionId]
-                ), 0)
-                - COALESCE((
-                    SELECT SUM(p.[Amount])
-                    FROM [dbo].[TblTenantCommissionPayment] p
-                    WHERE p.[SourceMode] = N'manual'
-                      AND (@allowedTenantId IS NULL OR p.[TenantId] = @allowedTenantId)
-                      AND EXISTS (SELECT 1 FROM ScopedSubscriptions ps WHERE ps.[TenantId] = p.[TenantId])
-                      AND (p.[PeriodFrom] IS NULL OR p.[PeriodFrom] < @periodEndExclusive)
-                      AND (p.[PeriodTo] IS NULL OR p.[PeriodTo] >= @periodStart)
-                ), 0) AS [TotalCommission],
+                COALESCE(SUM(COALESCE(NULLIF(v.[MarginAmount], 0), v.[SalePrice] - v.[BuyPrice])), 0) AS [TotalCommission],
                 COUNT(DISTINCT CASE
                     WHEN LOWER(COALESCE(s.[Status], N'')) NOT IN (N'void', N'cancelled', N'canceled', N'inactive')
                     THEN s.[DeviceId]

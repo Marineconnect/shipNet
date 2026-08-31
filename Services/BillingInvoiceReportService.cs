@@ -8,8 +8,8 @@ namespace StarlinkDeviceManager.Services;
 
 public sealed class BillingInvoiceReportService(IConfiguration configuration) : IBillingInvoiceReportService
 {
-    private const string ValidInvoiceStatusSql = "LOWER(COALESCE(i.[Status], N'')) NOT IN (N'void', N'cancelled', N'canceled')";
-    private const string InvalidInvoiceStatusSql = "LOWER(COALESCE(i.[Status], N'')) IN (N'void', N'cancelled', N'canceled')";
+    private const string ValidInvoiceStatusSql = "LOWER(COALESCE(i.[Status], N'')) NOT IN (N'void', N'cancelled', N'canceled', N'refunded')";
+    private const string InvalidInvoiceStatusSql = "LOWER(COALESCE(i.[Status], N'')) IN (N'void', N'cancelled', N'canceled', N'refunded')";
 
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")
         ?? throw new InvalidOperationException("Missing connection string: DefaultConnection");
@@ -153,18 +153,46 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
             COALESCE(SUM(i.[Amount]), 0) AS [TotalInvoiceAmount],
             COALESCE(SUM(i.[PaidAmount]), 0) AS [PaidAmount],
             COALESCE(SUM(CASE WHEN i.[Amount] - i.[PaidAmount] - i.[RefundAmount] > 0 THEN i.[Amount] - i.[PaidAmount] - i.[RefundAmount] ELSE 0 END), 0) AS [PendingAmount],
-            COALESCE(SUM(COALESCE(NULLIF(i.[MarginAmount], 0), i.[SalePrice] - i.[BuyPrice])), 0) AS [TotalMargin],
+            COALESCE(SUM(CASE
+                WHEN LOWER(COALESCE(i.[Status], N'')) NOT IN (N'void', N'cancelled', N'canceled', N'refunded')
+                THEN COALESCE(NULLIF(i.[MarginAmount], 0), i.[SalePrice] - i.[BuyPrice])
+                ELSE 0
+            END), 0) AS [TotalMargin],
             COALESCE((
                 SELECT SUM(cp.[Amount])
                 FROM [dbo].[TblTenantCommissionPayment] cp
                 WHERE (@allowedTenantId IS NULL OR cp.[TenantId] = @allowedTenantId)
                   AND (@tenantId IS NULL OR cp.[TenantId] = @tenantId)
+                  AND cp.[SourceMode] = N'manual'
                   AND EXISTS (
                       SELECT 1
                       FROM [dbo].[TblMonthlySubscription] ps
                       WHERE ps.[TenantId] = cp.[TenantId]
                         AND (@allowedDeviceId IS NULL OR ps.[DeviceId] = @allowedDeviceId)
+                        AND (@deviceId IS NULL OR ps.[DeviceId] = @deviceId)
                   )
+                  AND (
+                      (@reportFrom IS NULL AND @reportTo IS NULL)
+                      OR (
+                          cp.[PeriodFrom] IS NOT NULL
+                          AND cp.[PeriodTo] IS NOT NULL
+                          AND (@reportFrom IS NULL OR cp.[PeriodFrom] >= @reportFrom)
+                          AND (@reportTo IS NULL OR cp.[PeriodTo] <= @reportTo)
+                      )
+                  )
+            ), 0) + COALESCE((
+                SELECT SUM(pi.[CommissionAmount])
+                FROM [dbo].[TblTenantCommissionPayment] cp
+                INNER JOIN [dbo].[TblTenantCommissionPaymentItem] pi ON pi.[PaymentId] = cp.[ID]
+                INNER JOIN [dbo].[TblMonthlySubscription] ps ON ps.[ID] = pi.[SubscriptionId]
+                WHERE cp.[SourceMode] = N'billing_cycles'
+                  AND ps.[TenantId] = cp.[TenantId]
+                  AND (@allowedTenantId IS NULL OR cp.[TenantId] = @allowedTenantId)
+                  AND (@tenantId IS NULL OR cp.[TenantId] = @tenantId)
+                  AND (@allowedDeviceId IS NULL OR ps.[DeviceId] = @allowedDeviceId)
+                  AND (@deviceId IS NULL OR ps.[DeviceId] = @deviceId)
+                  AND (@reportFrom IS NULL OR ps.[StartDate] >= @reportFrom)
+                  AND (@reportTo IS NULL OR ps.[EndDate] <= @reportTo)
             ), 0) AS [PaidCommission],
             SUM(CASE WHEN LOWER(i.[Status]) = N'paid' OR (i.[PaidAmount] >= i.[Amount] AND i.[Amount] > 0) THEN 1 ELSE 0 END) AS [PaidInvoiceCount],
             SUM(CASE WHEN LOWER(i.[Status]) NOT IN (N'paid', N'void', N'cancelled', N'canceled', N'refunded')
@@ -262,6 +290,9 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
         var billingYearStart = filter.BillingYear is >= 2000 and <= 2100 ? new DateTime(filter.BillingYear.Value, 1, 1) : (DateTime?)null;
         command.Parameters.Add("@billingYearStart", SqlDbType.Date).Value = (object?)billingYearStart ?? DBNull.Value;
         command.Parameters.Add("@billingYearEnd", SqlDbType.Date).Value = (object?)billingYearStart?.AddYears(1) ?? DBNull.Value;
+        var reportRange = ResolveReportRange(filter);
+        command.Parameters.Add("@reportFrom", SqlDbType.Date).Value = (object?)reportRange.From ?? DBNull.Value;
+        command.Parameters.Add("@reportTo", SqlDbType.Date).Value = (object?)reportRange.To ?? DBNull.Value;
         command.Parameters.Add("@kitId", SqlDbType.NVarChar, 120).Value = string.IsNullOrWhiteSpace(filter.KitId) ? DBNull.Value : $"%{filter.KitId}%";
         command.Parameters.Add("@vessel", SqlDbType.NVarChar, 250).Value = string.IsNullOrWhiteSpace(filter.Vessel) ? DBNull.Value : $"%{filter.Vessel}%";
         if (!string.IsNullOrWhiteSpace(filter.Search))
@@ -342,6 +373,28 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
             : null;
     }
 
+    private static (DateTime? From, DateTime? To) ResolveReportRange(BillingInvoiceFilterViewModel filter)
+    {
+        if (filter.DateFrom.HasValue || filter.DateTo.HasValue)
+        {
+            return (filter.DateFrom?.Date, filter.DateTo?.Date);
+        }
+
+        var billingCycle = ParseBillingCycle(filter.BillingCycle);
+        if (billingCycle.HasValue)
+        {
+            return (billingCycle.Value, billingCycle.Value.AddMonths(1).AddDays(-1));
+        }
+
+        if (filter.BillingYear is >= 2000 and <= 2100)
+        {
+            var yearStart = new DateTime(filter.BillingYear.Value, 1, 1);
+            return (yearStart, yearStart.AddYears(1).AddDays(-1));
+        }
+
+        return (null, null);
+    }
+
     private static async Task<int> ScalarIntAsync(SqlConnection connection, string query, BillingInvoiceFilterViewModel filter, CancellationToken cancellationToken)
     {
         await using var command = new SqlCommand(query, connection);
@@ -362,7 +415,7 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
             TotalInvoiceAmount = ReadDecimal(reader, "TotalInvoiceAmount"),
             PaidAmount = ReadDecimal(reader, "PaidAmount"),
             PendingAmount = ReadDecimal(reader, "PendingAmount"),
-            TotalMargin = filter.TenantIdScope.HasValue ? Math.Max(0, grossCommission - paidCommission) : grossCommission,
+            TotalMargin = grossCommission,
             GrossCommission = grossCommission,
             PaidCommission = paidCommission,
             PaidInvoiceCount = ReadInt(reader, "PaidInvoiceCount"),

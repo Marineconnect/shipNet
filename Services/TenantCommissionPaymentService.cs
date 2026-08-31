@@ -96,6 +96,7 @@ public sealed class TenantCommissionPaymentService(IConfiguration configuration)
         await connection.OpenAsync(cancellationToken);
         await EnsureSchemaAsync(connection, null, cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+        await AcquireTenantCommissionLockAsync(connection, transaction, input.TenantId, cancellationToken);
 
         var balance = await QueryBalanceAsync(connection, input.TenantId, allowedTenantId, cancellationToken, transaction);
         if (input.Amount > balance.RemainingCommission)
@@ -140,6 +141,7 @@ public sealed class TenantCommissionPaymentService(IConfiguration configuration)
         await connection.OpenAsync(cancellationToken);
         await EnsureSchemaAsync(connection, null, cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+        await AcquireTenantCommissionLockAsync(connection, transaction, input.TenantId, cancellationToken);
 
         var cycles = await QueryEligibleCyclesByIdsAsync(connection, transaction, input.TenantId, selectedIds, cancellationToken);
         if (cycles.Count != selectedIds.Length)
@@ -259,7 +261,6 @@ public sealed class TenantCommissionPaymentService(IConfiguration configuration)
                 INNER JOIN [dbo].[TblMonthlySubscription] s ON s.[ID] = i.[SubscriptionId]
                 WHERE (@tenantId IS NULL OR s.[TenantId] = @tenantId)
                   AND LOWER(COALESCE(i.[Status], N'')) NOT IN (N'void', N'cancelled', N'canceled', N'refunded')
-                  AND (LOWER(COALESCE(i.[Status], N'')) = N'paid' OR (i.[Amount] > 0 AND i.[PaidAmount] >= i.[Amount]))
             ) g
             OUTER APPLY (
                 SELECT SUM([Amount]) AS [PaidCommission], COUNT(1) AS [PaymentCount]
@@ -282,6 +283,22 @@ public sealed class TenantCommissionPaymentService(IConfiguration configuration)
             PaidCommission = ReadDecimal(reader, "PaidCommission"),
             PaymentCount = ReadInt(reader, "PaymentCount")
         };
+    }
+
+    private static async Task AcquireTenantCommissionLockAsync(SqlConnection connection, SqlTransaction transaction, int tenantId, CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT [ID]
+            FROM [dbo].[TblTenant] WITH (UPDLOCK, HOLDLOCK)
+            WHERE [ID] = @tenantId;
+            """;
+        await using var command = new SqlCommand(sql, connection, transaction);
+        command.Parameters.Add("@tenantId", SqlDbType.Int).Value = tenantId;
+        var lockedTenantId = await command.ExecuteScalarAsync(cancellationToken);
+        if (lockedTenantId is null || lockedTenantId == DBNull.Value)
+        {
+            throw new InvalidOperationException("Tenant was not found.");
+        }
     }
 
     private static async Task<List<EligibleCommissionBillingCycleViewModel>> QueryEligibleCyclesAsync(SqlConnection connection, SqlTransaction? transaction, int tenantId, DateTime? dateFrom, DateTime? dateTo, string? search, CancellationToken cancellationToken)
