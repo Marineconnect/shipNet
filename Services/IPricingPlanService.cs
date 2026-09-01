@@ -13,6 +13,8 @@ public interface IPricingPlanService
     Task UpdatePlanAsync(PricingPlanFormViewModel model, int? userId, string username, CancellationToken cancellationToken = default);
     Task DeletePlanAsync(int id, int? userId, string username, CancellationToken cancellationToken = default);
     Task<PricingPlanImportResult> ImportPlansAsync(IReadOnlyList<PricingPlanFormViewModel> plans, int? userId, string username, CancellationToken cancellationToken = default);
+    Task<PricingPlanCostBackfillPreview?> GetCostBackfillPreviewAsync(int pricingPlanId, CancellationToken cancellationToken = default);
+    Task<PricingPlanCostBackfillResult> ApplyMissingCostAsync(int pricingPlanId, int? userId, string username, CancellationToken cancellationToken = default);
     Task<TenantPricingPageResult> GetTenantPricesAsync(int page, int pageSize, int? tenantId = null, string? search = null, CancellationToken cancellationToken = default);
     Task<List<TenantPricingListItemViewModel>> GetTenantPricesForExportAsync(int? tenantId = null, string? search = null, CancellationToken cancellationToken = default);
     Task<TenantPricingFormViewModel?> GetTenantPriceByIdAsync(int id, CancellationToken cancellationToken = default);

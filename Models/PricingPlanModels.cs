@@ -50,6 +50,28 @@ public class PricingPlanImportResult
     public List<PricingPlanFormViewModel> Plans { get; set; } = [];
 }
 
+public class PricingPlanCostBackfillPreview
+{
+    public int PlanId { get; set; }
+    public string PlanName { get; set; } = string.Empty;
+    public string PlanCode { get; set; } = string.Empty;
+    public decimal CostPrice { get; set; }
+    public decimal CostOverChargePrice { get; set; }
+    public int SubscriptionsMissingCost { get; set; }
+    public int SubscriptionsMissingOverchargeCost { get; set; }
+    public int SubscriptionInvoicesMissingCost { get; set; }
+    public int OverchargeInvoicesMissingCost { get; set; }
+    public bool CanApply => CostPrice > 0 || CostOverChargePrice > 0;
+}
+
+public class PricingPlanCostBackfillResult : PricingPlanCostBackfillPreview
+{
+    public int SubscriptionsCostUpdated { get; set; }
+    public int SubscriptionsOverchargeCostUpdated { get; set; }
+    public int SubscriptionInvoicesUpdated { get; set; }
+    public int OverchargeInvoicesUpdated { get; set; }
+}
+
 public class TenantPricingPageResult
 {
     public List<TenantPricingListItemViewModel> Prices { get; set; } = [];

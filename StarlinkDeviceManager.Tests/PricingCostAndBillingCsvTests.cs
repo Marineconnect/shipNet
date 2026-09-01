@@ -132,9 +132,61 @@ public sealed class PricingCostAndBillingCsvTests
         Assert.Contains("[CostPrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblSubscriptionInvoice_CostPrice]", service);
         Assert.Contains("CalculateSubscriptionPrice(context.CostPrice", service);
         Assert.Contains("Math.Round(dataGb * subscription.CostOverChargePrice", service);
+        Assert.Contains("pp.[CostPrice]", service);
+        Assert.Contains("pp.[CostOverChargePrice]", service);
+        Assert.Contains(": subscription.CostPrice", service);
+        Assert.Contains("s.[CostPrice],", service);
         Assert.Contains("[DataGb], [CostPrice], [BuyPrice]", service);
         Assert.Contains("i.[DataGb], i.[CostPrice], i.[BuyPrice]", billingService);
         Assert.DoesNotContain("pp.[CostPrice]", billingService);
+    }
+
+    [Fact]
+    public void PricingManualMissingCostApplyIsAdminOnlyPreviewedAndAudited()
+    {
+        var controller = File.ReadAllText(Path.Combine(ProjectRoot, "Controllers", "PricingController.cs"));
+        var service = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "PricingPlanService.cs"));
+        var contract = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "IPricingPlanService.cs"));
+        var models = File.ReadAllText(Path.Combine(ProjectRoot, "Models", "PricingPlanModels.cs"));
+        var view = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "Pricing", "Index.cshtml"));
+
+        Assert.Contains("GetCostBackfillPreviewAsync", contract);
+        Assert.Contains("ApplyMissingCostAsync", contract);
+        Assert.Contains("PricingPlanCostBackfillPreview", models);
+        Assert.Contains("PricingPlanCostBackfillResult", models);
+        Assert.Contains("[HttpGet(\"Pricing/{id:int}/CostBackfillPreview\")]", controller);
+        Assert.Contains("[HttpPost(\"Pricing/{id:int}/ApplyMissingCost\")]", controller);
+        Assert.Contains("[ValidateAntiForgeryToken]", controller);
+        Assert.Contains("if (!await IsSystemAdminAsync())", controller);
+        Assert.Contains("return Forbid();", controller);
+        Assert.Contains("Apply Cost to Missing Records", view);
+        Assert.Contains("data-preview-url", view);
+        Assert.Contains("data-apply-url", view);
+        Assert.Contains("confirmPricingCostBackfill", view);
+        Assert.Contains("Applied missing historical cost for PricingPlan", service);
+        Assert.Contains("ApplyMissingCostAuditAction", service);
+    }
+
+    [Fact]
+    public void PricingManualMissingCostApplyOnlyUpdatesZeroCostSnapshots()
+    {
+        var service = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "PricingPlanService.cs"));
+
+        Assert.Contains("WHERE s.[PricingPlanId] = @pricingPlanId", service);
+        Assert.Contains("AND s.[CostPrice] = 0", service);
+        Assert.Contains("AND s.[CostOverChargePrice] = 0", service);
+        Assert.Contains("AND i.[CostPrice] = 0", service);
+        Assert.Contains("AND UPPER(i.[InvoiceType]) = N'SUBSCRIPTION'", service);
+        Assert.Contains("AND UPPER(i.[InvoiceType]) = N'OVERCHARGE'", service);
+        Assert.Contains("SET i.[CostPrice] = s.[CostPrice]", service);
+        Assert.Contains("SET i.[CostPrice] = ROUND(i.[DataGb] * s.[CostOverChargePrice], 2)", service);
+        Assert.Contains("THEN ROUND(@costPrice, 2)", service);
+        Assert.Contains("* (DATEDIFF(day, CONVERT(date, s.[StartDate]), CONVERT(date, s.[EndDate])) + 1) / CAST(30 AS decimal(18,2))", service);
+        Assert.DoesNotContain("SET i.[BuyPrice]", service);
+        Assert.DoesNotContain("SET i.[SalePrice]", service);
+        Assert.DoesNotContain("SET i.[MarginAmount]", service);
+        Assert.DoesNotContain("SET i.[Amount]", service);
+        Assert.DoesNotContain("SET i.[PaidAmount]", service);
     }
 
     private static bool InvokeCanViewCostPrice(AuthUserRecord? user)

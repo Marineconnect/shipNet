@@ -200,6 +200,13 @@
                          class="table-action-btn">
                         <span>Sửa / Edit</span>
                       </a>
+                      <button type="button"
+                              class="table-action-btn pricing-cost-apply-btn"
+                              data-plan-id="@plan.Id"
+                              data-preview-url="@Url.Action("CostBackfillPreview", "Pricing", new { id = plan.Id })"
+                              data-apply-url="@Url.Action("ApplyMissingCost", "Pricing", new { id = plan.Id })">
+                        <span>Apply Cost to Missing Records</span>
+                      </button>
                       <form asp-controller="Pricing"
                             asp-action="Delete"
                             asp-route-id="@plan.Id"
@@ -512,6 +519,35 @@
     </div>
   </div>
 </div>
+<div class="modal-backdrop" id="pricingCostBackfillModal" hidden>
+  <div class="device-modal tenant-modal" role="dialog" aria-modal="true" aria-labelledby="pricingCostBackfillModalTitle">
+    <div class="device-modal-head">
+      <div>
+        <h2 id="pricingCostBackfillModalTitle">Apply Cost to Missing Records</h2>
+        <p id="pricingCostBackfillPlanName">Review missing historical cost records before applying.</p>
+      </div>
+      <button type="button" class="modal-close" id="closePricingCostBackfillModal" aria-label="Close">×</button>
+    </div>
+    <div class="tenant-device-preview">
+      <dl class="pricing-cost-preview-list">
+        <div><dt>Cost KVH</dt><dd id="pricingCostBackfillCost">-</dd></div>
+        <div><dt>Cost Overcharge</dt><dd id="pricingCostBackfillOverchargeCost">-</dd></div>
+        <div><dt>Billing Cycle CostPrice = 0</dt><dd id="pricingCostBackfillSubscriptions">-</dd></div>
+        <div><dt>Billing Cycle CostOverChargePrice = 0</dt><dd id="pricingCostBackfillSubscriptionOvercharges">-</dd></div>
+        <div><dt>SUBSCRIPTION Invoice CostPrice = 0</dt><dd id="pricingCostBackfillSubscriptionInvoices">-</dd></div>
+        <div><dt>OVERCHARGE Invoice CostPrice = 0</dt><dd id="pricingCostBackfillOverchargeInvoices">-</dd></div>
+      </dl>
+      <div class="tenant-device-preview-status" id="pricingCostBackfillStatus"></div>
+    </div>
+    <form method="post" id="pricingCostBackfillForm">
+      @Html.AntiForgeryToken()
+      <div class="device-modal-actions">
+        <button type="button" class="btn-secondary" id="cancelPricingCostBackfillModal">Cancel</button>
+        <button type="submit" class="btn-primary" id="confirmPricingCostBackfill">Confirm Apply</button>
+      </div>
+    </form>
+  </div>
+</div>
 <div class="modal-backdrop" id="pricingCreateModal"@createModalHidden>
   <div class="device-modal tenant-modal" role="dialog" aria-modal="true" aria-labelledby="pricingCreateModalTitle">
     <div class="device-modal-head">
@@ -714,6 +750,19 @@
       const accountDropdown = document.getElementById("portalAccountDropdown");
       const createModal = document.getElementById("pricingCreateModal");
       const editModal = document.getElementById("pricingEditModal");
+      const pricingCostBackfillModal = document.getElementById("pricingCostBackfillModal");
+      const pricingCostBackfillForm = document.getElementById("pricingCostBackfillForm");
+      const pricingCostBackfillPlanName = document.getElementById("pricingCostBackfillPlanName");
+      const pricingCostBackfillCost = document.getElementById("pricingCostBackfillCost");
+      const pricingCostBackfillOverchargeCost = document.getElementById("pricingCostBackfillOverchargeCost");
+      const pricingCostBackfillSubscriptions = document.getElementById("pricingCostBackfillSubscriptions");
+      const pricingCostBackfillSubscriptionOvercharges = document.getElementById("pricingCostBackfillSubscriptionOvercharges");
+      const pricingCostBackfillSubscriptionInvoices = document.getElementById("pricingCostBackfillSubscriptionInvoices");
+      const pricingCostBackfillOverchargeInvoices = document.getElementById("pricingCostBackfillOverchargeInvoices");
+      const pricingCostBackfillStatus = document.getElementById("pricingCostBackfillStatus");
+      const confirmPricingCostBackfillButton = document.getElementById("confirmPricingCostBackfill");
+      const closePricingCostBackfillModalButton = document.getElementById("closePricingCostBackfillModal");
+      const cancelPricingCostBackfillModalButton = document.getElementById("cancelPricingCostBackfillModal");
       const tenantPricingCreateModal = document.getElementById("tenantPricingCreateModal");
       const tenantPricingEditModal = document.getElementById("tenantPricingEditModal");
       const openCreateModalButton = document.getElementById("openPricingCreateModal");
@@ -754,6 +803,7 @@
         const hasOpenModal =
           (createModal && !createModal.hidden) ||
           (editModal && !editModal.hidden) ||
+          (pricingCostBackfillModal && !pricingCostBackfillModal.hidden) ||
           (tenantDevicePreviewModal && !tenantDevicePreviewModal.hidden) ||
           (tenantPricingCreateModal && !tenantPricingCreateModal.hidden) ||
           (tenantPricingEditModal && !tenantPricingEditModal.hidden);
@@ -777,6 +827,74 @@
         if (!editModal) return;
         editModal.hidden = true;
         syncBodyOverflow();
+      }
+
+      function closePricingCostBackfillModal() {
+        if (!pricingCostBackfillModal) return;
+        pricingCostBackfillModal.hidden = true;
+        syncBodyOverflow();
+      }
+
+      function formatPreviewMoney(value) {
+        const number = Number(value || 0);
+        if (!Number.isFinite(number)) return "-";
+        if ("@defaultCurrency" === "VND") {
+          return `${number.toLocaleString("vi-VN", { maximumFractionDigits: 0 })} VND`;
+        }
+
+        return `@defaultCurrency ${number.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+      }
+
+      function readPreviewValue(preview, camelName, pascalName) {
+        return preview?.[camelName] ?? preview?.[pascalName] ?? 0;
+      }
+
+      function setPricingCostBackfillStatus(message, isError = false) {
+        if (!pricingCostBackfillStatus) return;
+        pricingCostBackfillStatus.textContent = message || "";
+        pricingCostBackfillStatus.classList.toggle("is-error", Boolean(isError));
+      }
+
+      function renderPricingCostBackfillPreview(preview) {
+        const planName = readPreviewValue(preview, "planName", "PlanName");
+        const planCode = readPreviewValue(preview, "planCode", "PlanCode");
+        const costPrice = readPreviewValue(preview, "costPrice", "CostPrice");
+        const costOverChargePrice = readPreviewValue(preview, "costOverChargePrice", "CostOverChargePrice");
+        const canApply = Boolean(preview?.canApply ?? preview?.CanApply);
+
+        if (pricingCostBackfillPlanName) pricingCostBackfillPlanName.textContent = `Plan: ${planName} (${planCode})`;
+        if (pricingCostBackfillCost) pricingCostBackfillCost.textContent = formatPreviewMoney(costPrice);
+        if (pricingCostBackfillOverchargeCost) pricingCostBackfillOverchargeCost.textContent = formatPreviewMoney(costOverChargePrice);
+        if (pricingCostBackfillSubscriptions) pricingCostBackfillSubscriptions.textContent = readPreviewValue(preview, "subscriptionsMissingCost", "SubscriptionsMissingCost");
+        if (pricingCostBackfillSubscriptionOvercharges) pricingCostBackfillSubscriptionOvercharges.textContent = readPreviewValue(preview, "subscriptionsMissingOverchargeCost", "SubscriptionsMissingOverchargeCost");
+        if (pricingCostBackfillSubscriptionInvoices) pricingCostBackfillSubscriptionInvoices.textContent = readPreviewValue(preview, "subscriptionInvoicesMissingCost", "SubscriptionInvoicesMissingCost");
+        if (pricingCostBackfillOverchargeInvoices) pricingCostBackfillOverchargeInvoices.textContent = readPreviewValue(preview, "overchargeInvoicesMissingCost", "OverchargeInvoicesMissingCost");
+        if (confirmPricingCostBackfillButton) confirmPricingCostBackfillButton.disabled = !canApply;
+        setPricingCostBackfillStatus(canApply ? "" : "Pricing Plan chưa được cấu hình Cost.", !canApply);
+      }
+
+      async function openPricingCostBackfillModal(button) {
+        if (!pricingCostBackfillModal || !button) return;
+        pricingCostBackfillModal.hidden = false;
+        syncBodyOverflow();
+        setPricingCostBackfillStatus("Loading preview...");
+        if (confirmPricingCostBackfillButton) confirmPricingCostBackfillButton.disabled = true;
+        if (pricingCostBackfillForm) pricingCostBackfillForm.action = button.dataset.applyUrl || "";
+
+        try {
+          const response = await fetch(button.dataset.previewUrl || "", {
+            method: "GET",
+            headers: { "X-Requested-With": "XMLHttpRequest" }
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok || payload.success === false) {
+            throw new Error(payload.message || `HTTP ${response.status}`);
+          }
+
+          renderPricingCostBackfillPreview(payload.preview || payload.Preview);
+        } catch (error) {
+          setPricingCostBackfillStatus(error.message || "Could not load preview.", true);
+        }
       }
 
       function openTenantPricingCreateModal() {
@@ -860,6 +978,39 @@
       cancelCreateModalButton?.addEventListener("click", closeCreateModal);
       closeEditModalButton?.addEventListener("click", closeEditModal);
       cancelEditModalButton?.addEventListener("click", closeEditModal);
+      closePricingCostBackfillModalButton?.addEventListener("click", closePricingCostBackfillModal);
+      cancelPricingCostBackfillModalButton?.addEventListener("click", closePricingCostBackfillModal);
+      document.querySelectorAll(".pricing-cost-apply-btn").forEach((button) => {
+        button.addEventListener("click", () => openPricingCostBackfillModal(button));
+      });
+      pricingCostBackfillForm?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!pricingCostBackfillForm.action) return;
+        if (confirmPricingCostBackfillButton) confirmPricingCostBackfillButton.disabled = true;
+        setPricingCostBackfillStatus("Applying missing cost...");
+
+        const formData = new FormData(pricingCostBackfillForm);
+        try {
+          const response = await fetch(pricingCostBackfillForm.action, {
+            method: "POST",
+            body: formData,
+            headers: { "X-Requested-With": "XMLHttpRequest" }
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok || payload.success === false) {
+            throw new Error(payload.message || `HTTP ${response.status}`);
+          }
+
+          const result = payload.result || payload.Result || {};
+          setPricingCostBackfillStatus(
+            `Applied. Subscription cost: ${readPreviewValue(result, "subscriptionsCostUpdated", "SubscriptionsCostUpdated")}; subscription overcharge: ${readPreviewValue(result, "subscriptionsOverchargeCostUpdated", "SubscriptionsOverchargeCostUpdated")}; subscription invoices: ${readPreviewValue(result, "subscriptionInvoicesUpdated", "SubscriptionInvoicesUpdated")}; overcharge invoices: ${readPreviewValue(result, "overchargeInvoicesUpdated", "OverchargeInvoicesUpdated")}.`
+          );
+          window.setTimeout(() => window.location.reload(), 900);
+        } catch (error) {
+          setPricingCostBackfillStatus(error.message || "Could not apply missing cost.", true);
+          if (confirmPricingCostBackfillButton) confirmPricingCostBackfillButton.disabled = false;
+        }
+      });
       closeTenantPricingCreateModalButton?.addEventListener("click", closeTenantPricingCreateModal);
       cancelTenantPricingCreateModalButton?.addEventListener("click", closeTenantPricingCreateModal);
       closeTenantPricingEditModalButton?.addEventListener("click", closeTenantPricingEditModal);

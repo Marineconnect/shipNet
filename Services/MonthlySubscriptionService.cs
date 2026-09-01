@@ -434,7 +434,7 @@ public class MonthlySubscriptionService(
             : amount;
         var costPrice = invoiceType == "OVERCHARGE"
             ? Math.Round(dataGb * subscription.CostOverChargePrice, 2, MidpointRounding.AwayFromZero)
-            : 0;
+            : subscription.CostPrice;
         var invoiceNumber = await BuildInvoiceNumberAsync(connection, transaction, cancellationToken);
         var invoiceId = await InsertInvoiceAsync(connection, transaction, model.SubscriptionId, invoiceNumber, invoiceType, model.Description, dataGb, costPrice, buyPrice, amount, amount, username, cancellationToken);
         await RecalculateSubscriptionTotalsAsync(connection, transaction, model.SubscriptionId, cancellationToken);
@@ -1119,6 +1119,8 @@ public class MonthlySubscriptionService(
                 pp.[PlanName],
                 pp.[PlanCode],
                 pp.[BaseData],
+                pp.[CostPrice],
+                pp.[CostOverChargePrice],
                 dp.[ResellerPrice],
                 dp.[FinalPrice],
                 dp.[ResellerOverChargePrice],
@@ -1168,6 +1170,7 @@ public class MonthlySubscriptionService(
                 s.[VesselName],
                 COALESCE(NULLIF(d.[KITNumber], N''), NULLIF(s.[KitId], N''), d.[KITID], N'') AS [KitId],
                 s.[PlanName],
+                s.[CostPrice],
                 s.[CostOverChargePrice],
                 s.[OverChargePrice],
                 dp.[ResellerOverChargePrice],
@@ -1203,6 +1206,7 @@ public class MonthlySubscriptionService(
             ReadText(reader, "VesselName"),
             ReadText(reader, "KitId"),
             ReadText(reader, "PlanName"),
+            ReadDecimal(reader, "CostPrice"),
             resellerOverChargePrice,
             ReadDecimal(reader, "CostOverChargePrice"),
             finalOverChargePrice);
@@ -1876,6 +1880,7 @@ public class MonthlySubscriptionService(
         string VesselName,
         string KitId,
         string PlanName,
+        decimal CostPrice,
         decimal ResellerOverChargePrice,
         decimal CostOverChargePrice,
         decimal FinalOverChargePrice);

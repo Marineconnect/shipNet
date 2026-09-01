@@ -389,6 +389,54 @@ public class PricingController(
         return RedirectToAction(nameof(Index), new { page, pageSize });
     }
 
+    [HttpGet("Pricing/{id:int}/CostBackfillPreview")]
+    public async Task<IActionResult> CostBackfillPreview(int id)
+    {
+        if (!await IsSystemAdminAsync())
+        {
+            return Forbid();
+        }
+
+        var preview = await pricingPlanService.GetCostBackfillPreviewAsync(id, HttpContext.RequestAborted);
+        if (preview is null)
+        {
+            return NotFound();
+        }
+
+        return Json(new { success = true, preview });
+    }
+
+    [HttpPost("Pricing/{id:int}/ApplyMissingCost")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ApplyMissingCost(int id)
+    {
+        if (!await IsSystemAdminAsync())
+        {
+            return Forbid();
+        }
+
+        var (userId, username) = GetCurrentAuditContext();
+
+        try
+        {
+            var result = await pricingPlanService.ApplyMissingCostAsync(id, userId, username, HttpContext.RequestAborted);
+            return Json(new { success = true, result });
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new { success = false, message = "Pricing Plan was not found." });
+        }
+        catch (InvalidOperationException exception)
+        {
+            return BadRequest(new { success = false, message = exception.Message });
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Failed to apply missing cost for pricing plan id {PlanId}.", id);
+            return StatusCode(StatusCodes.Status500InternalServerError, new { success = false, message = $"Could not apply missing cost. Detail: {exception.GetBaseException().Message}" });
+        }
+    }
+
     [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> CreateTenantPricing(PricingPlanIndexViewModel requestModel)

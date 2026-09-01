@@ -17,6 +17,7 @@ public class PricingPlanService(
     private const string UpdateTenantPriceAuditAction = "updated_tenant_pricing";
     private const string DeleteTenantPriceAuditAction = "deleted_tenant_pricing";
     private const string ImportTenantPriceAuditAction = "imported_tenant_pricing";
+    private const string ApplyMissingCostAuditAction = "applied_missing_pricing_cost";
 
     private readonly string _connectionString = configuration.GetConnectionString("DefaultConnection")
         ?? throw new InvalidOperationException("Missing connection string: DefaultConnection");
@@ -465,6 +466,158 @@ public class PricingPlanService(
             cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
+        return result;
+    }
+
+    public async Task<PricingPlanCostBackfillPreview?> GetCostBackfillPreviewAsync(int pricingPlanId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, null, cancellationToken);
+        await EnsureCostBackfillSchemaAsync(connection, null, cancellationToken);
+        var conversion = await GetPricingCurrencyConversionAsync(DateTime.Today, cancellationToken);
+
+        var preview = await GetCostBackfillPreviewAsync(connection, null, pricingPlanId, cancellationToken);
+        if (preview is not null)
+        {
+            ConvertCostBackfillPreviewToDefaultCurrency(preview, conversion);
+        }
+
+        return preview;
+    }
+
+    public async Task<PricingPlanCostBackfillResult> ApplyMissingCostAsync(int pricingPlanId, int? userId, string username, CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, transaction, cancellationToken);
+        await EnsureCostBackfillSchemaAsync(connection, transaction, cancellationToken);
+        var conversion = await GetPricingCurrencyConversionAsync(DateTime.Today, cancellationToken);
+
+        var preview = await GetCostBackfillPreviewAsync(connection, transaction, pricingPlanId, cancellationToken)
+            ?? throw new KeyNotFoundException($"Pricing plan with id {pricingPlanId} was not found.");
+
+        if (preview.CostPrice <= 0 && preview.CostOverChargePrice <= 0)
+        {
+            throw new InvalidOperationException("Pricing Plan chưa được cấu hình Cost.");
+        }
+
+        var result = new PricingPlanCostBackfillResult
+        {
+            PlanId = preview.PlanId,
+            PlanName = preview.PlanName,
+            PlanCode = preview.PlanCode,
+            CostPrice = preview.CostPrice,
+            CostOverChargePrice = preview.CostOverChargePrice,
+            SubscriptionsMissingCost = preview.SubscriptionsMissingCost,
+            SubscriptionsMissingOverchargeCost = preview.SubscriptionsMissingOverchargeCost,
+            SubscriptionInvoicesMissingCost = preview.SubscriptionInvoicesMissingCost,
+            OverchargeInvoicesMissingCost = preview.OverchargeInvoicesMissingCost
+        };
+
+        if (preview.CostPrice > 0)
+        {
+            const string updateSubscriptionCostQuery = """
+                UPDATE s
+                SET s.[CostPrice] =
+                    CASE
+                        WHEN CONVERT(date, s.[EndDate]) < CONVERT(date, s.[StartDate]) THEN CAST(0 AS decimal(18,2))
+                        WHEN CONVERT(date, s.[EndDate]) = EOMONTH(CONVERT(date, s.[StartDate]))
+                             AND (DATEPART(day, CONVERT(date, s.[StartDate])) = 1
+                                  OR (DAY(EOMONTH(CONVERT(date, s.[StartDate]))) = 31
+                                      AND DATEPART(day, CONVERT(date, s.[StartDate])) = 2))
+                            THEN ROUND(@costPrice, 2)
+                        ELSE ROUND(
+                            ROUND(@costPrice, 2)
+                            * (DATEDIFF(day, CONVERT(date, s.[StartDate]), CONVERT(date, s.[EndDate])) + 1) / CAST(30 AS decimal(18,2)),
+                            2)
+                    END
+                FROM [dbo].[TblMonthlySubscription] s
+                WHERE s.[PricingPlanId] = @pricingPlanId
+                  AND s.[CostPrice] = 0
+                  AND @costPrice > 0
+                  AND (
+                        CASE
+                            WHEN CONVERT(date, s.[EndDate]) < CONVERT(date, s.[StartDate]) THEN CAST(0 AS decimal(18,2))
+                            WHEN CONVERT(date, s.[EndDate]) = EOMONTH(CONVERT(date, s.[StartDate]))
+                                 AND (DATEPART(day, CONVERT(date, s.[StartDate])) = 1
+                                      OR (DAY(EOMONTH(CONVERT(date, s.[StartDate]))) = 31
+                                          AND DATEPART(day, CONVERT(date, s.[StartDate])) = 2))
+                                THEN ROUND(@costPrice, 2)
+                            ELSE ROUND(
+                                ROUND(@costPrice, 2)
+                                * (DATEDIFF(day, CONVERT(date, s.[StartDate]), CONVERT(date, s.[EndDate])) + 1) / CAST(30 AS decimal(18,2)),
+                                2)
+                        END
+                      ) > 0;
+                """;
+
+            await using var updateSubscriptionCost = new SqlCommand(updateSubscriptionCostQuery, connection, transaction);
+            updateSubscriptionCost.Parameters.Add("@pricingPlanId", SqlDbType.Int).Value = pricingPlanId;
+            AddDecimal(updateSubscriptionCost, "@costPrice", preview.CostPrice);
+            result.SubscriptionsCostUpdated = await updateSubscriptionCost.ExecuteNonQueryAsync(cancellationToken);
+
+            const string updateSubscriptionInvoicesQuery = """
+                UPDATE i
+                SET i.[CostPrice] = s.[CostPrice]
+                FROM [dbo].[TblSubscriptionInvoice] i
+                INNER JOIN [dbo].[TblMonthlySubscription] s ON s.[ID] = i.[SubscriptionId]
+                WHERE i.[CostPrice] = 0
+                  AND UPPER(i.[InvoiceType]) = N'SUBSCRIPTION'
+                  AND s.[PricingPlanId] = @pricingPlanId
+                  AND s.[CostPrice] > 0;
+                """;
+
+            await using var updateSubscriptionInvoices = new SqlCommand(updateSubscriptionInvoicesQuery, connection, transaction);
+            updateSubscriptionInvoices.Parameters.Add("@pricingPlanId", SqlDbType.Int).Value = pricingPlanId;
+            result.SubscriptionInvoicesUpdated = await updateSubscriptionInvoices.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (preview.CostOverChargePrice > 0)
+        {
+            const string updateSubscriptionOverchargeQuery = """
+                UPDATE s
+                SET s.[CostOverChargePrice] = @costOverChargePrice
+                FROM [dbo].[TblMonthlySubscription] s
+                WHERE s.[PricingPlanId] = @pricingPlanId
+                  AND s.[CostOverChargePrice] = 0
+                  AND @costOverChargePrice > 0;
+                """;
+
+            await using var updateSubscriptionOvercharge = new SqlCommand(updateSubscriptionOverchargeQuery, connection, transaction);
+            updateSubscriptionOvercharge.Parameters.Add("@pricingPlanId", SqlDbType.Int).Value = pricingPlanId;
+            AddDecimal(updateSubscriptionOvercharge, "@costOverChargePrice", preview.CostOverChargePrice);
+            result.SubscriptionsOverchargeCostUpdated = await updateSubscriptionOvercharge.ExecuteNonQueryAsync(cancellationToken);
+
+            const string updateOverchargeInvoicesQuery = """
+                UPDATE i
+                SET i.[CostPrice] = ROUND(i.[DataGb] * s.[CostOverChargePrice], 2)
+                FROM [dbo].[TblSubscriptionInvoice] i
+                INNER JOIN [dbo].[TblMonthlySubscription] s ON s.[ID] = i.[SubscriptionId]
+                WHERE i.[CostPrice] = 0
+                  AND UPPER(i.[InvoiceType]) = N'OVERCHARGE'
+                  AND s.[PricingPlanId] = @pricingPlanId
+                  AND i.[DataGb] > 0
+                  AND s.[CostOverChargePrice] > 0
+                  AND ROUND(i.[DataGb] * s.[CostOverChargePrice], 2) > 0;
+                """;
+
+            await using var updateOverchargeInvoices = new SqlCommand(updateOverchargeInvoicesQuery, connection, transaction);
+            updateOverchargeInvoices.Parameters.Add("@pricingPlanId", SqlDbType.Int).Value = pricingPlanId;
+            result.OverchargeInvoicesUpdated = await updateOverchargeInvoices.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await InsertAuditAsync(
+            connection,
+            transaction,
+            userId,
+            ApplyMissingCostAuditAction,
+            BuildApplyMissingCostAuditDetail(result, username),
+            cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+        ConvertCostBackfillPreviewToDefaultCurrency(result, conversion);
         return result;
     }
 
@@ -1288,6 +1441,12 @@ public class PricingPlanService(
         model.FinalOverChargePrice = ToDefaultCurrency(model.FinalOverChargePrice, conversion);
     }
 
+    private static void ConvertCostBackfillPreviewToDefaultCurrency(PricingPlanCostBackfillPreview model, PricingCurrencyConversion conversion)
+    {
+        model.CostPrice = ToDefaultCurrency(model.CostPrice, conversion);
+        model.CostOverChargePrice = ToDefaultCurrency(model.CostOverChargePrice, conversion);
+    }
+
     private static void ConvertTenantPriceToDefaultCurrency(TenantPricingListItemViewModel model, PricingCurrencyConversion conversion)
     {
         model.ResellerPrice = ToDefaultCurrency(model.ResellerPrice, conversion);
@@ -1433,6 +1592,100 @@ public class PricingPlanService(
             .Replace("[", "[[]", StringComparison.Ordinal)
             .Replace("%", "[%]", StringComparison.Ordinal)
             .Replace("_", "[_]", StringComparison.Ordinal);
+    }
+
+    private static async Task<PricingPlanCostBackfillPreview?> GetCostBackfillPreviewAsync(
+        SqlConnection connection,
+        SqlTransaction? transaction,
+        int pricingPlanId,
+        CancellationToken cancellationToken)
+    {
+        const string query = """
+            SELECT TOP 1
+                p.[ID] AS [PlanId],
+                p.[PlanName],
+                p.[PlanCode],
+                p.[CostPrice],
+                p.[CostOverChargePrice],
+                (
+                    SELECT COUNT(1)
+                    FROM [dbo].[TblMonthlySubscription] s
+                    WHERE s.[PricingPlanId] = p.[ID]
+                      AND s.[CostPrice] = 0
+                ) AS [SubscriptionsMissingCost],
+                (
+                    SELECT COUNT(1)
+                    FROM [dbo].[TblMonthlySubscription] s
+                    WHERE s.[PricingPlanId] = p.[ID]
+                      AND s.[CostOverChargePrice] = 0
+                ) AS [SubscriptionsMissingOverchargeCost],
+                (
+                    SELECT COUNT(1)
+                    FROM [dbo].[TblSubscriptionInvoice] i
+                    INNER JOIN [dbo].[TblMonthlySubscription] s ON s.[ID] = i.[SubscriptionId]
+                    WHERE s.[PricingPlanId] = p.[ID]
+                      AND i.[CostPrice] = 0
+                      AND UPPER(i.[InvoiceType]) = N'SUBSCRIPTION'
+                ) AS [SubscriptionInvoicesMissingCost],
+                (
+                    SELECT COUNT(1)
+                    FROM [dbo].[TblSubscriptionInvoice] i
+                    INNER JOIN [dbo].[TblMonthlySubscription] s ON s.[ID] = i.[SubscriptionId]
+                    WHERE s.[PricingPlanId] = p.[ID]
+                      AND i.[CostPrice] = 0
+                      AND UPPER(i.[InvoiceType]) = N'OVERCHARGE'
+                ) AS [OverchargeInvoicesMissingCost]
+            FROM [dbo].[TblPricingPlan] p
+            WHERE p.[ID] = @pricingPlanId;
+            """;
+
+        await using var command = new SqlCommand(query, connection, transaction);
+        command.Parameters.Add("@pricingPlanId", SqlDbType.Int).Value = pricingPlanId;
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return new PricingPlanCostBackfillPreview
+        {
+            PlanId = ReadInt(reader, "PlanId"),
+            PlanName = reader["PlanName"]?.ToString() ?? string.Empty,
+            PlanCode = reader["PlanCode"]?.ToString() ?? string.Empty,
+            CostPrice = ReadDecimal(reader, "CostPrice"),
+            CostOverChargePrice = ReadDecimal(reader, "CostOverChargePrice"),
+            SubscriptionsMissingCost = ReadInt(reader, "SubscriptionsMissingCost"),
+            SubscriptionsMissingOverchargeCost = ReadInt(reader, "SubscriptionsMissingOverchargeCost"),
+            SubscriptionInvoicesMissingCost = ReadInt(reader, "SubscriptionInvoicesMissingCost"),
+            OverchargeInvoicesMissingCost = ReadInt(reader, "OverchargeInvoicesMissingCost")
+        };
+    }
+
+    private static async Task EnsureCostBackfillSchemaAsync(SqlConnection connection, SqlTransaction? transaction, CancellationToken cancellationToken)
+    {
+        const string query = """
+            IF OBJECT_ID(N'[dbo].[TblMonthlySubscription]', N'U') IS NULL
+                THROW 51010, 'TblMonthlySubscription does not exist.', 1;
+            IF OBJECT_ID(N'[dbo].[TblSubscriptionInvoice]', N'U') IS NULL
+                THROW 51011, 'TblSubscriptionInvoice does not exist.', 1;
+            IF COL_LENGTH(N'[dbo].[TblMonthlySubscription]', N'CostPrice') IS NULL
+                THROW 51012, 'TblMonthlySubscription.CostPrice does not exist.', 1;
+            IF COL_LENGTH(N'[dbo].[TblMonthlySubscription]', N'CostOverChargePrice') IS NULL
+                THROW 51013, 'TblMonthlySubscription.CostOverChargePrice does not exist.', 1;
+            IF COL_LENGTH(N'[dbo].[TblSubscriptionInvoice]', N'CostPrice') IS NULL
+                THROW 51014, 'TblSubscriptionInvoice.CostPrice does not exist.', 1;
+            """;
+
+        await using var command = new SqlCommand(query, connection, transaction);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static void AddDecimal(SqlCommand command, string name, decimal value)
+    {
+        command.Parameters.Add(name, SqlDbType.Decimal).Value = value;
+        command.Parameters[name].Precision = 18;
+        command.Parameters[name].Scale = 2;
     }
 
     private async Task EnsureSchemaAsync(SqlConnection connection, SqlTransaction? transaction, CancellationToken cancellationToken)
@@ -1619,6 +1872,17 @@ public class PricingPlanService(
         return reader[columnName] is decimal value ? value : 0;
     }
 
+    private static int ReadInt(SqlDataReader reader, string columnName)
+    {
+        return reader[columnName] switch
+        {
+            int value => value,
+            long value => Convert.ToInt32(value),
+            decimal value => Convert.ToInt32(value),
+            _ => 0
+        };
+    }
+
     private static string BuildUpdateAuditDetail(PricingPlanFormViewModel existingPlan, PricingPlanFormViewModel updatedPlan)
     {
         var changedFields = new List<string>();
@@ -1676,6 +1940,18 @@ public class PricingPlanService(
         return changedFields.Count == 0
             ? $"Updated pricing plan '{updatedPlan.PlanCode}' (ID: {updatedPlan.Id}). No field changes detected."
             : $"Updated pricing plan '{updatedPlan.PlanCode}' (ID: {updatedPlan.Id}). Changed fields: {string.Join(", ", changedFields)}.";
+    }
+
+    private static string BuildApplyMissingCostAuditDetail(PricingPlanCostBackfillResult result, string username)
+    {
+        return
+            $"Applied missing historical cost for PricingPlan #{result.PlanId} ({result.PlanCode}). " +
+            $"CostPrice: {result.CostPrice:0.##}; CostOverChargePrice: {result.CostOverChargePrice:0.##}; " +
+            $"Subscription cost updated: {result.SubscriptionsCostUpdated}; " +
+            $"Subscription overcharge cost updated: {result.SubscriptionsOverchargeCostUpdated}; " +
+            $"Subscription invoices updated: {result.SubscriptionInvoicesUpdated}; " +
+            $"Overcharge invoices updated: {result.OverchargeInvoicesUpdated}; " +
+            $"By: {username}; Timestamp: {DateTime.UtcNow:O}.";
     }
 
     private sealed record PricingCurrencyConversion(string PricingCurrency, string DefaultCurrency, decimal RateToDefaultCurrency);
