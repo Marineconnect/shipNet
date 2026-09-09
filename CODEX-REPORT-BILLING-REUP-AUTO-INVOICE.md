@@ -97,7 +97,7 @@ Build warnings remain in unrelated `Services/DeviceService.cs` lines 2260, 2261,
 - Branch: `main`.
 - Implementation commit SHA: `f891f2f1dcead2158ea3e1622894fb0f4864cace`.
 - Implementation push status: pushed to `origin/main`.
-- Report commit SHA: pending until this report is committed.
+- Report commit SHA: `c66b4444baaff94a39f1916b228c871ccda6c688`.
 
 ## 9. Remaining risks
 - The implementation assumes the numbering space is the numeric suffix of invoice codes matching `SPN-INV-YY-xxxxx`.
