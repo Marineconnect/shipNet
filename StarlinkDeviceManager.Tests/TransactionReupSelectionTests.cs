@@ -73,7 +73,7 @@ public sealed class TransactionReupSelectionTests
         Assert.Contains("Starting Invoice ID đang bằng 0", view);
         Assert.Contains("let submitting = false", view);
         Assert.Contains("BeginTransactionAsync(IsolationLevel.Serializable", body);
-        Assert.Contains("await GetLatestInvoiceSequenceAsync(connection, transaction, cancellationToken) + 1", body);
+        Assert.Contains("await GetLatestInvoiceSequenceAsync(connection, transaction, invoiceYear, cancellationToken) + 1", body);
         Assert.Contains("InsertExcelBatchAsync(connection, transaction, batchCode, storedFile, user, rows.Count, resolvedStart", body);
         Assert.Contains("new TransactionReupImportResult(batchId, $\"Imported {rows.Count} rows.\", resolvedStart", body);
         Assert.DoesNotContain("model.StartInvoiceNumber <= 0", body);
@@ -89,12 +89,45 @@ public sealed class TransactionReupSelectionTests
 
         Assert.Contains("TblSubscriptionInvoice] WITH (UPDLOCK, HOLDLOCK)", maxBody);
         Assert.Contains("TblTransactionReupImportItem] WITH (UPDLOCK, HOLDLOCK)", maxBody);
+        Assert.Contains("GetLatestInvoiceSequenceAsync(SqlConnection connection, SqlTransaction transaction, int invoiceYear", service);
+        Assert.Contains("BuildInvoicePrefix(invoiceYear)", maxBody);
+        Assert.Contains("@invoicePrefix", maxBody);
+        Assert.DoesNotContain("SPN-INV-[0-9][0-9]-", maxBody);
         Assert.Contains("TblSubscriptionInvoice] WITH (UPDLOCK, HOLDLOCK)", conflictBody);
         Assert.Contains("TblTransactionReupImportItem] WITH (UPDLOCK, HOLDLOCK)", conflictBody);
         Assert.Contains("HasInvoiceCodeConflictAsync(connection, transaction, candidateInvoiceCodes", body);
         Assert.Contains("InvoiceRangeConflictMessage", body);
         Assert.True(body.IndexOf("HasInvoiceCodeConflictAsync", StringComparison.Ordinal) <
             body.IndexOf("InsertExcelBatchAsync", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void TransactionReupImportKeepsBatchHistorySingleYearAndRejectsZeroValidRows()
+    {
+        var service = File.ReadAllText(Path.Combine(RepoRoot, "Services", "TransactionReupService.cs"));
+        var body = ExtractMethodBody(service, "public async Task<TransactionReupImportResult> ImportAsync");
+
+        Assert.Contains("The input file has no valid rows.", body);
+        Assert.Contains("MixedYearImportMessage", service);
+        Assert.Contains("All valid rows in one Transaction Reup import must belong to the same invoice year.", service);
+        Assert.Contains(".Select(item => item.InvoiceYear)", body);
+        Assert.Contains("if (invoiceYears.Count != 1)", body);
+        Assert.True(body.IndexOf("validCount == 0", StringComparison.Ordinal) <
+            body.IndexOf("fileStorage.SaveAsync", StringComparison.Ordinal));
+        Assert.True(body.IndexOf("invoiceYears.Count != 1", StringComparison.Ordinal) <
+            body.IndexOf("fileStorage.SaveAsync", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void TransactionReupInvoiceCodeBuilderUsesYearPrefix()
+    {
+        var service = File.ReadAllText(Path.Combine(RepoRoot, "Services", "TransactionReupService.cs"));
+        var buildCodeBody = ExtractMethodBody(service, "private static string BuildInvoiceCode");
+
+        Assert.Contains("BuildInvoicePrefix(year)", buildCodeBody);
+        Assert.Contains("private static string BuildInvoicePrefix(int year) => $\"SPN-INV-{year % 100:00}-\";", service);
+        Assert.Contains("plan.InvoiceCode = BuildInvoiceCode(plan.InvoiceYear, plan.InvoiceSequence)", service);
+        Assert.Contains("if (nextSequence > 99999)", ExtractMethodBody(service, "public async Task<TransactionReupImportResult> ImportAsync"));
     }
 
     [Fact]

@@ -23,6 +23,7 @@ public sealed class TransactionReupService(
     private const string MissingSchemaMessage = "Transaction Reup database schema is missing. Run ShipNet-Transaction-Reup-Database.sql before using this feature.";
     private const string VietnamTimeZoneId = "SE Asia Standard Time";
     private const string InvoiceRangeConflictMessage = "Invoice ID range conflicts with existing invoice IDs. Please choose another starting ID or enter 0 for automatic numbering.";
+    private const string MixedYearImportMessage = "All valid rows in one Transaction Reup import must belong to the same invoice year.";
     private static readonly TransactionReupImportColumn[] ImportSchema =
     [
         new("Thời gian khởi tạo", ["thoi gian khoi tao", "CreatedAt"]),
@@ -156,6 +157,22 @@ public sealed class TransactionReupService(
             })
             .ToList();
         var validCount = rowPlans.Count(item => item.Validation == "Valid");
+        if (validCount == 0)
+        {
+            throw new InvalidOperationException("The input file has no valid rows.");
+        }
+
+        var invoiceYears = rowPlans
+            .Where(item => item.Validation == "Valid")
+            .Select(item => item.InvoiceYear)
+            .Distinct()
+            .ToList();
+        if (invoiceYears.Count != 1)
+        {
+            throw new InvalidOperationException(MixedYearImportMessage);
+        }
+
+        var invoiceYear = invoiceYears[0];
 
         var batchCode = $"TRX-REUP-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}"[..33];
         await using var connection = await OpenConnectionAsync(cancellationToken);
@@ -164,7 +181,7 @@ public sealed class TransactionReupService(
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         var resolvedStart = model.StartInvoiceNumber > 0
             ? model.StartInvoiceNumber
-            : await GetLatestInvoiceSequenceAsync(connection, transaction, cancellationToken) + 1;
+            : await GetLatestInvoiceSequenceAsync(connection, transaction, invoiceYear, cancellationToken) + 1;
         var nextSequence = resolvedStart;
 
         foreach (var plan in rowPlans.Where(item => item.Validation == "Valid"))
@@ -175,7 +192,7 @@ public sealed class TransactionReupService(
             }
 
             plan.InvoiceSequence = nextSequence++;
-            plan.InvoiceCode = BuildInvoiceCode(plan.UpdatedAt?.Year ?? DateTime.UtcNow.Year, plan.InvoiceSequence);
+            plan.InvoiceCode = BuildInvoiceCode(plan.InvoiceYear, plan.InvoiceSequence);
             plan.Payload = BuildPayload(plan.Row, plan.CreatedAt!.Value, plan.UpdatedAt!.Value, plan.InvoiceCode, user.Username);
         }
 
@@ -926,23 +943,24 @@ public sealed class TransactionReupService(
             : await ParseXlsxAsync(file, cancellationToken);
     }
 
-    private static async Task<int> GetLatestInvoiceSequenceAsync(SqlConnection connection, SqlTransaction transaction, CancellationToken cancellationToken)
+    private static async Task<int> GetLatestInvoiceSequenceAsync(SqlConnection connection, SqlTransaction transaction, int invoiceYear, CancellationToken cancellationToken)
     {
         const string sql = """
             SELECT COALESCE(MAX([SequenceValue]), 0)
             FROM (
                 SELECT TRY_CONVERT(int, RIGHT([InvoiceNumber], 5)) AS [SequenceValue]
                 FROM [dbo].[TblSubscriptionInvoice] WITH (UPDLOCK, HOLDLOCK)
-                WHERE [InvoiceNumber] LIKE N'SPN-INV-[0-9][0-9]-[0-9][0-9][0-9][0-9][0-9]'
+                WHERE [InvoiceNumber] LIKE @invoicePrefix + N'[0-9][0-9][0-9][0-9][0-9]'
                 UNION ALL
                 SELECT COALESCE([InvoiceSequence], TRY_CONVERT(int, RIGHT([InvoiceCode], 5))) AS [SequenceValue]
                 FROM [dbo].[TblTransactionReupImportItem] WITH (UPDLOCK, HOLDLOCK)
                 WHERE NULLIF([InvoiceCode], N'') IS NOT NULL
-                  AND [InvoiceCode] LIKE N'SPN-INV-[0-9][0-9]-[0-9][0-9][0-9][0-9][0-9]'
+                  AND [InvoiceCode] LIKE @invoicePrefix + N'[0-9][0-9][0-9][0-9][0-9]'
             ) source
             WHERE [SequenceValue] IS NOT NULL;
             """;
         await using var command = new SqlCommand(sql, connection, transaction);
+        command.Parameters.Add("@invoicePrefix", SqlDbType.NVarChar, 50).Value = BuildInvoicePrefix(invoiceYear);
         return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture);
     }
 
@@ -1203,7 +1221,9 @@ public sealed class TransactionReupService(
         return JsonSerializer.Serialize(payload);
     }
 
-    private static string BuildInvoiceCode(int year, int sequence) => $"SPN-INV-{year % 100:00}-{sequence:00000}";
+    private static string BuildInvoiceCode(int year, int sequence) => $"{BuildInvoicePrefix(year)}{sequence:00000}";
+
+    private static string BuildInvoicePrefix(int year) => $"SPN-INV-{year % 100:00}-";
 
     private static DateTime? ParseVietnamDate(string value)
     {
@@ -1764,6 +1784,7 @@ public sealed class TransactionReupService(
         public string Validation { get; } = validation;
         public DateTime? CreatedAt { get; } = createdAt;
         public DateTime? UpdatedAt { get; } = updatedAt;
+        public int InvoiceYear { get; } = updatedAt?.Year ?? DateTime.UtcNow.Year;
         public int InvoiceSequence { get; set; }
         public string InvoiceCode { get; set; } = string.Empty;
         public string Payload { get; set; } = string.Empty;
