@@ -1,5 +1,8 @@
 using System.Reflection;
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
+using NPOI.XSSF.UserModel;
 using StarlinkDeviceManager.Models;
 using StarlinkDeviceManager.Services;
 
@@ -22,6 +25,76 @@ public sealed class TransactionReupSelectionTests
         Assert.True(batch.IsTransactionSelection);
         Assert.Equal("Transaction History", batch.SourceDisplay);
         Assert.Equal(string.Empty, batch.OriginalFileName);
+    }
+
+    [Fact]
+    public void TransactionReupTemplateUsesSharedParserSchema()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:DefaultConnection"] = "Server=(local);Database=shipnet;Trusted_Connection=True;" })
+            .Build();
+        var service = new TransactionReupService(
+            configuration,
+            null!,
+            null!,
+            null!,
+            null!,
+            NullLogger<TransactionReupService>.Instance);
+
+        var bytes = service.GenerateImportTemplate();
+        using var stream = new MemoryStream(bytes);
+        using var workbook = new XSSFWorkbook(stream);
+        var sheet = workbook.GetSheet("Transaction Reup");
+
+        Assert.NotNull(sheet);
+        var header = sheet!.GetRow(0);
+        Assert.Equal(15, header.LastCellNum);
+        Assert.Equal("Thời gian khởi tạo", header.GetCell(0).StringCellValue);
+        Assert.Equal("Mã giao dịch", header.GetCell(2).StringCellValue);
+        Assert.Equal("Phương thức thanh toán", header.GetCell(7).StringCellValue);
+        Assert.Equal("Trạng thái", header.GetCell(14).StringCellValue);
+
+        var serviceSource = File.ReadAllText(Path.Combine(RepoRoot, "Services", "TransactionReupService.cs"));
+        Assert.Contains("private static readonly TransactionReupImportColumn[] ImportSchema", serviceSource);
+        Assert.Contains("ImportSchema[index].CanonicalHeader", ExtractMethodBody(serviceSource, "public byte[] GenerateImportTemplate"));
+        Assert.Contains("Get(values, ImportSchema[0])", ExtractMethodBody(serviceSource, "private static List<TransactionReupSourceRow> MapRows"));
+    }
+
+    [Fact]
+    public void TransactionReupImportAcceptsZeroAndResolvesInvoiceStartInsideSerializableTransaction()
+    {
+        var model = File.ReadAllText(Path.Combine(RepoRoot, "Models", "TransactionReupModels.cs"));
+        var view = File.ReadAllText(Path.Combine(RepoRoot, "Views", "TransactionReup", "Index.cshtml"));
+        var service = File.ReadAllText(Path.Combine(RepoRoot, "Services", "TransactionReupService.cs"));
+        var body = ExtractMethodBody(service, "public async Task<TransactionReupImportResult> ImportAsync");
+
+        Assert.Contains("[Range(0, int.MaxValue)]", model);
+        Assert.Contains("min=\"0\"", view);
+        Assert.Contains("Starting Invoice ID đang bằng 0", view);
+        Assert.Contains("let submitting = false", view);
+        Assert.Contains("BeginTransactionAsync(IsolationLevel.Serializable", body);
+        Assert.Contains("await GetLatestInvoiceSequenceAsync(connection, transaction, cancellationToken) + 1", body);
+        Assert.Contains("InsertExcelBatchAsync(connection, transaction, batchCode, storedFile, user, rows.Count, resolvedStart", body);
+        Assert.Contains("new TransactionReupImportResult(batchId, $\"Imported {rows.Count} rows.\", resolvedStart", body);
+        Assert.DoesNotContain("model.StartInvoiceNumber <= 0", body);
+    }
+
+    [Fact]
+    public void TransactionReupImportChecksExistingInvoiceCodesBeforeInsert()
+    {
+        var service = File.ReadAllText(Path.Combine(RepoRoot, "Services", "TransactionReupService.cs"));
+        var body = ExtractMethodBody(service, "public async Task<TransactionReupImportResult> ImportAsync");
+        var maxBody = ExtractMethodBody(service, "private static async Task<int> GetLatestInvoiceSequenceAsync");
+        var conflictBody = ExtractMethodBody(service, "private static async Task<bool> HasInvoiceCodeConflictAsync");
+
+        Assert.Contains("TblSubscriptionInvoice] WITH (UPDLOCK, HOLDLOCK)", maxBody);
+        Assert.Contains("TblTransactionReupImportItem] WITH (UPDLOCK, HOLDLOCK)", maxBody);
+        Assert.Contains("TblSubscriptionInvoice] WITH (UPDLOCK, HOLDLOCK)", conflictBody);
+        Assert.Contains("TblTransactionReupImportItem] WITH (UPDLOCK, HOLDLOCK)", conflictBody);
+        Assert.Contains("HasInvoiceCodeConflictAsync(connection, transaction, candidateInvoiceCodes", body);
+        Assert.Contains("InvoiceRangeConflictMessage", body);
+        Assert.True(body.IndexOf("HasInvoiceCodeConflictAsync", StringComparison.Ordinal) <
+            body.IndexOf("InsertExcelBatchAsync", StringComparison.Ordinal));
     }
 
     [Fact]

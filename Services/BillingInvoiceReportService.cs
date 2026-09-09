@@ -85,7 +85,7 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
         {
             header.Add("Cost Price");
         }
-        header.AddRange(["Buy Price", "Sale Price", "Margin", "Margin %", "Invoice Amount", "Paid Amount", "Outstanding Amount", "Status", "Payment Method", "Payment Time"]);
+        header.AddRange(["Buy Price", "Sale Price", "Margin", "Margin %", "Invoice Amount", "Paid Amount", "Outstanding Amount", "Status", "Transaction", "Payment Time"]);
 
         var csv = new StringBuilder();
         csv.AppendLine(string.Join(",", header.Select(Csv)));
@@ -117,7 +117,7 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
                 Csv(ReadDecimal(reader, "PaidAmount").ToString("0.##", CultureInfo.InvariantCulture)),
                 Csv(ReadDecimal(reader, "OutstandingAmount").ToString("0.##", CultureInfo.InvariantCulture)),
                 Csv(ReadText(reader, "Status")),
-                Csv(ReadText(reader, "PaymentMethod")),
+                Csv(ReadText(reader, "TransactionCode")),
                 Csv(ReadDate(reader, "PaymentTime")?.ToString("yyyy-MM-dd HH:mm:ss") ?? string.Empty)
             ]);
             csv.AppendLine(string.Join(",", fields));

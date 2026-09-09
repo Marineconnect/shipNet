@@ -22,6 +22,25 @@ public sealed class TransactionReupService(
 {
     private const string MissingSchemaMessage = "Transaction Reup database schema is missing. Run ShipNet-Transaction-Reup-Database.sql before using this feature.";
     private const string VietnamTimeZoneId = "SE Asia Standard Time";
+    private const string InvoiceRangeConflictMessage = "Invoice ID range conflicts with existing invoice IDs. Please choose another starting ID or enter 0 for automatic numbering.";
+    private static readonly TransactionReupImportColumn[] ImportSchema =
+    [
+        new("Thời gian khởi tạo", ["thoi gian khoi tao", "CreatedAt"]),
+        new("Thời gian cập nhật", ["thoi gian cap nhat", "UpdatedAt"]),
+        new("Mã giao dịch", ["ma giao dich", "TransactionCode"]),
+        new("Mã yêu cầu mã hóa đơn", ["ma yeu cau ma hoa don", "RequestInvoiceCode"]),
+        new("Mã yêu cầu gốc", ["ma yeu cau goc", "SourceOriginalRequestCode"]),
+        new("Người tạo hóa đơn", ["nguoi tao hoa don", "SourceCreatedBy"]),
+        new("Loại giao dịch", ["loai giao dich", "TransactionType"]),
+        new("Phương thức thanh toán", ["phuong thuc thanh toan", "PaymentMethod"]),
+        new("Ngân hàng/thương hiệu thẻ", ["ngan hang thuong hieu the", "BankName"]),
+        new("Tổng giá trị VND", ["tong gia tri vnd", "TotalAmountVnd"]),
+        new("Phí xử lý", ["phi xu ly", "ProcessingFee"]),
+        new("Nội dung chuyển khoản", ["noi dung chuyen khoan", "TransferContent"]),
+        new("Đối tượng chịu phí", ["doi tuong chiu phi", "FeeBearer"]),
+        new("Số tiền thực nhận", ["so tien thuc nhan", "NetAmountVnd"]),
+        new("Trạng thái", ["trang thai", "SourceStatus"])
+    ];
     private readonly string connectionString = configuration.GetConnectionString("DefaultConnection")
         ?? throw new InvalidOperationException("Missing connection string: DefaultConnection");
 
@@ -98,39 +117,81 @@ public sealed class TransactionReupService(
         return await reader.ReadAsync(cancellationToken) ? MapItem(reader) : null;
     }
 
+    public byte[] GenerateImportTemplate()
+    {
+        using var workbook = new XSSFWorkbook();
+        var sheet = workbook.CreateSheet("Transaction Reup");
+        var headerStyle = workbook.CreateCellStyle();
+        var headerFont = workbook.CreateFont();
+        headerFont.IsBold = true;
+        headerStyle.SetFont(headerFont);
+
+        var headerRow = sheet.CreateRow(0);
+        for (var index = 0; index < ImportSchema.Length; index++)
+        {
+            var cell = headerRow.CreateCell(index);
+            cell.SetCellValue(ImportSchema[index].CanonicalHeader);
+            cell.CellStyle = headerStyle;
+            sheet.SetColumnWidth(index, Math.Min(ImportSchema[index].CanonicalHeader.Length + 6, 40) * 256);
+        }
+
+        sheet.CreateFreezePane(0, 1);
+        using var stream = new MemoryStream();
+        workbook.Write(stream, leaveOpen: true);
+        return stream.ToArray();
+    }
+
     public async Task<TransactionReupImportResult> ImportAsync(TransactionReupImportViewModel model, AuthUserRecord user, CancellationToken cancellationToken)
     {
         if (model.File is null) throw new InvalidOperationException("Choose a CSV or XLSX file.");
-        if (model.StartInvoiceNumber <= 0) throw new InvalidOperationException("Start invoice number must be greater than 0.");
+        if (model.StartInvoiceNumber < 0) throw new InvalidOperationException("Start invoice number cannot be negative.");
 
         var rows = await ParseRowsAsync(model.File, cancellationToken);
         if (rows.Count == 0) throw new InvalidOperationException("The input file has no data rows.");
+        var rowPlans = rows
+            .Select(row =>
+            {
+                var validation = ValidateRow(row, out var createdAt, out var updatedAt);
+                return new TransactionReupImportRowPlan(row, validation, createdAt, updatedAt);
+            })
+            .ToList();
+        var validCount = rowPlans.Count(item => item.Validation == "Valid");
 
         var batchCode = $"TRX-REUP-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}"[..33];
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await EnsureSchemaExistsAsync(connection, cancellationToken);
         var storedFile = await fileStorage.SaveAsync(model.File, batchCode, cancellationToken);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
-        var nextSequence = model.StartInvoiceNumber;
-        var validCount = 0;
+        var resolvedStart = model.StartInvoiceNumber > 0
+            ? model.StartInvoiceNumber
+            : await GetLatestInvoiceSequenceAsync(connection, transaction, cancellationToken) + 1;
+        var nextSequence = resolvedStart;
 
-        var batchId = await InsertExcelBatchAsync(connection, transaction, batchCode, storedFile, user, rows.Count, model.StartInvoiceNumber, cancellationToken);
-        foreach (var row in rows)
+        foreach (var plan in rowPlans.Where(item => item.Validation == "Valid"))
         {
-            var validation = ValidateRow(row, out var createdAt, out var updatedAt);
-            var sequence = 0;
-            var invoiceCode = string.Empty;
-            var payload = string.Empty;
-            if (validation == "Valid")
+            if (nextSequence > 99999)
             {
-                sequence = nextSequence++;
-                validCount++;
-                var year = (updatedAt ?? DateTime.UtcNow).Year;
-                invoiceCode = BuildInvoiceCode(year, sequence);
-                payload = BuildPayload(row, createdAt!.Value, updatedAt!.Value, invoiceCode, user.Username);
+                throw new InvalidOperationException("Yearly invoice sequence limit reached. Maximum is 99999 invoices per year.");
             }
 
-            await InsertItemAsync(connection, transaction, batchId, row, validation, sequence, invoiceCode, payload, cancellationToken);
+            plan.InvoiceSequence = nextSequence++;
+            plan.InvoiceCode = BuildInvoiceCode(plan.UpdatedAt?.Year ?? DateTime.UtcNow.Year, plan.InvoiceSequence);
+            plan.Payload = BuildPayload(plan.Row, plan.CreatedAt!.Value, plan.UpdatedAt!.Value, plan.InvoiceCode, user.Username);
+        }
+
+        var candidateInvoiceCodes = rowPlans
+            .Where(item => item.Validation == "Valid")
+            .Select(item => item.InvoiceCode)
+            .ToList();
+        if (await HasInvoiceCodeConflictAsync(connection, transaction, candidateInvoiceCodes, cancellationToken))
+        {
+            throw new InvalidOperationException(InvoiceRangeConflictMessage);
+        }
+
+        var batchId = await InsertExcelBatchAsync(connection, transaction, batchCode, storedFile, user, rows.Count, resolvedStart, cancellationToken);
+        foreach (var plan in rowPlans)
+        {
+            await InsertItemAsync(connection, transaction, batchId, plan.Row, plan.Validation, plan.InvoiceSequence, plan.InvoiceCode, plan.Payload, cancellationToken);
         }
 
         var endNumber = nextSequence - 1;
@@ -138,7 +199,7 @@ public sealed class TransactionReupService(
         await transaction.CommitAsync(cancellationToken);
 
         await PublishPendingItemsAsync(batchId, user, cancellationToken);
-        return new TransactionReupImportResult(batchId, $"Imported {rows.Count} rows.", model.StartInvoiceNumber, endNumber, nextSequence);
+        return new TransactionReupImportResult(batchId, $"Imported {rows.Count} rows.", resolvedStart, endNumber, nextSequence);
     }
 
     public async Task<TransactionReupSelectionResult> CreateFromTransactionSelectionAsync(
@@ -865,6 +926,66 @@ public sealed class TransactionReupService(
             : await ParseXlsxAsync(file, cancellationToken);
     }
 
+    private static async Task<int> GetLatestInvoiceSequenceAsync(SqlConnection connection, SqlTransaction transaction, CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT COALESCE(MAX([SequenceValue]), 0)
+            FROM (
+                SELECT TRY_CONVERT(int, RIGHT([InvoiceNumber], 5)) AS [SequenceValue]
+                FROM [dbo].[TblSubscriptionInvoice] WITH (UPDLOCK, HOLDLOCK)
+                WHERE [InvoiceNumber] LIKE N'SPN-INV-[0-9][0-9]-[0-9][0-9][0-9][0-9][0-9]'
+                UNION ALL
+                SELECT COALESCE([InvoiceSequence], TRY_CONVERT(int, RIGHT([InvoiceCode], 5))) AS [SequenceValue]
+                FROM [dbo].[TblTransactionReupImportItem] WITH (UPDLOCK, HOLDLOCK)
+                WHERE NULLIF([InvoiceCode], N'') IS NOT NULL
+                  AND [InvoiceCode] LIKE N'SPN-INV-[0-9][0-9]-[0-9][0-9][0-9][0-9][0-9]'
+            ) source
+            WHERE [SequenceValue] IS NOT NULL;
+            """;
+        await using var command = new SqlCommand(sql, connection, transaction);
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture);
+    }
+
+    private static async Task<bool> HasInvoiceCodeConflictAsync(SqlConnection connection, SqlTransaction transaction, IReadOnlyList<string> invoiceCodes, CancellationToken cancellationToken)
+    {
+        var codes = invoiceCodes.Where(code => !string.IsNullOrWhiteSpace(code)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (codes.Count == 0) return false;
+
+        const int chunkSize = 500;
+        for (var offset = 0; offset < codes.Count; offset += chunkSize)
+        {
+            var chunk = codes.Skip(offset).Take(chunkSize).ToList();
+            var valueRows = string.Join(", ", chunk.Select((_, index) => $"(@code{index})"));
+            var sql = $"""
+                SELECT TOP 1 c.[InvoiceCode]
+                FROM (VALUES {valueRows}) c([InvoiceCode])
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM [dbo].[TblSubscriptionInvoice] WITH (UPDLOCK, HOLDLOCK)
+                    WHERE [InvoiceNumber] = c.[InvoiceCode]
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM [dbo].[TblTransactionReupImportItem] WITH (UPDLOCK, HOLDLOCK)
+                    WHERE [InvoiceCode] = c.[InvoiceCode]
+                );
+                """;
+            await using var command = new SqlCommand(sql, connection, transaction);
+            for (var index = 0; index < chunk.Count; index++)
+            {
+                command.Parameters.Add($"@code{index}", SqlDbType.NVarChar, 100).Value = chunk[index];
+            }
+
+            var conflict = await command.ExecuteScalarAsync(cancellationToken);
+            if (conflict is not null && conflict is not DBNull)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static async Task<List<TransactionReupSourceRow>> ParseCsvAsync(IFormFile file, CancellationToken cancellationToken)
     {
         await using var stream = file.OpenReadStream();
@@ -908,21 +1029,21 @@ public sealed class TransactionReupService(
             if (values.Values.All(string.IsNullOrWhiteSpace)) continue;
             result.Add(new TransactionReupSourceRow(
                 index + 1,
-                Get(values, "thoi gian khoi tao", "CreatedAt"),
-                Get(values, "thoi gian cap nhat", "UpdatedAt"),
-                Get(values, "ma giao dich", "TransactionCode"),
-                Get(values, "ma yeu cau ma hoa don", "RequestInvoiceCode"),
-                Get(values, "ma yeu cau goc", "SourceOriginalRequestCode"),
-                Get(values, "nguoi tao hoa don", "SourceCreatedBy"),
-                Get(values, "loai giao dich", "TransactionType"),
-                Get(values, "phuong thuc thanh toan", "PaymentMethod"),
-                Get(values, "ngan hang thuong hieu the", "BankName"),
-                ParseMoney(Get(values, "tong gia tri vnd", "TotalAmountVnd")),
-                ParseMoney(Get(values, "phi xu ly", "ProcessingFee")),
-                Get(values, "noi dung chuyen khoan", "TransferContent"),
-                Get(values, "doi tuong chiu phi", "FeeBearer"),
-                ParseMoney(Get(values, "so tien thuc nhan", "NetAmountVnd")),
-                Get(values, "trang thai", "SourceStatus"),
+                Get(values, ImportSchema[0]),
+                Get(values, ImportSchema[1]),
+                Get(values, ImportSchema[2]),
+                Get(values, ImportSchema[3]),
+                Get(values, ImportSchema[4]),
+                Get(values, ImportSchema[5]),
+                Get(values, ImportSchema[6]),
+                Get(values, ImportSchema[7]),
+                Get(values, ImportSchema[8]),
+                ParseMoney(Get(values, ImportSchema[9])),
+                ParseMoney(Get(values, ImportSchema[10])),
+                Get(values, ImportSchema[11]),
+                Get(values, ImportSchema[12]),
+                ParseMoney(Get(values, ImportSchema[13])),
+                Get(values, ImportSchema[14]),
                 values));
         }
         return result;
@@ -1129,6 +1250,9 @@ public sealed class TransactionReupService(
     }
 
     private static string NormalizeHeader(string value) => value.Trim().TrimStart('\'').Replace("\u00a0", " ", StringComparison.Ordinal).Trim();
+    private static string Get(IReadOnlyDictionary<string, string> values, TransactionReupImportColumn column) =>
+        Get(values, column.Keys);
+
     private static string Get(IReadOnlyDictionary<string, string> values, params string[] keys)
     {
         foreach (var key in keys)
@@ -1623,5 +1747,25 @@ public sealed class TransactionReupService(
         parameter.Precision = 19;
         parameter.Scale = 2;
         parameter.Value = value;
+    }
+
+    private sealed record TransactionReupImportColumn(string CanonicalHeader, string[] Aliases)
+    {
+        public string[] Keys { get; } = [CanonicalHeader, .. Aliases];
+    }
+
+    private sealed class TransactionReupImportRowPlan(
+        TransactionReupSourceRow row,
+        string validation,
+        DateTime? createdAt,
+        DateTime? updatedAt)
+    {
+        public TransactionReupSourceRow Row { get; } = row;
+        public string Validation { get; } = validation;
+        public DateTime? CreatedAt { get; } = createdAt;
+        public DateTime? UpdatedAt { get; } = updatedAt;
+        public int InvoiceSequence { get; set; }
+        public string InvoiceCode { get; set; } = string.Empty;
+        public string Payload { get; set; } = string.Empty;
     }
 }

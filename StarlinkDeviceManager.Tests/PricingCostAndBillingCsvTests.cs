@@ -61,6 +61,21 @@ public sealed class PricingCostAndBillingCsvTests
     }
 
     [Fact]
+    public void BillingInvoiceUiAndCsvExposeTransactionInsteadOfPaymentMethodColumn()
+    {
+        var view = File.ReadAllText(Path.Combine(ProjectRoot, "Views", "BillingInvoice", "Index.cshtml"));
+        var service = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "BillingInvoiceReportService.cs"));
+
+        Assert.Contains("<th>Transaction</th>", view);
+        Assert.Contains("item.TransactionCode", view);
+        Assert.DoesNotContain("<th>Phương thức</th>", view);
+        Assert.DoesNotContain("item.PaymentMethod) ? \"-\" : item.PaymentMethod", view);
+        Assert.Contains("\"Transaction\"", service);
+        Assert.Contains("Csv(ReadText(reader, \"TransactionCode\"))", service);
+        Assert.DoesNotContain("\"Payment Method\"", service);
+    }
+
+    [Fact]
     public void PricingPlanCostFieldsArePersistedAndExported()
     {
         var models = File.ReadAllText(Path.Combine(ProjectRoot, "Models", "PricingPlanModels.cs"));

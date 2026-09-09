@@ -82,6 +82,16 @@ public sealed class TransactionReupController(
     }
 
     [HttpGet]
+    public async Task<IActionResult> DownloadTemplate()
+    {
+        if (!IsAdmin(await GetCurrentUserAsync())) return Forbid();
+        return File(
+            service.GenerateImportTemplate(),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "ShipNet_Transaction_Reup_Template.xlsx");
+    }
+
+    [HttpGet]
     public async Task<IActionResult> Details(int id)
     {
         if (!IsAdmin(await GetCurrentUserAsync())) return Forbid();

@@ -273,6 +273,36 @@
   text-decoration:none;
 }
 
+.transaction-file-field{
+  min-width:min(100%, 360px);
+}
+
+.transaction-file-row{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px;
+}
+
+.transaction-file-row input{
+  min-width:160px;
+}
+
+.transaction-file-row .btn-secondary{
+  min-height:42px;
+  white-space:nowrap;
+  text-decoration:none;
+}
+
+.transaction-filter-grid label .transaction-field-hint{
+  color:#9db2d5;
+  font-size:12px;
+  font-weight:600;
+  letter-spacing:0;
+  line-height:1.4;
+  text-transform:none;
+}
+
 .transaction-bulk-actions{
   display:flex;
   flex-wrap:wrap;

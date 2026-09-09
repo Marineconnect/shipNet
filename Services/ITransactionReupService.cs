@@ -7,6 +7,7 @@ public interface ITransactionReupService
     Task<IReadOnlyList<TransactionReupBatchViewModel>> GetBatchesAsync(CancellationToken cancellationToken);
     Task<TransactionReupDetailsViewModel?> GetDetailsAsync(int batchId, CancellationToken cancellationToken);
     Task<TransactionReupItemViewModel?> GetItemAsync(int itemId, CancellationToken cancellationToken);
+    byte[] GenerateImportTemplate();
     Task<TransactionReupImportResult> ImportAsync(TransactionReupImportViewModel model, AuthUserRecord user, CancellationToken cancellationToken);
     Task<TransactionReupSelectionResult> CreateFromTransactionSelectionAsync(
         TransactionReupSelectionRequest request,

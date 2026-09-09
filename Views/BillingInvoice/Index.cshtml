@@ -357,7 +357,7 @@
                 <th><a asp-action="Index" asp-all-route-data="@CurrentRoutes("invoiceAmount", SortDirectionFor("invoiceAmount"), 1)">Tiền invoice</a></th>
                 <th><a asp-action="Index" asp-all-route-data="@CurrentRoutes("paidAmount", SortDirectionFor("paidAmount"), 1)">Đã thu</a></th>
                 <th>Còn phải thu</th>
-                <th>Phương thức</th>
+                <th>Transaction</th>
                 <th>Thời gian thanh toán</th>
                 <th><a asp-action="Index" asp-all-route-data="@CurrentRoutes("status", SortDirectionFor("status"), 1)">Trạng thái</a></th>
                 <th>Tác vụ</th>
@@ -393,10 +393,7 @@
                 <td>@Money(item.InvoiceAmount)</td>
                 <td>@Money(item.PaidAmount)</td>
                 <td>@Money(item.OutstandingAmount)</td>
-                <td>
-                  @(string.IsNullOrWhiteSpace(item.PaymentMethod) ? "-" : item.PaymentMethod)
-                  <div class="muted">@item.TransactionCode</div>
-                </td>
+                <td>@(string.IsNullOrWhiteSpace(item.TransactionCode) ? "-" : item.TransactionCode)</td>
                 <td>@DateTimeText(item.PaymentTime)</td>
                 <td><span class="subscription-status @StatusClass(item.Status, item.PaidAmount, item.InvoiceAmount, item.RefundAmount)">@item.Status</span></td>
                 <td><a class="table-action-btn" asp-controller="MonthlySubscription" asp-action="Details" asp-route-id="@item.SubscriptionId">Xem</a></td>

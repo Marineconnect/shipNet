@@ -14,10 +14,10 @@
   @if (!string.IsNullOrWhiteSpace(Model.Message)) { <div class="tenant-alert @(Model.IsSuccess ? "success" : "danger")">@Model.Message</div> }
   <section class="device-card transaction-card">
     <header class="device-card-head"><div><h2>New import</h2><p>Only the exact username admin can use this feature.</p></div></header>
-    <form asp-action="Import" method="post" enctype="multipart/form-data" class="transaction-filter-grid">
+    <form asp-action="Import" method="post" enctype="multipart/form-data" class="transaction-filter-grid" data-transaction-reup-import-form>
       @Html.AntiForgeryToken()
-      <label><span>CSV or XLSX file</span><input asp-for="Import.File" accept=".csv,.xlsx" /><span asp-validation-for="Import.File" class="field-validation-error"></span></label>
-      <label><span>Starting invoice ID</span><input asp-for="Import.StartInvoiceNumber" type="number" min="1" /><span asp-validation-for="Import.StartInvoiceNumber" class="field-validation-error"></span></label>
+      <label class="transaction-file-field"><span>CSV or XLSX file</span><span class="transaction-file-row"><input asp-for="Import.File" accept=".csv,.xlsx" /><a class="btn-secondary" asp-action="DownloadTemplate">Tải file Excel mẫu</a></span><span asp-validation-for="Import.File" class="field-validation-error"></span></label>
+      <label><span>Starting invoice ID</span><input asp-for="Import.StartInvoiceNumber" type="number" min="0" /><span class="transaction-field-hint">Nhập 0 để tự động lấy Invoice ID mới nhất + 1.</span><span asp-validation-for="Import.StartInvoiceNumber" class="field-validation-error"></span></label>
       <div class="transaction-filter-actions"><button type="submit" class="btn-primary">Import and publish</button></div>
       <div asp-validation-summary="All" class="tenant-alert danger"></div>
     </form>
@@ -46,3 +46,33 @@
     </tbody></table></div>
   </section>
 </div></div></div>
+
+@section Scripts {
+  <partial name="_ValidationScriptsPartial" />
+  <script>
+    (() => {
+      const form = document.querySelector("[data-transaction-reup-import-form]");
+      if (!form) return;
+
+      let submitting = false;
+      form.addEventListener("submit", event => {
+        if (submitting) {
+          event.preventDefault();
+          return;
+        }
+
+        const input = form.querySelector("[name='Import.StartInvoiceNumber']");
+        const startInvoiceNumber = Number(input?.value ?? 0);
+        if (startInvoiceNumber === 0 && !window.confirm("Starting Invoice ID đang bằng 0.\nHệ thống sẽ tự động lấy Invoice ID mới nhất hiện có + 1 làm số bắt đầu và đảm bảo không trùng Invoice ID.\nBạn có muốn tiếp tục?")) {
+          event.preventDefault();
+          return;
+        }
+
+        submitting = true;
+        form.querySelectorAll("button[type='submit']").forEach(button => {
+          button.disabled = true;
+        });
+      });
+    })();
+  </script>
+}

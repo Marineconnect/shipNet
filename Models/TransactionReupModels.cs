@@ -28,7 +28,7 @@ public sealed class TransactionReupImportViewModel
     [Required]
     public IFormFile? File { get; set; }
 
-    [Range(1, int.MaxValue)]
+    [Range(0, int.MaxValue)]
     public int StartInvoiceNumber { get; set; }
 }
 
