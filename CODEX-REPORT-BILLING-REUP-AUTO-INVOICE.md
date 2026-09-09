@@ -104,3 +104,67 @@ Build warnings remain in unrelated `Services/DeviceService.cs` lines 2260, 2261,
 - No new database unique index was added because the existing Transaction Reup database script explicitly drops prior unique indexes on published transaction/invoice code, and adding a new uniqueness constraint without production duplicate inspection could break old data.
 - Conflict protection relies on Serializable transactions plus `UPDLOCK, HOLDLOCK` reads against the invoice sources rather than a new hard database constraint.
 - Very large imports are supported in conflict checking by chunking candidate code checks into 500-code batches to avoid SQL Server parameter limits.
+
+## 10. Follow-up: per-year Transaction Reup numbering
+
+### Numbering rule confirmation
+Numbering is confirmed to be yearly, not global.
+
+Evidence:
+- `MonthlySubscriptionService.BuildInvoiceNumberAsync()` builds prefix `SPN-INV-{year % 100:00}-`.
+- The monthly invoice MAX query filters `TblSubscriptionInvoice` by current year date range and by the same invoice prefix before reading the numeric suffix.
+- The existing limit message says `Yearly invoice sequence limit reached. Maximum is 99999 invoices per year.`
+- `PaymentTransactionService` names the parsed suffix `InvoiceSequenceInYear`.
+- `TransactionReupService.BuildInvoiceCode()` also generates `SPN-INV-{YY}-{xxxxx}`.
+
+### Query change
+`TransactionReupService.GetLatestInvoiceSequenceAsync(...)` now accepts `invoiceYear`.
+
+It builds an exact parameterized prefix with `BuildInvoicePrefix(invoiceYear)` and filters both sources by:
+
+`@invoicePrefix + N'[0-9][0-9][0-9][0-9][0-9]'`
+
+Sources remain:
+- `dbo.TblSubscriptionInvoice.InvoiceNumber WITH (UPDLOCK, HOLDLOCK)`
+- `dbo.TblTransactionReupImportItem.InvoiceCode` / `InvoiceSequence WITH (UPDLOCK, HOLDLOCK)`
+
+The query remains inside the existing Serializable transaction.
+
+### Mixed-year policy
+Transaction Reup Excel imports now require all valid rows in one file to belong to the same invoice year.
+
+Reason:
+- The batch history schema has only one `InvoiceStartNumber`, `InvoiceEndNumber`, and `NextInvoiceNumber`.
+- Allowing mixed-year allocation would make those fields ambiguous without a schema change.
+
+Rejected message:
+
+`All valid rows in one Transaction Reup import must belong to the same invoice year.`
+
+Manual mode remains backward-compatible for single-year imports: `StartInvoiceNumber > 0` still uses the entered sequence and increments per valid row.
+
+### Zero-valid-row policy
+If the file has rows but no rows validate as `Valid`, import now fails before saving the source file or creating a batch:
+
+`The input file has no valid rows.`
+
+This avoids misleading batch history like `InvoiceStartNumber = max + 1` and `InvoiceEndNumber = start - 1`.
+
+### Tests and build
+- `dotnet restore StarlinkDeviceManager.sln`: PASS.
+- `dotnet build StarlinkDeviceManager.sln --no-restore`: PASS.
+- `dotnet test StarlinkDeviceManager.sln --no-build`: PASS, 92 passed, 0 failed, 0 skipped.
+
+Added/updated tests for:
+- Auto numbering passes the valid row invoice year into the MAX query.
+- The MAX query uses parameterized per-year prefix filtering.
+- Duplicate checks remain before insert.
+- Mixed-year valid imports are rejected before file save / DB insert.
+- Zero-valid-row files are rejected before file save / DB insert.
+- Invoice code generation uses the year-specific prefix.
+
+No SQL integration test infrastructure for concurrent imports was present, so no real concurrent database test was added. The code path still uses the existing Serializable transaction plus `UPDLOCK, HOLDLOCK` reads and the duplicate conflict check as a second safety layer.
+
+### Follow-up Git
+- Fix commit SHA: `13b0310c136818647066b9fe065fd0993fc29024`.
+- Push status: pending at time of this report update.
