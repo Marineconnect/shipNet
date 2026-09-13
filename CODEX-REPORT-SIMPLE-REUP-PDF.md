@@ -138,3 +138,59 @@ Warnings seen during build are existing nullable warnings in `Services/DeviceSer
 - Do not deploy or modify `Marineconnect/marineconnect-9pay-audit`.
 - No database migration is required.
 - No RabbitMQ route change is required; existing `invoice.generate.9pay` publishing remains in use.
+
+## 14. Follow-up: remove inherited InvoiceURL
+
+### Issue found
+The `f78588e4fda5e91d627664be34ab26b58a6283e0` implementation removed the explicit Reup callback fields added by `PrepareReupItemPayload(...)`, but Transaction Selection payloads could still inherit `InvoiceURL` from the canonical builder.
+
+Root cause:
+
+`PaymentTransactionService.BuildInvoicePdfPayloadAsync(...)` builds `invoiceUrl = invoicePdfService.BuildUploadUrl(invoiceCode)` and serializes it as `InvoiceURL`. That is correct for normal invoice generation, but Transaction History Reup PDF is replay-only and must not ask the PDF worker to upload back to ShipNet.
+
+### Fix
+Added a replay-only sanitizer in `TransactionReupService`:
+
+`PrepareTransactionSelectionReplayPayload(string payload)`
+
+The sanitizer parses the canonical JSON, removes these root-level properties case-insensitively, and serializes the JSON back:
+
+- `InvoiceURL`
+- `ReupResultURL`
+- `reupItemId`
+- `reup`
+
+The flow is now:
+
+canonical normal invoice payload -> replay sanitizer -> RabbitMQ
+
+Normal invoice generation remains unchanged. `PaymentTransactionService.BuildInvoicePdfPayloadAsync(...)` still includes `InvoiceURL` for normal flows.
+
+### Applied paths
+The sanitizer is used for Transaction Selection in:
+
+- `CreateFromTransactionSelectionAsync()` before `InsertTransactionSelectionItemAsync(...)`, so stored `PayloadJson` is already clean.
+- `PublishPendingItemsAsync()` after rebuilding legacy/pending payloads from `SourceInvoiceId`, before saving and publishing.
+- `RetryItemAsync()` after rebuilding retry payloads from `SourceInvoiceId`, before saving and publishing.
+
+Excel import Reup remains unchanged.
+
+### Verification
+- `dotnet restore StarlinkDeviceManager.sln`: PASS.
+- `dotnet build StarlinkDeviceManager.sln --no-restore`: PASS with existing nullable warnings in `Services/DeviceService.cs`.
+- `dotnet test StarlinkDeviceManager.sln --no-build`: PASS, 94 passed, 0 failed, 0 skipped.
+
+Added a real JSON sanitizer unit test that verifies:
+
+- `transactionCode` is preserved.
+- `invoiceCode` is preserved.
+- `invoiceParams` is preserved.
+- `vessels` is preserved.
+- `InvoiceURL` is absent.
+- `ReupResultURL` is absent.
+- `reupItemId` is absent.
+- `reup` is absent.
+
+### Follow-up Git
+- Fix commit SHA: `f0111a1b33abdce5dcb0d5ad3adf4d8687cedcb8`.
+- Push status: pending at time of this report update.
