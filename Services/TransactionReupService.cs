@@ -263,8 +263,6 @@ public sealed class TransactionReupService(
                 candidate,
                 payload,
                 cancellationToken);
-            var itemPayload = PrepareReupItemPayload(payload.PayloadJson, BuildReupItemUploadUrl(itemId), BuildReupItemResultUrl(itemId), itemId);
-            await UpdateItemPayloadAsync(connection, transaction, itemId, itemPayload, cancellationToken);
         }
 
         await UpdateBatchCountsAsync(connection, transaction, batchId, null, null, candidates.Count, 0, 0, 0, 0, "Processing", cancellationToken);
@@ -369,9 +367,25 @@ public sealed class TransactionReupService(
             return;
         }
 
+        var batch = await GetItemBatchAsync(itemId, cancellationToken);
+        var sourceType = batch?.SourceType ?? TransactionReupSourceTypes.ExcelImport;
+        var isTransactionSelection = string.Equals(sourceType, TransactionReupSourceTypes.TransactionSelection, StringComparison.OrdinalIgnoreCase);
         var messageId = Guid.NewGuid().ToString();
-        var result = await PublishAsync(item.PayloadJson, item.SourceTransactionCode, messageId, user, cancellationToken);
-        await UpdatePublishResultAsync(itemId, result, messageId, item.PublishAttemptCount + 1, cancellationToken);
+        var payloadJson = item.PayloadJson;
+        if (isTransactionSelection && item.SourceInvoiceId > 0)
+        {
+            var rebuiltPayload = await paymentTransactionService.BuildInvoicePdfPayloadAsync(
+                item.SourceInvoiceId,
+                item.SourceTransactionCode,
+                null,
+                user.Username,
+                cancellationToken);
+            payloadJson = rebuiltPayload.PayloadJson;
+            await UpdateItemPayloadAsync(itemId, payloadJson, cancellationToken);
+        }
+
+        var result = await PublishAsync(payloadJson, item.SourceTransactionCode, messageId, user, addReupFlag: !isTransactionSelection, cancellationToken: cancellationToken);
+        await UpdatePublishResultAsync(itemId, result, messageId, item.PublishAttemptCount + 1, sourceType, cancellationToken);
         await RecalculateItemBatchAsync(itemId, cancellationToken);
     }
 
@@ -512,15 +526,15 @@ public sealed class TransactionReupService(
         await EnsureSchemaExistsAsync(connection, cancellationToken);
         const string sql = """
             SELECT TOP (100)
-                   i.[ID], i.[BatchId], i.[SourceTransactionCode], i.[PayloadJson], i.[PublishAttemptCount],
-                   b.[ImportedByUserId], b.[ImportedByUsername]
+                   i.[ID], i.[BatchId], i.[SourceInvoiceId], i.[SourceTransactionCode], i.[PayloadJson], i.[PublishAttemptCount],
+                   b.[ImportedByUserId], b.[ImportedByUsername], b.[SourceType]
             FROM [dbo].[TblTransactionReupImportItem] i
             INNER JOIN [dbo].[TblTransactionReupImportBatch] b ON b.[ID] = i.[BatchId]
             WHERE (@batchId IS NULL OR i.[BatchId] = @batchId)
               AND i.[PublishStatus] = @status
             ORDER BY i.[BatchId], i.[RowNumber], i.[ID];
             """;
-        var items = new List<(int Id, int BatchId, string Code, string Payload, int Attempts, int? UserId, string Username)>();
+        var items = new List<(int Id, int BatchId, int SourceInvoiceId, string Code, string Payload, int Attempts, int? UserId, string Username, string SourceType)>();
         await using (var command = new SqlCommand(sql, connection))
         {
             command.Parameters.Add("@batchId", SqlDbType.Int).Value = (object?)batchId ?? DBNull.Value;
@@ -531,11 +545,13 @@ public sealed class TransactionReupService(
                 items.Add((
                     ReadInt(reader, "ID"),
                     ReadInt(reader, "BatchId"),
+                    ReadInt(reader, "SourceInvoiceId"),
                     ReadText(reader, "SourceTransactionCode"),
                     ReadText(reader, "PayloadJson"),
                     ReadInt(reader, "PublishAttemptCount"),
                     reader["ImportedByUserId"] is DBNull ? null : ReadInt(reader, "ImportedByUserId"),
-                    ReadText(reader, "ImportedByUsername")));
+                    ReadText(reader, "ImportedByUsername"),
+                    FirstNotEmpty(ReadText(reader, "SourceType"), TransactionReupSourceTypes.ExcelImport)));
             }
         }
 
@@ -555,8 +571,22 @@ public sealed class TransactionReupService(
                 Id = item.UserId ?? 0,
                 Username = string.IsNullOrWhiteSpace(item.Username) ? "system" : item.Username
             };
-            var result = await PublishAsync(item.Payload, item.Code, messageId, publishUser, cancellationToken);
-            await UpdatePublishResultAsync(item.Id, result, messageId, item.Attempts + 1, cancellationToken);
+            var isTransactionSelection = string.Equals(item.SourceType, TransactionReupSourceTypes.TransactionSelection, StringComparison.OrdinalIgnoreCase);
+            var payloadJson = item.Payload;
+            if (isTransactionSelection && item.SourceInvoiceId > 0)
+            {
+                var rebuiltPayload = await paymentTransactionService.BuildInvoicePdfPayloadAsync(
+                    item.SourceInvoiceId,
+                    item.Code,
+                    null,
+                    publishUser.Username,
+                    cancellationToken);
+                payloadJson = rebuiltPayload.PayloadJson;
+                await UpdateItemPayloadAsync(item.Id, payloadJson, cancellationToken);
+            }
+
+            var result = await PublishAsync(payloadJson, item.Code, messageId, publishUser, addReupFlag: !isTransactionSelection, cancellationToken: cancellationToken);
+            await UpdatePublishResultAsync(item.Id, result, messageId, item.Attempts + 1, item.SourceType, cancellationToken);
             processed++;
             touchedBatches.Add(item.BatchId);
         }
@@ -611,11 +641,15 @@ public sealed class TransactionReupService(
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
-    private async Task<InvoiceRabbitMqPublishResult> PublishAsync(string payload, string transactionCode, string messageId, AuthUserRecord user, CancellationToken cancellationToken)
+    private async Task<InvoiceRabbitMqPublishResult> PublishAsync(string payload, string transactionCode, string messageId, AuthUserRecord user, bool addReupFlag, CancellationToken cancellationToken)
     {
         try
         {
-            payload = EnsureReupFlag(payload);
+            if (addReupFlag)
+            {
+                payload = EnsureReupFlag(payload);
+            }
+
             return await publisher.PublishInvoiceAsync(new InvoiceRabbitMqPublishRequest
             {
                 InvoiceJson = payload,
@@ -632,19 +666,26 @@ public sealed class TransactionReupService(
         }
     }
 
-    private async Task UpdatePublishResultAsync(int itemId, InvoiceRabbitMqPublishResult result, string messageId, int attemptCount, CancellationToken cancellationToken)
+    private async Task UpdatePublishResultAsync(int itemId, InvoiceRabbitMqPublishResult result, string messageId, int attemptCount, string sourceType, CancellationToken cancellationToken)
     {
+        var isTransactionSelection = string.Equals(sourceType, TransactionReupSourceTypes.TransactionSelection, StringComparison.OrdinalIgnoreCase);
+        var successStatus = isTransactionSelection ? TransactionReupStatuses.Published : TransactionReupStatuses.WaitingPdf;
+        var successMessage = isTransactionSelection ? "Reup PDF request published successfully." : result.Message;
         const string sql = """
             UPDATE [dbo].[TblTransactionReupImportItem]
             SET [PublishStatus] = CASE
                     WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN @done
                     WHEN [PublishStatus] = @error THEN @error
-                    WHEN @success = 1 THEN @waitingPdf
+                    WHEN @success = 1 THEN @successStatus
                     ELSE @publishFailed
                 END,
                 [RabbitMessageId] = @messageId, [RabbitCorrelationId] = @correlationId,
                 [RabbitExchange] = @rabbitExchange, [RabbitRoutingKey] = @rabbitRoutingKey, [RabbitQueue] = @rabbitQueue,
-                [PublishMessage] = CASE WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL OR [PublishStatus] = @error THEN [PublishMessage] ELSE @message END,
+                [PublishMessage] = CASE
+                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL OR [PublishStatus] = @error THEN [PublishMessage]
+                    WHEN @success = 1 THEN @successMessage
+                    ELSE @message
+                END,
                 [PublishLogs] = CASE
                     WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL OR [PublishStatus] = @error THEN [PublishLogs]
                     ELSE @logs
@@ -663,7 +704,14 @@ public sealed class TransactionReupService(
                 [WaitingPdfAtUtc] = CASE
                     WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL OR [PublishStatus] = @error THEN [WaitingPdfAtUtc]
                     WHEN @success = 0 THEN [WaitingPdfAtUtc]
+                    WHEN @completeOnPublish = 1 THEN NULL
                     ELSE SYSUTCDATETIME()
+                END,
+                [CompletedAtUtc] = CASE
+                    WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL OR [PublishStatus] = @error THEN [CompletedAtUtc]
+                    WHEN @success = 1 AND @completeOnPublish = 1 THEN SYSUTCDATETIME()
+                    WHEN @success = 0 THEN [CompletedAtUtc]
+                    ELSE [CompletedAtUtc]
                 END,
                 [ErrorCode] = CASE
                     WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL OR [PublishStatus] = @error THEN [ErrorCode]
@@ -684,7 +732,7 @@ public sealed class TransactionReupService(
         command.Parameters.Add("@id", SqlDbType.Int).Value = itemId;
         command.Parameters.Add("@done", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Done;
         command.Parameters.Add("@error", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Error;
-        command.Parameters.Add("@waitingPdf", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.WaitingPdf;
+        command.Parameters.Add("@successStatus", SqlDbType.NVarChar, 30).Value = successStatus;
         command.Parameters.Add("@publishFailed", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.PublishFailed;
         command.Parameters.Add("@messageId", SqlDbType.NVarChar, 100).Value = messageId;
         command.Parameters.Add("@correlationId", SqlDbType.NVarChar, 250).Value = result.CorrelationId;
@@ -692,9 +740,11 @@ public sealed class TransactionReupService(
         command.Parameters.Add("@rabbitRoutingKey", SqlDbType.NVarChar, 250).Value = result.RoutingKey;
         command.Parameters.Add("@rabbitQueue", SqlDbType.NVarChar, 250).Value = result.QueueName;
         command.Parameters.Add("@message", SqlDbType.NVarChar, -1).Value = result.Message;
+        command.Parameters.Add("@successMessage", SqlDbType.NVarChar, -1).Value = successMessage;
         command.Parameters.Add("@logs", SqlDbType.NVarChar, -1).Value = string.Join(Environment.NewLine, result.Logs);
         command.Parameters.Add("@attemptCount", SqlDbType.Int).Value = attemptCount;
         command.Parameters.Add("@success", SqlDbType.Bit).Value = result.Success;
+        command.Parameters.Add("@completeOnPublish", SqlDbType.Bit).Value = isTransactionSelection;
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -1552,6 +1602,17 @@ public sealed class TransactionReupService(
     {
         const string sql = "UPDATE [dbo].[TblTransactionReupImportItem] SET [PayloadJson] = @payload, [UpdatedAtUtc] = SYSUTCDATETIME() WHERE [ID] = @id;";
         await using var command = new SqlCommand(sql, connection, transaction);
+        command.Parameters.Add("@id", SqlDbType.Int).Value = itemId;
+        command.Parameters.Add("@payload", SqlDbType.NVarChar, -1).Value = payload;
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private async Task UpdateItemPayloadAsync(int itemId, string payload, CancellationToken cancellationToken)
+    {
+        const string sql = "UPDATE [dbo].[TblTransactionReupImportItem] SET [PayloadJson] = @payload, [UpdatedAtUtc] = SYSUTCDATETIME() WHERE [ID] = @id;";
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await EnsureSchemaExistsAsync(connection, cancellationToken);
+        await using var command = new SqlCommand(sql, connection);
         command.Parameters.Add("@id", SqlDbType.Int).Value = itemId;
         command.Parameters.Add("@payload", SqlDbType.NVarChar, -1).Value = payload;
         await command.ExecuteNonQueryAsync(cancellationToken);

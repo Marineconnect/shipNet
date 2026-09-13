@@ -70,8 +70,7 @@
           <div class="transaction-reup-state-summary">
             <span>Pending: <strong>@pendingCount</strong></span>
             <span>Processing: <strong>@processingCount</strong></span>
-            <span>Waiting PDF: <strong>@waitingPdfCount</strong></span>
-            <span>Done: <strong>@doneCount</strong></span>
+            <span>Published: <strong>@doneCount</strong></span>
             <span>Error: <strong>@errorCount</strong></span>
           </div>
         }
@@ -88,8 +87,11 @@
                 <th>Gross amount</th>
                 <th>Validation</th>
                 <th>Publish</th>
-                <th>PDF</th>
-                <th>Completed</th>
+                @if (!Model.Batch.IsTransactionSelection)
+                {
+                  <th>PDF</th>
+                }
+                <th>@(Model.Batch.IsTransactionSelection ? "Published At" : "Completed")</th>
                 <th>Message</th>
                 <th>Actions</th>
               </tr>
@@ -113,20 +115,27 @@
                 <td>
                   @item.PublishStatus<br />
                   <span class="muted">@item.PublishAttemptCount attempt(s)</span>
-                </td>
-                <td>
-                  @if (item.HasPdf)
+                  @if (!string.IsNullOrWhiteSpace(item.RabbitMessageId))
                   {
-                    <a class="table-action-btn" asp-action="ItemPdf" asp-route-itemId="@item.Id" target="_blank">View PDF</a>
-                    <a class="table-action-btn" asp-action="ItemPdf" asp-route-itemId="@item.Id" asp-route-download="true">Download PDF</a>
-                    <div class="muted">@item.PdfFileName</div>
-                  }
-                  else
-                  {
-                    <span class="muted">-</span>
+                    <div class="muted">Rabbit: @item.RabbitMessageId</div>
                   }
                 </td>
-                <td>@item.CompletedAtDisplay</td>
+                @if (!Model.Batch.IsTransactionSelection)
+                {
+                  <td>
+                    @if (item.HasPdf)
+                    {
+                      <a class="table-action-btn" asp-action="ItemPdf" asp-route-itemId="@item.Id" target="_blank">View PDF</a>
+                      <a class="table-action-btn" asp-action="ItemPdf" asp-route-itemId="@item.Id" asp-route-download="true">Download PDF</a>
+                      <div class="muted">@item.PdfFileName</div>
+                    }
+                    else
+                    {
+                      <span class="muted">-</span>
+                    }
+                  </td>
+                }
+                <td>@(Model.Batch.IsTransactionSelection ? item.PublishedAtDisplay : item.CompletedAtDisplay)</td>
                 <td class="transaction-reup-message">
                   <div>@item.PublishMessage</div>
                   @if (!string.IsNullOrWhiteSpace(item.ErrorCode))
@@ -148,10 +157,6 @@
                   @if (!string.IsNullOrWhiteSpace(workerLogFile))
                   {
                     <div class="muted">Log: @workerLogFile</div>
-                  }
-                  @if (!string.IsNullOrWhiteSpace(item.RabbitMessageId))
-                  {
-                    <div class="muted">Rabbit: @item.RabbitMessageId</div>
                   }
                 </td>
                 <td>

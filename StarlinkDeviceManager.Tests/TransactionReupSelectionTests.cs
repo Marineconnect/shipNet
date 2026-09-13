@@ -167,15 +167,30 @@ public sealed class TransactionReupSelectionTests
     }
 
     [Fact]
-    public void ReupPayloadContainsDedicatedResultUrl()
+    public void TransactionSelectionReupUsesNormalInvoicePayloadWithoutCallbackFields()
     {
         var service = File.ReadAllText(Path.Combine(RepoRoot, "Services", "TransactionReupService.cs"));
         var createBody = ExtractMethodBody(service, "public async Task<TransactionReupSelectionResult> CreateFromTransactionSelectionAsync");
-        var prepareBody = ExtractMethodBody(service, "private static string PrepareReupItemPayload");
+        var publishBody = ExtractMethodBody(service, "private async Task<int> PublishPendingItemsAsync");
+        var retryBody = ExtractMethodBody(service, "public async Task RetryItemAsync");
 
-        Assert.Contains("BuildReupItemResultUrl(itemId)", createBody);
-        Assert.Contains("node[\"ReupResultURL\"] = reupResultUrl", prepareBody);
-        Assert.Contains("api/transaction-reup/items/{itemId.ToString(CultureInfo.InvariantCulture)}/{action}", service);
+        Assert.Contains("BuildInvoicePdfPayloadAsync", createBody);
+        Assert.Contains("candidate.InvoiceId", createBody);
+        Assert.Contains("candidate.SourceTransactionCode", createBody);
+        Assert.Contains("InsertTransactionSelectionItemAsync", createBody);
+        Assert.DoesNotContain("PrepareReupItemPayload", createBody);
+        Assert.DoesNotContain("BuildReupItemUploadUrl", createBody);
+        Assert.DoesNotContain("BuildReupItemResultUrl", createBody);
+        Assert.DoesNotContain("UpdateItemPayloadAsync", createBody);
+        Assert.Contains("i.[SourceInvoiceId]", publishBody);
+        Assert.Contains("BuildInvoicePdfPayloadAsync", publishBody);
+        Assert.Contains("item.SourceInvoiceId", publishBody);
+        Assert.Contains("UpdateItemPayloadAsync(item.Id, payloadJson", publishBody);
+        Assert.Contains("BuildInvoicePdfPayloadAsync", retryBody);
+        Assert.Contains("item.SourceInvoiceId", retryBody);
+        Assert.Contains("UpdateItemPayloadAsync(itemId, payloadJson", retryBody);
+        Assert.Contains("addReupFlag: !isTransactionSelection", publishBody);
+        Assert.Contains("addReupFlag: !isTransactionSelection", retryBody);
     }
 
     [Fact]
@@ -224,13 +239,35 @@ public sealed class TransactionReupSelectionTests
 
         Assert.Contains("WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL THEN @done", body);
         Assert.Contains("WHEN [PublishStatus] = @error THEN @error", body);
-        Assert.Contains("WHEN @success = 1 THEN @waitingPdf", body);
+        Assert.Contains("WHEN @success = 1 THEN @successStatus", body);
+        Assert.Contains("TransactionReupStatuses.Published", body);
+        Assert.Contains("TransactionReupStatuses.WaitingPdf", body);
+        Assert.Contains("Reup PDF request published successfully.", body);
+        Assert.Contains("@completeOnPublish", body);
         Assert.Contains("ELSE @publishFailed", body);
         Assert.Contains("WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL OR [PublishStatus] = @error THEN [PublishMessage]", body);
         Assert.Contains("WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL OR [PublishStatus] = @error THEN [PublishLogs]", body);
         Assert.Contains("WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL OR [PublishStatus] = @error THEN [ErrorCode]", body);
         Assert.Contains("WHEN [PublishStatus] = @done OR [PdfReceivedAtUtc] IS NOT NULL OR [PublishStatus] = @error THEN [ErrorMessage]", body);
         Assert.Contains("command.Parameters.Add(\"@error\", SqlDbType.NVarChar, 30).Value = TransactionReupStatuses.Error", body);
+    }
+
+    [Fact]
+    public void TransactionSelectionPublishCompletesWithoutWaitingPdf()
+    {
+        var service = File.ReadAllText(Path.Combine(RepoRoot, "Services", "TransactionReupService.cs"));
+        var publishBody = ExtractMethodBody(service, "private async Task<int> PublishPendingItemsAsync");
+        var updateBody = ExtractMethodBody(service, "private async Task UpdatePublishResultAsync");
+        var details = File.ReadAllText(Path.Combine(RepoRoot, "Views", "TransactionReup", "Details.cshtml"));
+
+        Assert.Contains("b.[SourceType]", publishBody);
+        Assert.Contains("isTransactionSelection", publishBody);
+        Assert.Contains("successStatus = isTransactionSelection ? TransactionReupStatuses.Published : TransactionReupStatuses.WaitingPdf", updateBody);
+        Assert.Contains("WHEN @success = 1 AND @completeOnPublish = 1 THEN SYSUTCDATETIME()", updateBody);
+        Assert.Contains("WHEN @completeOnPublish = 1 THEN NULL", updateBody);
+        Assert.Contains("Published: <strong>@doneCount</strong>", details);
+        Assert.DoesNotContain("Waiting PDF: <strong>@waitingPdfCount</strong>", details);
+        Assert.Contains("@if (!Model.Batch.IsTransactionSelection)", details);
     }
 
     [Fact]
