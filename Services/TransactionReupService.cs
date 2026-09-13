@@ -254,6 +254,7 @@ public sealed class TransactionReupService(
                 null,
                 user.Username,
                 cancellationToken);
+            var replayPayload = payload with { PayloadJson = PrepareTransactionSelectionReplayPayload(payload.PayloadJson) };
 
             var itemId = await InsertTransactionSelectionItemAsync(
                 connection,
@@ -261,7 +262,7 @@ public sealed class TransactionReupService(
                 batchId,
                 rowNumber++,
                 candidate,
-                payload,
+                replayPayload,
                 cancellationToken);
         }
 
@@ -380,7 +381,7 @@ public sealed class TransactionReupService(
                 null,
                 user.Username,
                 cancellationToken);
-            payloadJson = rebuiltPayload.PayloadJson;
+            payloadJson = PrepareTransactionSelectionReplayPayload(rebuiltPayload.PayloadJson);
             await UpdateItemPayloadAsync(itemId, payloadJson, cancellationToken);
         }
 
@@ -581,7 +582,7 @@ public sealed class TransactionReupService(
                     null,
                     publishUser.Username,
                     cancellationToken);
-                payloadJson = rebuiltPayload.PayloadJson;
+                payloadJson = PrepareTransactionSelectionReplayPayload(rebuiltPayload.PayloadJson);
                 await UpdateItemPayloadAsync(item.Id, payloadJson, cancellationToken);
             }
 
@@ -1184,6 +1185,39 @@ public sealed class TransactionReupService(
         catch
         {
             return payload;
+        }
+    }
+
+    private static string PrepareTransactionSelectionReplayPayload(string payload)
+    {
+        try
+        {
+            var node = JsonSerializer.Deserialize<JsonObject>(payload);
+            if (node is null)
+            {
+                return payload;
+            }
+
+            RemovePropertyIgnoreCase(node, "InvoiceURL");
+            RemovePropertyIgnoreCase(node, "ReupResultURL");
+            RemovePropertyIgnoreCase(node, "reupItemId");
+            RemovePropertyIgnoreCase(node, "reup");
+            return node.ToJsonString();
+        }
+        catch
+        {
+            return payload;
+        }
+    }
+
+    private static void RemovePropertyIgnoreCase(JsonObject node, string propertyName)
+    {
+        var key = node
+            .Select(item => item.Key)
+            .FirstOrDefault(key => string.Equals(key, propertyName, StringComparison.OrdinalIgnoreCase));
+        if (key is not null)
+        {
+            node.Remove(key);
         }
     }
 

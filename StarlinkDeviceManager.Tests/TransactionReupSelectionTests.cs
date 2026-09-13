@@ -167,6 +167,39 @@ public sealed class TransactionReupSelectionTests
     }
 
     [Fact]
+    public void TransactionSelectionReplayPayloadRemovesCallbackFieldsAndPreservesBusinessData()
+    {
+        var method = typeof(TransactionReupService).GetMethod("PrepareTransactionSelectionReplayPayload", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var payload = """
+            {
+              "transactionCode":"533637012493401",
+              "invoiceCode":"SPN-INV-26-00262",
+              "InvoiceURL":"https://portal.shipnetsolution.com/api/invoices/SPN-INV-26-00262/pdf",
+              "ReupResultURL":"https://portal.shipnetsolution.com/api/transaction-reup/items/129/result",
+              "reupItemId":129,
+              "reup":1,
+              "invoiceParams":{"CompanyName":"SHIPNET"},
+              "vessels":[{"vesselId":"105"}]
+            }
+            """;
+
+        var sanitized = Assert.IsType<string>(method.Invoke(null, [payload]));
+        using var document = JsonDocument.Parse(sanitized);
+        var root = document.RootElement;
+
+        Assert.Equal("533637012493401", root.GetProperty("transactionCode").GetString());
+        Assert.Equal("SPN-INV-26-00262", root.GetProperty("invoiceCode").GetString());
+        Assert.Equal("SHIPNET", root.GetProperty("invoiceParams").GetProperty("CompanyName").GetString());
+        Assert.Equal("105", root.GetProperty("vessels")[0].GetProperty("vesselId").GetString());
+        Assert.False(root.TryGetProperty("InvoiceURL", out _));
+        Assert.False(root.TryGetProperty("ReupResultURL", out _));
+        Assert.False(root.TryGetProperty("reupItemId", out _));
+        Assert.False(root.TryGetProperty("reup", out _));
+    }
+
+    [Fact]
     public void TransactionSelectionReupUsesNormalInvoicePayloadWithoutCallbackFields()
     {
         var service = File.ReadAllText(Path.Combine(RepoRoot, "Services", "TransactionReupService.cs"));
@@ -177,6 +210,7 @@ public sealed class TransactionReupSelectionTests
         Assert.Contains("BuildInvoicePdfPayloadAsync", createBody);
         Assert.Contains("candidate.InvoiceId", createBody);
         Assert.Contains("candidate.SourceTransactionCode", createBody);
+        Assert.Contains("PrepareTransactionSelectionReplayPayload(payload.PayloadJson)", createBody);
         Assert.Contains("InsertTransactionSelectionItemAsync", createBody);
         Assert.DoesNotContain("PrepareReupItemPayload", createBody);
         Assert.DoesNotContain("BuildReupItemUploadUrl", createBody);
@@ -185,9 +219,11 @@ public sealed class TransactionReupSelectionTests
         Assert.Contains("i.[SourceInvoiceId]", publishBody);
         Assert.Contains("BuildInvoicePdfPayloadAsync", publishBody);
         Assert.Contains("item.SourceInvoiceId", publishBody);
+        Assert.Contains("PrepareTransactionSelectionReplayPayload(rebuiltPayload.PayloadJson)", publishBody);
         Assert.Contains("UpdateItemPayloadAsync(item.Id, payloadJson", publishBody);
         Assert.Contains("BuildInvoicePdfPayloadAsync", retryBody);
         Assert.Contains("item.SourceInvoiceId", retryBody);
+        Assert.Contains("PrepareTransactionSelectionReplayPayload(rebuiltPayload.PayloadJson)", retryBody);
         Assert.Contains("UpdateItemPayloadAsync(itemId, payloadJson", retryBody);
         Assert.Contains("addReupFlag: !isTransactionSelection", publishBody);
         Assert.Contains("addReupFlag: !isTransactionSelection", retryBody);
