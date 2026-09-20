@@ -76,6 +76,16 @@ public sealed class PricingCostAndBillingCsvTests
     }
 
     [Fact]
+    public void BillingCsvExportsTerminalIdImmediatelyAfterKit()
+    {
+        var service = File.ReadAllText(Path.Combine(ProjectRoot, "Services", "BillingInvoiceReportService.cs"));
+
+        Assert.Contains("\"Device\", \"KIT\", \"Terminal ID\", \"Plan\"", service);
+        Assert.Contains("Csv(ReadText(reader, \"KitId\")),\n                Csv(ReadText(reader, \"DeviceCode\")),\n                Csv(ReadText(reader, \"PlanName\"))", service.Replace("\r\n", "\n"));
+        Assert.Contains("d.[DeviceCode]", service);
+    }
+
+    [Fact]
     public void PricingPlanCostFieldsArePersistedAndExported()
     {
         var models = File.ReadAllText(Path.Combine(ProjectRoot, "Models", "PricingPlanModels.cs"));

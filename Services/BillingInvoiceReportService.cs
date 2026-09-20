@@ -79,7 +79,7 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
 
         var header = new List<string>
         {
-            "Invoice Number", "Invoice Type", "Tenant", "Vessel", "Device", "KIT", "Plan", "Billing Cycle", "Period Start", "Period End"
+            "Invoice Number", "Invoice Type", "Tenant", "Vessel", "Device", "KIT", "Terminal ID", "Plan", "Billing Cycle", "Period Start", "Period End"
         };
         if (canViewCostPrice)
         {
@@ -99,6 +99,7 @@ public sealed class BillingInvoiceReportService(IConfiguration configuration) : 
                 Csv(ReadText(reader, "VesselName")),
                 Csv(ReadText(reader, "DeviceName")),
                 Csv(ReadText(reader, "KitId")),
+                Csv(ReadText(reader, "DeviceCode")),
                 Csv(ReadText(reader, "PlanName")),
                 Csv(ReadDate(reader, "UsageMonth")?.ToString("MM/yyyy") ?? string.Empty),
                 Csv(ReadDate(reader, "StartDate")?.ToString("yyyy-MM-dd") ?? string.Empty),
