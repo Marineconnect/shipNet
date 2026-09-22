@@ -6142,16 +6142,46 @@ body.is-map-fullscreen{
   color:#dceaff;
   font-size:12px;
 }
-.ninepay-qr-modal .device-modal-actions{
-  flex-wrap:wrap;
+.ninepay-qr-modal > .device-modal-actions{
+  flex:0 0 auto;
+  flex-wrap:nowrap;
+  align-items:center;
+  justify-content:space-between;
   gap:10px;
-  margin-top:8px;
+  margin:0;
+  padding:14px 20px 18px;
+  border-top:1px solid rgba(88,130,199,.16);
 }
 .ninepay-qr-modal .ninepay-qr-footer{
   margin-top:0;
 }
-.ninepay-qr-modal .device-modal-actions .btn-primary,
-.ninepay-qr-modal .device-modal-actions .btn-secondary{
+.ninepay-qr-footer-start{
+  display:flex;
+  flex:1 1 auto;
+  flex-wrap:wrap;
+  gap:10px;
+}
+.ninepay-qr-download{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+}
+.ninepay-qr-download svg{
+  width:16px;
+  height:16px;
+  fill:none;
+  stroke:currentColor;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+  stroke-width:2;
+}
+.ninepay-qr-download[aria-disabled="true"]{
+  opacity:.55;
+  pointer-events:none;
+}
+.ninepay-qr-modal > .device-modal-actions .btn-primary,
+.ninepay-qr-modal > .device-modal-actions .btn-secondary{
   min-width:120px;
   max-width:100%;
   white-space:normal;
@@ -6185,6 +6215,18 @@ body.is-map-fullscreen{
   }
   .ninepay-qr-footer{
     padding:10px 14px 14px;
+  }
+  .ninepay-qr-modal > .device-modal-actions{
+    flex-wrap:wrap;
+    padding:10px 14px 14px;
+  }
+  .ninepay-qr-footer-start{
+    flex:1 1 100%;
+  }
+  .ninepay-qr-footer-start .btn-secondary,
+  .ninepay-qr-modal .ninepay-qr-footer > .btn-secondary{
+    flex:1 1 130px;
+    min-width:0;
   }
 }
 .invoice-qr-history{

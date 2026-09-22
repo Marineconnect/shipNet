@@ -146,7 +146,8 @@ public class PaymentsController(
         string accountNo = "",
         string accountName = "",
         string amount = "",
-        string remark = "")
+        string remark = "",
+        string downloadName = "")
     {
         if (string.IsNullOrWhiteSpace(qrUrl) || !Uri.TryCreate(qrUrl, UriKind.Absolute, out var qrUri))
         {
@@ -161,13 +162,26 @@ public class PaymentsController(
             await using var output = new MemoryStream();
             using var card = BuildNinePayQrCard(qrImage, bankName, accountNo, accountName, amount, remark);
             card.Save(output, ImageFormat.Png);
-            return File(output.ToArray(), "image/png", $"shipnet-9pay-qr-{DateTime.Now:yyyyMMddHHmmss}.png");
+            var fileName = BuildNinePayQrDownloadFileName(downloadName);
+            return File(output.ToArray(), "image/png", fileName);
         }
         catch (Exception exception)
         {
             logger.LogError(exception, "Failed to build 9Pay QR download card.");
             return BadRequest("Cannot download QR image.");
         }
+    }
+
+    private static string BuildNinePayQrDownloadFileName(string? requestedFileName)
+    {
+        var fileName = Path.GetFileName(requestedFileName?.Trim() ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return $"shipnet-9pay-qr-{DateTime.Now:yyyyMMddHHmmss}.png";
+        }
+
+        var safeName = string.Concat(fileName.Select(character => Path.GetInvalidFileNameChars().Contains(character) ? '_' : character));
+        return safeName.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? safeName : $"{safeName}.png";
     }
 
     [Authorize]

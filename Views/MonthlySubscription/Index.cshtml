@@ -405,8 +405,14 @@
           <pre id="groupedNinePayDebugText">-</pre>
         </details>
       </div>
-      <div class="device-modal-actions">
-        <button type="button" class="btn-secondary" id="copyGroupedNinePayDebug" hidden>Sao chép debug / Copy debug</button>
+      <div class="device-modal-actions ninepay-qr-footer" aria-label="QR actions">
+        <div class="ninepay-qr-footer-start">
+          <a class="btn-secondary ninepay-qr-download" id="downloadGroupedNinePayQr" href="#" aria-disabled="true" download>
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 18v3h14v-3" /></svg>
+            <span>Xuất QR</span>
+          </a>
+          <button type="button" class="btn-secondary" id="copyGroupedNinePayDebug" hidden>Sao chép debug / Copy debug</button>
+        </div>
         <button type="button" class="btn-secondary" id="cancelGroupedNinePayQrModal">Đóng / Close</button>
       </div>
     </div>
@@ -446,6 +452,7 @@
   const groupedQrExpires = document.querySelector("#groupedNinePayExpires");
   const groupedQrDebugPanel = document.querySelector("#groupedNinePayDebugPanel");
   const groupedQrDebugText = document.querySelector("#groupedNinePayDebugText");
+  const downloadGroupedQr = document.querySelector("#downloadGroupedNinePayQr");
   const copyGroupedQrDebug = document.querySelector("#copyGroupedNinePayDebug");
   let groupedQrCountdownTimer = null;
 
@@ -460,6 +467,12 @@
   function vnd(value) {
     const number = Number(value || 0);
     return `${number.toLocaleString("vi-VN", { maximumFractionDigits: 0 })} VND`;
+  }
+
+  function groupedQrDownloadFileName() {
+    const today = new Date();
+    const date = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
+    return `QR-SHIPNET-${date}.png`;
   }
 
   function moneyInput(value) {
@@ -688,6 +701,11 @@
     if (groupedQrDebugPanel) groupedQrDebugPanel.hidden = true;
     if (groupedQrDebugText) groupedQrDebugText.textContent = "-";
     if (copyGroupedQrDebug) copyGroupedQrDebug.hidden = true;
+    if (downloadGroupedQr instanceof HTMLAnchorElement) {
+      downloadGroupedQr.href = "#";
+      downloadGroupedQr.setAttribute("aria-disabled", "true");
+      downloadGroupedQr.removeAttribute("download");
+    }
     if (groupedQrImage) groupedQrImage.removeAttribute("src");
   }
 
@@ -719,6 +737,26 @@
     if (groupedQrImage && qrUrl) {
       groupedQrImage.src = qrUrl;
       groupedQrFrame.hidden = false;
+    }
+    if (downloadGroupedQr instanceof HTMLAnchorElement) {
+      if (qrUrl) {
+        const params = new URLSearchParams({
+          qrUrl,
+          bankName: field(bank, "BankName", "-"),
+          accountNo: field(bank, "BankAccountNo", "-"),
+          accountName: field(bank, "BankAccountName", "-"),
+          amount: vnd(total),
+          remark: field(bank, "Remark", field(bank, "Content", field(payment, "InvoiceNumber", "-"))),
+          downloadName: groupedQrDownloadFileName()
+        });
+        downloadGroupedQr.href = `/Payments/DownloadNinePayQrCard?${params.toString()}`;
+        downloadGroupedQr.download = groupedQrDownloadFileName();
+        downloadGroupedQr.removeAttribute("aria-disabled");
+      } else {
+        downloadGroupedQr.href = "#";
+        downloadGroupedQr.setAttribute("aria-disabled", "true");
+        downloadGroupedQr.removeAttribute("download");
+      }
     }
     if (groupedQrBankTable) groupedQrBankTable.hidden = false;
   }
