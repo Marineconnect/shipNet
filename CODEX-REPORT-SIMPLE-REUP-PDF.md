@@ -194,3 +194,19 @@ Added a real JSON sanitizer unit test that verifies:
 ### Follow-up Git
 - Fix commit SHA: `f0111a1b33abdce5dcb0d5ad3adf4d8687cedcb8`.
 - Push status: pushed to `origin/main`.
+
+## 15. Follow-up: remove duplicate case variants
+
+The replay sanitizer now removes every root-level callback/reup property that matches case-insensitively, not only the first matching property. This also covers valid JSON containing duplicate semantic keys with different casing, such as both `InvoiceURL` and `invoiceurl`.
+
+Regression coverage includes duplicate case variants for all four removed fields:
+
+- `InvoiceURL`
+- `ReupResultURL`
+- `reupItemId`
+- `reup`
+
+Verification:
+
+- Transaction Reup selection tests: PASS, 33 passed, 0 failed, 0 skipped.
+- Full solution tests: PASS, 95 passed, 0 failed, 0 skipped.

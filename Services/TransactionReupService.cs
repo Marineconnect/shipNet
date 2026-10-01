@@ -1212,10 +1212,12 @@ public sealed class TransactionReupService(
 
     private static void RemovePropertyIgnoreCase(JsonObject node, string propertyName)
     {
-        var key = node
+        var keys = node
             .Select(item => item.Key)
-            .FirstOrDefault(key => string.Equals(key, propertyName, StringComparison.OrdinalIgnoreCase));
-        if (key is not null)
+            .Where(key => string.Equals(key, propertyName, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        foreach (var key in keys)
         {
             node.Remove(key);
         }

@@ -177,9 +177,13 @@ public sealed class TransactionReupSelectionTests
               "transactionCode":"533637012493401",
               "invoiceCode":"SPN-INV-26-00262",
               "InvoiceURL":"https://portal.shipnetsolution.com/api/invoices/SPN-INV-26-00262/pdf",
+              "invoiceurl":"https://legacy.example.test/invoice.pdf",
               "ReupResultURL":"https://portal.shipnetsolution.com/api/transaction-reup/items/129/result",
+              "reupresulturl":"https://legacy.example.test/result",
               "reupItemId":129,
+              "REUPITEMID":130,
               "reup":1,
+              "REUP":true,
               "invoiceParams":{"CompanyName":"SHIPNET"},
               "vessels":[{"vesselId":"105"}]
             }
@@ -194,9 +198,13 @@ public sealed class TransactionReupSelectionTests
         Assert.Equal("SHIPNET", root.GetProperty("invoiceParams").GetProperty("CompanyName").GetString());
         Assert.Equal("105", root.GetProperty("vessels")[0].GetProperty("vesselId").GetString());
         Assert.False(root.TryGetProperty("InvoiceURL", out _));
+        Assert.False(root.TryGetProperty("invoiceurl", out _));
         Assert.False(root.TryGetProperty("ReupResultURL", out _));
+        Assert.False(root.TryGetProperty("reupresulturl", out _));
         Assert.False(root.TryGetProperty("reupItemId", out _));
+        Assert.False(root.TryGetProperty("REUPITEMID", out _));
         Assert.False(root.TryGetProperty("reup", out _));
+        Assert.False(root.TryGetProperty("REUP", out _));
     }
 
     [Fact]
