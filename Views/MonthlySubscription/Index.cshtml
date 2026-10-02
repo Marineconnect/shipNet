@@ -181,6 +181,7 @@
               <th>Tàu / Vessel</th>
               <th>KIT Number</th>
               <th>Tên gói / Plan Name</th>
+              <th>Gói cước KVH / KVH Plan</th>
               <th>Loại / Type</th>
               <th>Giới hạn data / Data Limit</th>
               <th>Tổng mua thêm / Total Top Up</th>
@@ -196,7 +197,7 @@
           <tbody>
             @if (Model.Subscriptions.Count == 0)
             {
-              <tr><td colspan="@(Model.CanManageSubscriptions ? 15 : 14)" class="tenant-empty">Chưa có billing cycle nào / No billing cycles found.</td></tr>
+              <tr><td colspan="@(Model.CanManageSubscriptions ? 16 : 15)" class="tenant-empty">Chưa có billing cycle nào / No billing cycles found.</td></tr>
             }
             else
             {
@@ -223,6 +224,7 @@
                   </td>
                   <td>@item.KitId</td>
                   <td>@item.PlanName</td>
+                  <td>@(string.IsNullOrWhiteSpace(item.KvhPlanName) ? "-" : item.KvhPlanName)</td>
                   <td>@item.SubscriptionType</td>
                   <td>@Data(item.DataLimitGb)</td>
                   <td>@Data(item.TotalTopUpGb)</td>

@@ -66,6 +66,7 @@ public class MonthlySubscriptionListItemViewModel
     public string VesselName { get; set; } = string.Empty;
     public string KitId { get; set; } = string.Empty;
     public string PlanName { get; set; } = string.Empty;
+    public string KvhPlanName { get; set; } = string.Empty;
     public string SubscriptionType { get; set; } = string.Empty;
     public decimal DataLimitGb { get; set; }
     public decimal BasePlanPrice { get; set; }

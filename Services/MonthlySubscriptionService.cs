@@ -36,7 +36,7 @@ public class MonthlySubscriptionService(
             SELECT
                 s.[ID], s.[TenantId], s.[DeviceId], s.[PricingPlanId], s.[TenantName], s.[VesselName],
                 COALESCE(NULLIF(d.[KITNumber], N''), NULLIF(s.[KitId], N''), d.[KITID], N'') AS [KitId],
-                s.[PlanName], s.[SubscriptionType], s.[DataLimitGb], s.[BasePlanPrice], s.[SubscriptionDays],
+                s.[PlanName], d.[KvhSubscriptionPlan] AS [KvhPlanName], s.[SubscriptionType], s.[DataLimitGb], s.[BasePlanPrice], s.[SubscriptionDays],
                 s.[SubscriptionPrice], s.[OverChargePrice], s.[TotalTopUpGb], s.[Status],
                 s.[StartDate], s.[EndDate], s.[NextBillingDate], s.[TotalInvoiceAmount], s.[TotalPaid],
                 COALESCE((
@@ -120,7 +120,7 @@ public class MonthlySubscriptionService(
             SELECT
                 s.[ID], s.[TenantId], s.[DeviceId], s.[PricingPlanId], s.[TenantName], s.[VesselName],
                 COALESCE(NULLIF(d.[KITNumber], N''), NULLIF(s.[KitId], N''), d.[KITID], N'') AS [KitId],
-                s.[PlanName], s.[SubscriptionType], s.[DataLimitGb], s.[BasePlanPrice], s.[SubscriptionDays],
+                s.[PlanName], d.[KvhSubscriptionPlan] AS [KvhPlanName], s.[SubscriptionType], s.[DataLimitGb], s.[BasePlanPrice], s.[SubscriptionDays],
                 s.[SubscriptionPrice], s.[OverChargePrice], s.[TotalTopUpGb], s.[Status],
                 s.[StartDate], s.[EndDate], s.[NextBillingDate], s.[TotalInvoiceAmount], s.[TotalPaid],
                 COALESCE((
@@ -1556,6 +1556,7 @@ public class MonthlySubscriptionService(
             VesselName = reader["VesselName"]?.ToString() ?? string.Empty,
             KitId = reader["KitId"]?.ToString() ?? string.Empty,
             PlanName = reader["PlanName"]?.ToString() ?? string.Empty,
+            KvhPlanName = reader["KvhPlanName"]?.ToString() ?? string.Empty,
             SubscriptionType = reader["SubscriptionType"]?.ToString() ?? string.Empty,
             DataLimitGb = ReadDecimal(reader, "DataLimitGb"),
             BasePlanPrice = ReadDecimal(reader, "BasePlanPrice"),
@@ -1852,6 +1853,8 @@ public class MonthlySubscriptionService(
                 ALTER TABLE [dbo].[TblMonthlySubscription] ADD [CostOverChargePrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblMonthlySubscription_CostOverChargePrice_Existing] DEFAULT(0);
             IF COL_LENGTH(N'[dbo].[TblMonthlySubscription]', N'OverChargePrice') IS NULL
                 ALTER TABLE [dbo].[TblMonthlySubscription] ADD [OverChargePrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblMonthlySubscription_OverChargePrice_Existing] DEFAULT(0);
+            IF OBJECT_ID(N'[dbo].[TblDevices]', N'U') IS NOT NULL AND COL_LENGTH(N'[dbo].[TblDevices]', N'KvhSubscriptionPlan') IS NULL
+                ALTER TABLE [dbo].[TblDevices] ADD [KvhSubscriptionPlan] nvarchar(255) NULL;
             IF COL_LENGTH(N'[dbo].[TblSubscriptionInvoice]', N'CostPrice') IS NULL
                 ALTER TABLE [dbo].[TblSubscriptionInvoice] ADD [CostPrice] decimal(18,2) NOT NULL CONSTRAINT [DF_TblSubscriptionInvoice_CostPrice_Existing] DEFAULT(0);
             """;

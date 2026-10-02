@@ -88,6 +88,7 @@
           <tbody>
             <tr><th>Tàu / Vessel</th><td>@Model.Subscription.VesselName</td><th>Tenant / Tenant</th><td>@Model.Subscription.TenantName</td></tr>
             <tr><th>KIT Number</th><td>@Model.Subscription.KitId</td><th>Gói / Plan</th><td>@Model.Subscription.PlanName</td></tr>
+            <tr><th>Gói cước KVH / KVH Plan</th><td>@(string.IsNullOrWhiteSpace(Model.Subscription.KvhPlanName) ? "-" : Model.Subscription.KvhPlanName)</td><th></th><td></td></tr>
             <tr><th>Loại / Type</th><td>@Model.Subscription.SubscriptionType</td><th>Billing period / Billing Period</th><td>@Model.Subscription.SubscriptionPeriodDisplay</td></tr>
             <tr><th>Giới hạn data / Data Limit</th><td>@Data(Model.Subscription.DataLimitGb)</td><th>Ngày billing tiếp theo / Next Billing Date</th><td>@Model.Subscription.NextBillingDateDisplay</td></tr>
             <tr><th>Đơn giá / Unit Price</th><td>@Money(Model.Subscription.BasePlanPrice)</td><th>Giá overcharge / Overcharge Price</th><td>@Money(Model.Subscription.OverChargePrice) / GB</td></tr>
