@@ -5,6 +5,9 @@ namespace StarlinkDeviceManager.Services;
 
 public interface IPaymentTransactionService
 {
+    Task<TransferInvoiceCandidate> ValidateTransferInvoiceAsync(string code, int? tenantId, int? deviceId, CancellationToken cancellationToken = default);
+    Task TransferTransactionAsync(int sourceInvoiceId, IReadOnlyList<string> codes, string reason, string actor, int? tenantId, int? deviceId, CancellationToken cancellationToken = default);
+
     Task<PaymentTransactionIndexViewModel> GetTransactionsAsync(
         PaymentTransactionFilterViewModel filter,
         int page,

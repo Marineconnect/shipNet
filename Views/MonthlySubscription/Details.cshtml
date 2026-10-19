@@ -1758,3 +1758,90 @@
 })();
 </script>
 }
+
+@if (Model.CanManageSubscriptions)
+{
+<section class="device-card" style="margin:16px">
+  <h2>Chuyển transaction 9Pay</h2>
+  @if (ViewData["InvoiceTransfers"] is Dictionary<int, PaymentTransactionDetailViewModel> payments)
+  {
+    foreach (var invoice in Model.Invoices)
+    {
+      if (payments.TryGetValue(invoice.Id, out var payment))
+      {
+        <div style="padding:12px">
+          <strong>@invoice.InvoiceNumber</strong>
+          <div style="white-space:pre-line">@payment.TransferHistory</div>
+          @if (Model.CanManageSubscriptions && invoice.Status == "paid" && payment.Provider == "9Pay" && !string.IsNullOrWhiteSpace(payment.ProviderPaymentNo))
+          {
+            <button type="button" class="btn-secondary" data-transfer-source="@invoice.Id" data-transfer-code="@invoice.InvoiceNumber">Chuyển transaction @payment.ProviderPaymentNo</button>
+          }
+        </div>
+      }
+    }
+  }
+</section>
+}
+@if (Model.CanManageSubscriptions)
+{
+<dialog id="transfer-dialog" style="background:#0b1730;color:#e4ecfa;border:1px solid #345;padding:24px;border-radius:12px;width:min(640px,90vw)">
+  <form id="transfer-form">
+    @Html.AntiForgeryToken()
+    <h2>Chuyển transaction từ <span id="transfer-source-code"></span></h2>
+    <p>Tổng tiền invoice nhận phải bằng số tiền chuyển. Billing nguồn sẽ được hủy.</p>
+    <label>Mã invoice <input id="transfer-code" maxlength="100" autocomplete="off" /></label>
+    <button type="button" id="transfer-add" class="btn-secondary">+</button>
+    <ul id="transfer-targets"></ul>
+    <label>Lý do chuyển (bắt buộc)<textarea id="transfer-reason" required maxlength="1000" style="display:block;width:100%"></textarea></label>
+    <p id="transfer-error" role="alert"></p>
+    <button type="submit" class="btn-primary">Xác nhận chuyển</button>
+    <button type="button" id="transfer-close" class="btn-secondary">Đóng</button>
+  </form>
+</dialog>
+<script>
+(() => {
+  const dialog = document.getElementById('transfer-dialog'), form = document.getElementById('transfer-form');
+  const code = document.getElementById('transfer-code'), list = document.getElementById('transfer-targets'), error = document.getElementById('transfer-error');
+  let source = 0, targets = [], busy = false;
+  function render() {
+    list.replaceChildren();
+    targets.forEach(t => {
+      const li = document.createElement('li'), remove = document.createElement('button');
+      li.append(document.createTextNode(`${t.invoiceNumber}: ${Number(t.amount).toLocaleString('vi-VN')} VND `));
+      remove.type = 'button'; remove.textContent = 'Xóa';
+      remove.onclick = () => { if (!busy) { targets = targets.filter(x => x.id !== t.id); render(); } };
+      li.append(remove); list.append(li);
+    });
+  }
+  document.querySelectorAll('[data-transfer-source]').forEach(button => button.onclick = () => {
+    source = Number(button.dataset.transferSource); targets = []; render(); form.reset(); error.textContent = '';
+    document.getElementById('transfer-source-code').textContent = button.dataset.transferCode; dialog.showModal();
+  });
+  document.getElementById('transfer-close').onclick = () => { if (!busy) dialog.close(); };
+  dialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
+  document.getElementById('transfer-add').onclick = async () => {
+    if (busy) return; busy = true; error.textContent = '';
+    try {
+      const response = await fetch('@Url.Action("ValidateTransferInvoice", "MonthlySubscription")?code=' + encodeURIComponent(code.value.trim()));
+      if (!response.ok) { const data = await response.json(); throw new Error(data.message || 'Không xác thực được invoice.'); }
+      const data = await response.json();
+      if (data.id === source || targets.some(t => t.id === data.id)) throw new Error('Invoice nguồn hoặc invoice đã có trong danh sách.');
+      targets.push(data); code.value = ''; render();
+    } catch (e) { error.textContent = e.message; } finally { busy = false; }
+  };
+  form.onsubmit = async event => {
+    event.preventDefault(); if (busy) return;
+    if (!targets.length) { error.textContent = 'Vui lòng thêm ít nhất một invoice.'; return; }
+    busy = true; error.textContent = ''; const submit = form.querySelector('[type=submit]'); submit.disabled = true;
+    try {
+      const response = await fetch('@Url.Action("TransferTransaction", "MonthlySubscription")', {
+        method:'POST', headers:{'Content-Type':'application/json','RequestVerificationToken':form.querySelector('[name=__RequestVerificationToken]').value},
+        body:JSON.stringify({sourceInvoiceId:source,invoiceNumbers:targets.map(t => t.invoiceNumber),reason:document.getElementById('transfer-reason').value})
+      });
+      if (!response.ok) { const data = await response.json(); throw new Error(data.message || 'Không thể chuyển transaction.'); }
+      location.reload();
+    } catch(e) { error.textContent = e.message; } finally { busy = false; submit.disabled = false; }
+  };
+})();
+</script>
+}

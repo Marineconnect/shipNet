@@ -391,7 +391,7 @@
           <select id="groupedNinePayBankSelect"></select>
         </label>
         <div class="ninepay-qr-frame" id="groupedNinePayQrFrame" hidden>
-          <img id="groupedNinePayQrImage" alt="Mã QR 9Pay / 9Pay QR code" />
+          <button type="button" class="grouped-qr-image-download" data-grouped-qr-download aria-label="Tải ảnh QR và thông tin"><img id="groupedNinePayQrImage" alt="Mã QR 9Pay / 9Pay QR code" /></button><button type="button" class="btn-secondary grouped-qr-inline-download" data-grouped-qr-download>Tải ảnh QR và thông tin (.png)</button>
         </div>
         <table class="subscription-kv-table ninepay-qr-table" id="groupedNinePayBankTable" hidden>
           <tbody>
@@ -728,6 +728,14 @@
     showGroupedQrDebug(debugLog);
   }
 
+  document.querySelectorAll("[data-grouped-qr-download]").forEach(button => {
+    button.addEventListener("click", () => {
+      if (downloadGroupedQr instanceof HTMLAnchorElement && downloadGroupedQr.getAttribute("aria-disabled") !== "true") {
+        downloadGroupedQr.click();
+      }
+    });
+  });
+
   function updateGroupedQrBank(bank, payment) {
     const total = field(payment, "TotalToPayVnd", 0);
     const qrUrl = field(bank, "QrCodeUrl");
@@ -900,3 +908,11 @@
 })();
 </script>
 }
+
+<style>
+#groupedNinePayQrFrame { display: flex; flex-direction: column; gap: 12px; aspect-ratio: auto; }
+.grouped-qr-image-download { display: block; max-width: 100%; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.grouped-qr-image-download:focus-visible { outline: 3px solid #29bfff; outline-offset: 4px; }
+.grouped-qr-image-download img { display: block; max-width: 100%; height: auto; }
+.grouped-qr-inline-download { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; }
+</style>

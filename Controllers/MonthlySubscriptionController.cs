@@ -9,6 +9,7 @@ namespace StarlinkDeviceManager.Controllers;
 [Authorize]
 public class MonthlySubscriptionController(
     IMonthlySubscriptionService subscriptionService,
+    IPaymentTransactionService paymentTransactionService,
     IInvoicePdfService invoicePdfService,
     IKvhPaymentResumeService kvhPaymentResumeService,
     ITenantService tenantService,
@@ -138,6 +139,30 @@ public class MonthlySubscriptionController(
     }
 
     [HttpGet]
+    public async Task<IActionResult> ValidateTransferInvoice(string code)
+    {
+        var user = await GetCurrentUserAsync();
+        if (!CanManageSubscriptions(user)) return Forbid();
+        try { return Json(await paymentTransactionService.ValidateTransferInvoiceAsync(code, GetAllowedTenantId(user), GetAllowedDeviceId(user), HttpContext.RequestAborted)); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> TransferTransaction([FromBody] TransferTransactionRequest request)
+    {
+        var user = await GetCurrentUserAsync();
+        if (!CanManageSubscriptions(user)) return Forbid();
+        if (!ModelState.IsValid) return BadRequest(new { message = "Dữ liệu chuyển không hợp lệ." });
+        try
+        {
+            await paymentTransactionService.TransferTransactionAsync(request.SourceInvoiceId, request.InvoiceNumbers, request.Reason, user!.Username ?? "", GetAllowedTenantId(user), GetAllowedDeviceId(user), HttpContext.RequestAborted);
+            return Json(new { success = true });
+        }
+        catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
+    [HttpGet]
     public async Task<IActionResult> Details(int id)
     {
         var currentUser = await GetCurrentUserAsync();
@@ -147,7 +172,15 @@ public class MonthlySubscriptionController(
             return NotFound();
         }
 
+        var transfers = new Dictionary<int, PaymentTransactionDetailViewModel>();
+        foreach (var invoice in detail.Invoices)
+        {
+            var payment = await paymentTransactionService.GetTransactionDetailAsync(invoice.Id, GetAllowedTenantId(currentUser), GetAllowedDeviceId(currentUser), HttpContext.RequestAborted);
+            if (payment is not null) transfers[invoice.Id] = payment;
+        }
+        ViewData["InvoiceTransfers"] = transfers;
         detail.CanManageSubscriptions = CanManageSubscriptions(currentUser);
+        detail.CanEditBilling &= detail.CanManageSubscriptions;
         detail.CanViewQrSessions = CanViewQrSessions(currentUser);
         detail.CanViewIntegrationLogs = CanViewIntegrationLogs(currentUser);
         var pdfFiles = detail.CanViewIntegrationLogs
@@ -428,12 +461,12 @@ public class MonthlySubscriptionController(
 
     private static bool CanManageSubscriptions(AuthUserRecord? user)
     {
-        return user is not null && !user.IsViewOnly && (IsAdminAccount(user) || IsTenantAdmin(user));
+        return BillingPermissions.CanManage(user);
     }
 
     private static bool CanCreateSubscriptions(AuthUserRecord? user)
     {
-        return user is not null && !user.IsViewOnly && !user.IsShipAdmin && !user.IsCrew && (IsAdminAccount(user) || IsTenantAdmin(user));
+        return BillingPermissions.CanManage(user);
     }
 
     private static bool CanViewQrSessions(AuthUserRecord? user)
@@ -450,11 +483,6 @@ public class MonthlySubscriptionController(
     {
         return user is not null &&
             (user.IsAdmin || string.Equals(user.Username?.Trim(), "admin", StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static bool IsTenantAdmin(AuthUserRecord? user)
-    {
-        return user?.IsTenantUser == true && user.HasTenantScope;
     }
 
     private (int? UserId, string Username) GetCurrentAuditContext()

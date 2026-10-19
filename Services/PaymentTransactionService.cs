@@ -1,4 +1,4 @@
-using System.Data;
+﻿using System.Data;
 using System.Globalization;
 using System.Net;
 using System.Security.Cryptography;
@@ -9,7 +9,7 @@ using StarlinkDeviceManager.Models;
 
 namespace StarlinkDeviceManager.Services;
 
-public class PaymentTransactionService(
+public partial class PaymentTransactionService(
     IConfiguration configuration,
     ICurrencyExchangeService currencyExchangeService,
     ISystemSettingsService systemSettingsService,
@@ -70,6 +70,7 @@ public class PaymentTransactionService(
                    s.[TenantId], s.[TenantName], s.[VesselName], s.[PlanName],
                    COALESCE(NULLIF(d.[KITNumber], N''), NULLIF(s.[KitId], N''), d.[KITID], N'') AS [KitNumber],
                    d.[DeviceCode],
+                   (SELECT STUFF((SELECT CHAR(10) + CONCAT(tr.SourceCode, N' chuyển qua ', tr.TargetCode, N' | 9Pay: ', tr.PaymentNo, N' | ', tr.Reason, N' | ', tr.CreatedBy, N' | ', CONVERT(nvarchar(30), tr.CreatedAt, 126)) FROM dbo.TblPaymentTransfer tr WHERE tr.SourceInvoiceId = i.ID OR tr.TargetInvoiceId = i.ID ORDER BY tr.CreatedAt, tr.ID FOR XML PATH(''), TYPE).value('.', 'nvarchar(max)'), 1, 1, N'')) AS TransferHistory,
                    tx.[ID] AS [TransactionId], tx.[Provider], tx.[ProviderPaymentNo], tx.[ProviderStatus],
                    tx.[Status] AS [TransactionStatus], tx.[AmountVnd], tx.[Currency], tx.[Method], tx.[Updated_Date] AS [TransactionAt],
                    qr.[ID] AS [QrSessionId], qr.[ProviderInvoiceNo], qr.[Status] AS [QrStatus], qr.[QrStartedAt], qr.[QrExpiresAt],
@@ -134,6 +135,7 @@ public class PaymentTransactionService(
                    s.[TenantId], s.[TenantName], s.[VesselName], s.[PlanName],
                    COALESCE(NULLIF(d.[KITNumber], N''), NULLIF(s.[KitId], N''), d.[KITID], N'') AS [KitNumber],
                    d.[DeviceCode],
+                   (SELECT STUFF((SELECT CHAR(10) + CONCAT(tr.SourceCode, N' chuyển qua ', tr.TargetCode, N' | 9Pay: ', tr.PaymentNo, N' | ', tr.Reason, N' | ', tr.CreatedBy, N' | ', CONVERT(nvarchar(30), tr.CreatedAt, 126)) FROM dbo.TblPaymentTransfer tr WHERE tr.SourceInvoiceId = i.ID OR tr.TargetInvoiceId = i.ID ORDER BY tr.CreatedAt, tr.ID FOR XML PATH(''), TYPE).value('.', 'nvarchar(max)'), 1, 1, N'')) AS TransferHistory,
                    tx.[ID] AS [TransactionId], tx.[Provider], tx.[ProviderPaymentNo], tx.[ProviderStatus],
                    tx.[Status] AS [TransactionStatus], tx.[AmountVnd], tx.[Currency], tx.[Method], tx.[Updated_Date] AS [TransactionAt],
                    tx.[PaymentUrl], tx.[FailureReason], tx.[RawResultJson], tx.[RawResultBase64], tx.[RawChecksum],
@@ -148,6 +150,7 @@ public class PaymentTransactionService(
                 SELECT TOP 1 *
                 FROM [dbo].[TblPaymentTransaction] pt
                 WHERE pt.[InvoiceId] = i.[ID] OR pt.[InvoiceNumber] = i.[InvoiceNumber] OR pt.[ProviderPaymentNo] = i.[ReceiptNumber]
+                OR EXISTS (SELECT 1 FROM dbo.TblPaymentTransfer tr WHERE tr.TargetInvoiceId = i.ID AND tr.TransactionId = pt.ID)
                 ORDER BY pt.[Updated_Date] DESC, pt.[ID] DESC
             ) tx
             OUTER APPLY (
@@ -285,6 +288,7 @@ public class PaymentTransactionService(
                 SELECT TOP 1 *
                 FROM [dbo].[TblPaymentTransaction] pt
                 WHERE pt.[InvoiceId] = i.[ID] OR pt.[InvoiceNumber] = i.[InvoiceNumber] OR pt.[ProviderPaymentNo] = i.[ReceiptNumber]
+                OR EXISTS (SELECT 1 FROM dbo.TblPaymentTransfer tr WHERE tr.TargetInvoiceId = i.ID AND tr.TransactionId = pt.ID)
                 ORDER BY pt.[Updated_Date] DESC, pt.[ID] DESC
             ) tx
             OUTER APPLY (
@@ -1534,6 +1538,16 @@ public class PaymentTransactionService(
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
         await EnsureSchemaAsync(connection, transaction, cancellationToken);
 
+        await using (var transferred = new SqlCommand("SELECT COUNT(1) FROM dbo.TblPaymentTransfer WITH (UPDLOCK, HOLDLOCK) WHERE PaymentNo = @paymentNo", connection, transaction))
+        {
+            transferred.Parameters.AddWithValue("@paymentNo", paymentNo);
+            if (Convert.ToInt32(await transferred.ExecuteScalarAsync(cancellationToken)) > 0)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return new NinePayIpnProcessResult { Success = true, PaymentNo = paymentNo, InvoiceNumber = providerInvoiceNumber, Message = "Transaction already transferred; allocation preserved." };
+            }
+        }
+
         await UpdateQrSessionIpnAttemptAsync(
             connection,
             transaction,
@@ -1555,6 +1569,17 @@ public class PaymentTransactionService(
             if (directInvoice.HasValue)
             {
                 mappedInvoices.Add((directInvoice.Value.InvoiceId, directInvoice.Value.SubscriptionId, providerInvoiceNumber, directInvoice.Value.InvoiceAmount));
+            }
+        }
+
+        foreach (var mapped in mappedInvoices)
+        {
+            await using var allocation = new SqlCommand("SELECT COUNT(1) FROM dbo.TblPaymentTransfer WITH (UPDLOCK, HOLDLOCK) WHERE SourceInvoiceId = @id OR TargetInvoiceId = @id", connection, transaction);
+            allocation.Parameters.AddWithValue("@id", mapped.InvoiceId);
+            if (Convert.ToInt32(await allocation.ExecuteScalarAsync(cancellationToken)) > 0)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return new NinePayIpnProcessResult { Success = false, PaymentNo = paymentNo, InvoiceNumber = providerInvoiceNumber, Message = "Invoice has a transferred allocation; manual reconciliation required for this payment." };
             }
         }
 
@@ -2130,6 +2155,17 @@ public class PaymentTransactionService(
         }
 
         const string query = """
+            IF OBJECT_ID(N'dbo.TblPaymentTransfer', N'U') IS NULL
+            CREATE TABLE dbo.TblPaymentTransfer (
+                ID int IDENTITY PRIMARY KEY, SourceInvoiceId int NOT NULL, TargetInvoiceId int NOT NULL UNIQUE,
+                TransactionId int NOT NULL, PaymentNo nvarchar(100) NOT NULL,
+                SourceCode nvarchar(100) NOT NULL, TargetCode nvarchar(100) NOT NULL,
+                Amount decimal(18,2) NOT NULL CHECK (Amount > 0), Reason nvarchar(1000) NOT NULL,
+                CreatedBy nvarchar(256) NOT NULL, CreatedAt datetime2 NOT NULL DEFAULT SYSUTCDATETIME());
+            IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.TblPaymentTransfer') AND name = N'IX_PaymentTransfer_Source')
+                CREATE INDEX IX_PaymentTransfer_Source ON dbo.TblPaymentTransfer(SourceInvoiceId);
+            IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.TblPaymentTransfer') AND name = N'IX_PaymentTransfer_PaymentNo')
+                CREATE INDEX IX_PaymentTransfer_PaymentNo ON dbo.TblPaymentTransfer(PaymentNo);
             IF OBJECT_ID(N'[dbo].[TblPaymentTransaction]', N'U') IS NULL
             BEGIN
                 CREATE TABLE [dbo].[TblPaymentTransaction](
@@ -3121,6 +3157,7 @@ public class PaymentTransactionService(
         SELECT TOP 1 *
         FROM [dbo].[TblPaymentTransaction] pt
         WHERE pt.[InvoiceId] = i.[ID] OR pt.[InvoiceNumber] = i.[InvoiceNumber] OR pt.[ProviderPaymentNo] = i.[ReceiptNumber]
+                OR EXISTS (SELECT 1 FROM dbo.TblPaymentTransfer tr WHERE tr.TargetInvoiceId = i.ID AND tr.TransactionId = pt.ID)
         ORDER BY pt.[Updated_Date] DESC, pt.[ID] DESC
         """;
 
@@ -3161,7 +3198,7 @@ public class PaymentTransactionService(
 
         if (!string.IsNullOrWhiteSpace(filter.Search))
         {
-            clauses.Add("(i.[InvoiceNumber] LIKE @search OR i.[ReceiptNumber] LIKE @search OR s.[TenantName] LIKE @search OR s.[VesselName] LIKE @search OR s.[PlanName] LIKE @search OR d.[DeviceCode] LIKE @search OR d.[KITNumber] LIKE @search OR d.[KITID] LIKE @search OR tx.[ProviderPaymentNo] LIKE @search OR qr.[ProviderInvoiceNo] LIKE @search OR qr.[ProviderPaymentNo] LIKE @search OR qr.[BankAccountNo] LIKE @search OR qr.[TransferContent] LIKE @search)");
+            clauses.Add("(i.[InvoiceNumber] LIKE @search OR i.[ReceiptNumber] LIKE @search OR s.[TenantName] LIKE @search OR s.[VesselName] LIKE @search OR s.[PlanName] LIKE @search OR d.[DeviceCode] LIKE @search OR d.[KITNumber] LIKE @search OR d.[KITID] LIKE @search OR tx.[ProviderPaymentNo] LIKE @search OR qr.[ProviderInvoiceNo] LIKE @search OR qr.[ProviderPaymentNo] LIKE @search OR qr.[BankAccountNo] LIKE @search OR qr.[TransferContent] LIKE @search OR EXISTS (SELECT 1 FROM dbo.TblPaymentTransfer tr WHERE (tr.SourceInvoiceId = i.ID OR tr.TargetInvoiceId = i.ID) AND (tr.PaymentNo LIKE @search OR tr.SourceCode LIKE @search OR tr.TargetCode LIKE @search OR tr.Reason LIKE @search)))");
         }
 
         if (string.Equals(filter.QrState, "active", StringComparison.OrdinalIgnoreCase))
@@ -3207,6 +3244,7 @@ public class PaymentTransactionService(
             InvoiceId = ReadInt(reader, "InvoiceId"),
             SubscriptionId = ReadInt(reader, "SubscriptionId"),
             TransactionId = ReadNullableInt(reader, "TransactionId"),
+            TransferHistory = reader["TransferHistory"]?.ToString() ?? "",
             QrSessionId = ReadNullableInt(reader, "QrSessionId"),
             InvoiceNumber = ReadText(reader, "InvoiceNumber"),
             TenantName = ReadText(reader, "TenantName"),
@@ -3249,6 +3287,7 @@ public class PaymentTransactionService(
             InvoiceId = item.InvoiceId,
             SubscriptionId = item.SubscriptionId,
             TransactionId = item.TransactionId,
+            TransferHistory = item.TransferHistory,
             QrSessionId = item.QrSessionId,
             InvoiceNumber = item.InvoiceNumber,
             TenantName = item.TenantName,

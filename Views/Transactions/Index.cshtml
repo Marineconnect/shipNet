@@ -186,6 +186,7 @@
               }
               <td>
                 <a class="table-primary-link" asp-controller="MonthlySubscription" asp-action="Details" asp-route-id="@item.SubscriptionId" target="_blank" rel="noopener"><strong>@item.InvoiceNumber</strong></a>
+                <div class="muted" style="white-space:pre-line">@item.TransferHistory</div>
                 <div class="muted">Invoice #@item.InvoiceId · Subscription #@item.SubscriptionId</div>
               </td>
               <td>

@@ -63,6 +63,7 @@ public sealed record InvoicePdfPayloadBuildResult(
 
 public class PaymentTransactionListItemViewModel
 {
+    public string TransferHistory { get; set; } = "";
     public int InvoiceId { get; set; }
     public int SubscriptionId { get; set; }
     public int? TransactionId { get; set; }

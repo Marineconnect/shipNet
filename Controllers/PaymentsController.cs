@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Drawing;
@@ -16,10 +16,19 @@ namespace StarlinkDeviceManager.Controllers;
 [SupportedOSPlatform("windows")]
 public class PaymentsController(
     IConfiguration configuration,
+    ISqlAuthService authService,
     IPaymentTransactionService paymentTransactionService,
     IHttpClientFactory httpClientFactory,
     ILogger<PaymentsController> logger) : Controller
 {
+    private async Task<bool> CanManageBillingAsync()
+    {
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        var currentUser = int.TryParse(userId, out var id)
+            ? await authService.GetUserByIdAsync(id, HttpContext.RequestAborted) : null;
+        return BillingPermissions.CanManage(currentUser);
+    }
+
     [Authorize]
     [HttpGet]
     public async Task<IActionResult> NinePayQrInfo(int invoiceId)
@@ -31,6 +40,8 @@ public class PaymentsController(
     [HttpGet]
     public async Task<IActionResult> NinePayBankTransferInfo(int invoiceId)
     {
+        if (!await CanManageBillingAsync()) return Forbid();
+
         if (invoiceId <= 0)
         {
             return BadRequest(new { success = false, message = "Missing invoice id." });
@@ -61,6 +72,8 @@ public class PaymentsController(
     [HttpPost]
     public async Task<IActionResult> NinePaySubscriptionQr([FromBody] NinePaySubscriptionQrRequest request)
     {
+        if (!await CanManageBillingAsync()) return Forbid();
+
         if (request.SubscriptionIds.Count == 0)
         {
             return BadRequest(new { success = false, message = "Select at least one subscription." });
@@ -91,6 +104,8 @@ public class PaymentsController(
     [HttpGet]
     public async Task<IActionResult> NinePaySampleCreateBankTransferTest()
     {
+        if (!await CanManageBillingAsync()) return Forbid();
+
         try
         {
             var result = await paymentTransactionService.RunNinePaySampleCreateBankTransferAsync(HttpContext.RequestAborted);
@@ -107,6 +122,7 @@ public class PaymentsController(
     [HttpPost]
     public async Task<IActionResult> TestInvoiceRabbitMq(int invoiceId)
     {
+        if (!await CanManageBillingAsync()) return Forbid();
         if (invoiceId <= 0)
         {
             return BadRequest(new { success = false, message = "Missing invoice id." });
@@ -151,14 +167,17 @@ public class PaymentsController(
     {
         if (string.IsNullOrWhiteSpace(qrUrl) || !Uri.TryCreate(qrUrl, UriKind.Absolute, out var qrUri))
         {
-            return BadRequest("Missing QR image URL.");
+            return BadRequest(new { message = "Missing or invalid QR image URL." });
         }
 
         try
         {
             var client = httpClientFactory.CreateClient();
             await using var qrStream = await client.GetStreamAsync(qrUri, HttpContext.RequestAborted);
-            using var qrImage = Image.FromStream(qrStream);
+            using var bufferedQr = new MemoryStream();
+            await qrStream.CopyToAsync(bufferedQr, HttpContext.RequestAborted);
+            bufferedQr.Position = 0;
+            using var qrImage = Image.FromStream(bufferedQr);
             await using var output = new MemoryStream();
             using var card = BuildNinePayQrCard(qrImage, bankName, accountNo, accountName, amount, remark);
             card.Save(output, ImageFormat.Png);
@@ -168,7 +187,7 @@ public class PaymentsController(
         catch (Exception exception)
         {
             logger.LogError(exception, "Failed to build 9Pay QR download card.");
-            return BadRequest("Cannot download QR image.");
+            return StatusCode(502, new { message = "Cannot download QR image. Please retry or generate a new QR.", traceId = HttpContext.TraceIdentifier });
         }
     }
 

@@ -851,12 +851,12 @@ public class DashboardController(
 
     private static bool CanManageDevices(AuthUserRecord? user)
     {
-        return user is not null && !user.IsViewOnly && (IsAdminAccount(user) || IsTenantAdmin(user));
+        return user is not null && !user.IsViewOnly && !user.IsTenantUser && !user.IsShipAdmin && !user.IsCrew && IsAdminAccount(user);
     }
 
     private static bool CanCreateSubscriptions(AuthUserRecord? user)
     {
-        return user is not null && !user.IsViewOnly && !user.IsShipAdmin && !user.IsCrew && (IsAdminAccount(user) || IsTenantAdmin(user));
+        return CanManageDevices(user);
     }
 
     private static bool CanViewMap(AuthUserRecord? user)
