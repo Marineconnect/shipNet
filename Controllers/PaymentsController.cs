@@ -163,9 +163,10 @@ public class PaymentsController(
         string accountName = "",
         string amount = "",
         string remark = "",
-        string downloadName = "")
+        string downloadName = "", bool rawQr = false)
     {
-        if (string.IsNullOrWhiteSpace(qrUrl) || !Uri.TryCreate(qrUrl, UriKind.Absolute, out var qrUri))
+        if (string.IsNullOrWhiteSpace(qrUrl) || !Uri.TryCreate(qrUrl, UriKind.Absolute, out var qrUri)
+            || (qrUri.Scheme != Uri.UriSchemeHttp && qrUri.Scheme != Uri.UriSchemeHttps))
         {
             return BadRequest(new { message = "Missing or invalid QR image URL." });
         }
@@ -176,6 +177,7 @@ public class PaymentsController(
             await using var qrStream = await client.GetStreamAsync(qrUri, HttpContext.RequestAborted);
             using var bufferedQr = new MemoryStream();
             await qrStream.CopyToAsync(bufferedQr, HttpContext.RequestAborted);
+            if (rawQr) return File(bufferedQr.ToArray(), "application/octet-stream");
             bufferedQr.Position = 0;
             using var qrImage = Image.FromStream(bufferedQr);
             await using var output = new MemoryStream();
@@ -186,8 +188,15 @@ public class PaymentsController(
         }
         catch (Exception exception)
         {
-            logger.LogError(exception, "Failed to build 9Pay QR download card.");
-            return StatusCode(502, new { message = "Cannot download QR image. Please retry or generate a new QR.", traceId = HttpContext.TraceIdentifier });
+            var reason = exception switch
+            {
+                HttpRequestException http when http.StatusCode.HasValue => $"QR provider returned HTTP {(int)http.StatusCode.Value}.",
+                HttpRequestException http => $"Server cannot reach QR provider ({http.HttpRequestError}).",
+                OperationCanceledException => "QR image request timed out or was cancelled.",
+                _ => "Cannot process QR image."
+            };
+            logger.LogError(exception, "Failed to download/process 9Pay QR from host {QrHost}. TraceId: {TraceId}", qrUri.Host, HttpContext.TraceIdentifier);
+            return StatusCode(502, new { message = reason, traceId = HttpContext.TraceIdentifier });
         }
     }
 

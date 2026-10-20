@@ -591,7 +591,7 @@
         <select id="ninePayBankSelect"></select>
       </label>
       <div class="ninepay-qr-frame" id="ninePayQrFrame" hidden>
-        <img id="ninePayQrImage" alt="QR chuyển khoản 9Pay / 9Pay bank transfer QR" />
+        <a id="ninePayQrImageDownload" data-qr-download href="#" aria-disabled="true" download title="Click to download QR" aria-label="Download QR"><img id="ninePayQrImage" alt="QR chuyển khoản 9Pay / 9Pay bank transfer QR" /></a>
       </div>
       <table class="subscription-kv-table ninepay-qr-table" id="ninePayBankTable" hidden>
         <tbody>
@@ -1105,6 +1105,13 @@
       }
     }
   }
+  function syncQrImageDownload() {
+    const link = document.querySelector("#ninePayQrImageDownload");
+    if (!link || !qrFields.downloadQr) return;
+    link.href = qrFields.downloadQr.href;
+    link.setAttribute("aria-disabled", qrFields.downloadQr.getAttribute("aria-disabled") || "false");
+  }
+  new MutationObserver(syncQrImageDownload).observe(qrFields.downloadQr, { attributes: true, attributeFilter: ["href", "aria-disabled"] });
   function renderBanks(banks) {
     activeNinePayBanks = Array.isArray(banks) ? banks : [];
     const hasBanks = activeNinePayBanks.length > 0;
