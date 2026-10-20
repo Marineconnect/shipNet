@@ -1266,20 +1266,48 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
             var terminalCall = await RequestTerminalDevicesAsync(request.DeviceCode, tokenCall.AccessToken, cancellationToken);
             if (!terminalCall.Success)
             {
-                return new UpdateDeviceResult
+                if (!string.Equals(terminalCall.ErrorCode, "terminal_devices_empty", StringComparison.OrdinalIgnoreCase))
                 {
-                    ErrorCode = terminalCall.ErrorCode,
-                    Message = terminalCall.Message,
-                    MessageEn = terminalCall.MessageEn,
-                    ApiResult = terminalCall.RawResponse
-                };
-            }
+                    return new UpdateDeviceResult
+                    {
+                        ErrorCode = terminalCall.ErrorCode,
+                        Message = terminalCall.Message,
+                        MessageEn = terminalCall.MessageEn,
+                        ApiResult = terminalCall.RawResponse
+                    };
+                }
 
-            accessToken = tokenCall.AccessToken;
-            tokenExpiredTime = tokenCall.ExpiredTime;
-            kitId = terminalCall.KitId;
-            availability = terminalCall.Availability;
-            combinedApiResult = BuildCombinedApiResult(tokenCall.RawResponse, terminalCall.RawResponse);
+                var statusCall = await RequestTerminalStatusAsync(request.DeviceCode, tokenCall.AccessToken ?? string.Empty, cancellationToken);
+                if (!CanUseTerminalStatusFallback(statusCall))
+                {
+                    return new UpdateDeviceResult
+                    {
+                        ErrorCode = terminalCall.ErrorCode,
+                        Message = terminalCall.Message,
+                        MessageEn = terminalCall.MessageEn,
+                        ApiResult = BuildCombinedApiResult(tokenCall.RawResponse, terminalCall.RawResponse, statusCall.RawResponse)
+                    };
+                }
+
+                accessToken = tokenCall.AccessToken;
+                tokenExpiredTime = tokenCall.ExpiredTime;
+                kitId = statusCall.KitId;
+                availability = string.IsNullOrWhiteSpace(statusCall.Availability) ? "unknown" : statusCall.Availability;
+                if (string.IsNullOrWhiteSpace(request.KitNumber) && !string.IsNullOrWhiteSpace(statusCall.KitNumber))
+                {
+                    request.KitNumber = statusCall.KitNumber;
+                }
+
+                combinedApiResult = BuildCombinedApiResult(tokenCall.RawResponse, terminalCall.RawResponse, statusCall.RawResponse);
+            }
+            else
+            {
+                accessToken = tokenCall.AccessToken;
+                tokenExpiredTime = tokenCall.ExpiredTime;
+                kitId = terminalCall.KitId;
+                availability = terminalCall.Availability;
+                combinedApiResult = BuildCombinedApiResult(tokenCall.RawResponse, terminalCall.RawResponse);
+            }
         }
 
         await UpdateDeviceRecordAsync(
@@ -2943,6 +2971,15 @@ public class DeviceService(IConfiguration configuration, IHttpClientFactory http
         {
             return (false, rawResponse, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty);
         }
+    }
+
+    private static bool CanUseTerminalStatusFallback((bool Success, string RawResponse, string Latitude, string Longitude, string Availability, string SystemType, string KitNumber, string ServiceLine, string KitId) status)
+    {
+        return status.Success &&
+            (!string.IsNullOrWhiteSpace(status.KitId) ||
+             !string.IsNullOrWhiteSpace(status.KitNumber) ||
+             !string.IsNullOrWhiteSpace(status.ServiceLine) ||
+             !string.IsNullOrWhiteSpace(status.SystemType));
     }
 
     private async Task<(bool Success, string RawResponse, decimal? SubscriptionUsageGb, decimal? SubscriptionLimitGb, decimal? PriorityOverageGb, decimal? PriorityOverageLimitGb, string PlanName, bool? DataOptInEnabled, string TrafficId, string ServiceCode)> RequestTerminalUsageAsync(
