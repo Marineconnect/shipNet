@@ -3545,7 +3545,14 @@ public partial class PaymentTransactionService(
                 : configuration["NinePay:IpnUrl"]!;
             var time = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture);
             var configuredClientIp = section["DefaultClientIp"] ?? "127.0.0.1";
-            var providerInvoiceNo = $"{(configuration["NinePay:MerchantKey"] ?? string.Empty).Trim()}{time}";
+            // 9Pay rejects invoice_no longer than 30 chars (error 666), so trim the prefix and keep the unique time suffix.
+            const int ninePayInvoiceNoMaxLength = 30;
+            var invoicePrefix = (section["InvoicePrefix"] ?? configuration["NinePay:MerchantKey"] ?? string.Empty).Trim();
+            if (invoicePrefix.Length + time.Length > ninePayInvoiceNoMaxLength)
+            {
+                invoicePrefix = invoicePrefix[..Math.Max(0, ninePayInvoiceNoMaxLength - time.Length)];
+            }
+            var providerInvoiceNo = $"{invoicePrefix}{time}";
             var transferDescription = providerInvoiceNo;
             var body = new List<KeyValuePair<string, string>>
             {
